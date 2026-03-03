@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 /// Writes ride requests directly to the shared Firestore `trips` collection
 /// so Dispatch Admin sees them in real time.
@@ -140,7 +141,10 @@ class TripFirestoreService {
   }
 
   /// Sync status: trip cancelled.
-  static Future<void> syncTripCancelled(String tripId, {String reason = 'Cancelled'}) async {
+  static Future<void> syncTripCancelled(
+    String tripId, {
+    String reason = 'Cancelled',
+  }) async {
     try {
       await _trips.doc(tripId).update({
         'status': 'cancelled',
@@ -151,5 +155,50 @@ class TripFirestoreService {
     } catch (e) {
       debugPrint('⚠️ Firestore sync (cancelled) failed: $e');
     }
+  }
+
+  // ── Driver live-location ──────────────────────────────────────────────────
+
+  /// Throttle tracker so we don't write to Firestore more than once per 500 ms.
+  static DateTime? _lastLocationWrite;
+
+  /// Write driver's current GPS position to the trip document (~2 Hz max).
+  static Future<void> syncDriverLocation(
+    String tripId,
+    double lat,
+    double lng,
+    double bearing,
+  ) async {
+    final now = DateTime.now();
+    if (_lastLocationWrite != null &&
+        now.difference(_lastLocationWrite!).inMilliseconds < 500) {
+      return;
+    }
+    _lastLocationWrite = now;
+    try {
+      await _trips.doc(tripId).update({
+        'driverLat': lat,
+        'driverLng': lng,
+        'driverBearing': bearing,
+      });
+    } catch (_) {}
+  }
+
+  /// Stream of driver [LatLng] positions from Firestore — use on rider side.
+  static Stream<LatLng> watchDriverLocation(String tripId) {
+    return _trips
+        .doc(tripId)
+        .snapshots()
+        .map((snap) {
+          if (!snap.exists) return null;
+          final d = snap.data() as Map<String, dynamic>?;
+          if (d == null) return null;
+          final lat = (d['driverLat'] as num?)?.toDouble();
+          final lng = (d['driverLng'] as num?)?.toDouble();
+          if (lat == null || lng == null) return null;
+          return LatLng(lat, lng);
+        })
+        .where((ll) => ll != null)
+        .cast<LatLng>();
   }
 }

@@ -5,14 +5,15 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
-/// Pre-renders 36 car sprites (one per 10 degrees) at startup using Canvas.
+/// Pre-renders 36 car sprites (one per 10°) at startup using Canvas.
+/// Design: Uber-Black-style premium top-down car in jet black.
 /// Call [CarSpriteManager.init()] once before using [iconForBearing].
 class CarSpriteManager {
   CarSpriteManager._();
 
   static const int _frames = 36;
-  static const int _tileW = 44;
-  static const int _tileH = 66;
+  static const int _tileW = 48;
+  static const int _tileH = 72;
 
   static final List<BitmapDescriptor> _icons = [];
   static bool _ready = false;
@@ -24,14 +25,14 @@ class CarSpriteManager {
     if (_ready) return;
     _icons.clear();
     for (int i = 0; i < _frames; i++) {
-      final bearing = i * (360.0 / _frames); // 0, 10, 20 ... 350
+      final bearing = i * (360.0 / _frames);
       final icon = await _renderFrame(bearing);
       _icons.add(icon);
     }
     _ready = true;
   }
 
-  /// Returns the sprite closest to [bearingDeg] (snapped to nearest 10 deg).
+  /// Returns the sprite closest to [bearingDeg] (snapped to nearest 10°).
   static BitmapDescriptor iconForBearing(double bearingDeg) {
     if (!_ready || _icons.isEmpty) return BitmapDescriptor.defaultMarker;
     final idx = ((bearingDeg % 360) / (360.0 / _frames)).round() % _frames;
@@ -41,103 +42,170 @@ class CarSpriteManager {
   static Future<BitmapDescriptor> _renderFrame(double bearing) async {
     final recorder = ui.PictureRecorder();
     final canvas = ui.Canvas(
-        recorder,
-        Rect.fromLTWH(0, 0, _tileW.toDouble(), _tileH.toDouble()));
-
+      recorder,
+      Rect.fromLTWH(0, 0, _tileW.toDouble(), _tileH.toDouble()),
+    );
     _drawCar(canvas, bearing);
-
     final picture = recorder.endRecording();
     final img = await picture.toImage(_tileW, _tileH);
     final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
     final list = Uint8List.view(bytes!.buffer);
-    return BitmapDescriptor.bytes(list);
+    return BitmapDescriptor.bytes(list, width: _tileW.toDouble());
   }
 
   static void _drawCar(ui.Canvas canvas, double bearing) {
-    final cx = _tileW / 2.0;
-    final cy = _tileH / 2.0;
+    const double cx = _tileW / 2.0;
+    const double cy = _tileH / 2.0;
 
     canvas.save();
     canvas.translate(cx, cy);
     canvas.rotate(bearing * math.pi / 180);
     canvas.translate(-cx, -cy);
 
-    // Shadow
-    final shadowPaint = Paint()
-      ..color = const Color(0x44000000)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
+    // ── Drop shadow ──
     canvas.drawRRect(
       RRect.fromRectAndRadius(
-          Rect.fromLTWH(cx - 12, cy - 18, 24, 38), const Radius.circular(6)),
-      shadowPaint,
+        Rect.fromLTWH(cx - 13, cy - 21, 26, 44),
+        const Radius.circular(7),
+      ),
+      Paint()
+        ..color = const Color(0x66000000)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
     );
 
-    // Body
-    final bodyPaint = Paint()..color = const Color(0xFF1E3A5F);
+    // ── Body – jet black ──
+    final bodyPaint = Paint()..color = const Color(0xFF111111);
     canvas.drawRRect(
       RRect.fromRectAndRadius(
-          Rect.fromLTWH(cx - 10, cy - 19, 20, 37), const Radius.circular(5)),
+        Rect.fromLTWH(cx - 11, cy - 21, 22, 42),
+        const Radius.circular(6),
+      ),
       bodyPaint,
     );
 
-    // Roof / cabin
-    final roofPaint = Paint()..color = const Color(0xFF2A5080);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-          Rect.fromLTWH(cx - 7, cy - 13, 14, 20), const Radius.circular(4)),
-      roofPaint,
+    // ── Subtle body highlight (left edge gradient) ──
+    canvas.drawRect(
+      Rect.fromLTWH(cx - 11, cy - 18, 2, 34),
+      Paint()..color = const Color(0x22FFFFFF),
     );
 
-    // Front windshield
-    final glassPaint = Paint()..color = const Color(0x99C8E8FF);
+    // ── Roof / cabin – dark charcoal ──
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(cx - 7.5, cy - 14, 15, 22),
+        const Radius.circular(5),
+      ),
+      Paint()..color = const Color(0xFF1E1E1E),
+    );
+
+    // ── Front windshield ──
     final frontPath = Path()
-      ..moveTo(cx - 6, cy - 13)
-      ..lineTo(cx + 6, cy - 13)
-      ..lineTo(cx + 5, cy - 19)
-      ..lineTo(cx - 5, cy - 19)
+      ..moveTo(cx - 6.5, cy - 14)
+      ..lineTo(cx + 6.5, cy - 14)
+      ..lineTo(cx + 5.5, cy - 21)
+      ..lineTo(cx - 5.5, cy - 21)
       ..close();
-    canvas.drawPath(frontPath, glassPaint);
+    canvas.drawPath(frontPath, Paint()..color = const Color(0xCC9ECFEF));
+    // Windshield glare streak
+    canvas.drawPath(
+      (Path()
+        ..moveTo(cx - 3.5, cy - 20.5)
+        ..lineTo(cx - 1.5, cy - 20.5)
+        ..lineTo(cx - 3, cy - 14.5)
+        ..lineTo(cx - 4.5, cy - 14.5)
+        ..close()),
+      Paint()..color = const Color(0x55FFFFFF),
+    );
 
-    // Rear windshield
+    // ── Rear windshield ──
     final rearPath = Path()
-      ..moveTo(cx - 6, cy + 7)
-      ..lineTo(cx + 6, cy + 7)
-      ..lineTo(cx + 5, cy + 12)
-      ..lineTo(cx - 5, cy + 12)
+      ..moveTo(cx - 6.5, cy + 8)
+      ..lineTo(cx + 6.5, cy + 8)
+      ..lineTo(cx + 5.5, cy + 14)
+      ..lineTo(cx - 5.5, cy + 14)
       ..close();
-    canvas.drawPath(rearPath, Paint()..color = const Color(0x7070A8D0));
+    canvas.drawPath(rearPath, Paint()..color = const Color(0x886699BB));
 
-    // Headlights
-    final hlPaint = Paint()..color = const Color(0xFFFFFF99);
-    canvas.drawOval(
-        Rect.fromCenter(center: Offset(cx - 6, cy - 18.5), width: 5, height: 3),
-        hlPaint);
-    canvas.drawOval(
-        Rect.fromCenter(center: Offset(cx + 6, cy - 18.5), width: 5, height: 3),
-        hlPaint);
+    // ── Chrome / gold accent stripe along beltline ──
+    canvas.drawRect(
+      Rect.fromLTWH(cx - 11, cy - 1, 22, 1.5),
+      Paint()..color = const Color(0xFFB8964A),
+    );
 
-    // Tail lights
-    final tlPaint = Paint()..color = const Color(0xFFFF3322);
-    canvas.drawOval(
-        Rect.fromCenter(center: Offset(cx - 7, cy + 17), width: 5, height: 3),
-        tlPaint);
-    canvas.drawOval(
-        Rect.fromCenter(center: Offset(cx + 7, cy + 17), width: 5, height: 3),
-        tlPaint);
+    // ── Headlights – bright white ──
+    final hlPaint = Paint()..color = const Color(0xFFF0F8FF);
+    canvas.drawRRect(
+      RRect.fromRectAndCorners(
+        Rect.fromCenter(center: Offset(cx - 6.5, cy - 20), width: 5, height: 3),
+        topLeft: const Radius.circular(2),
+        bottomLeft: const Radius.circular(2),
+      ),
+      hlPaint,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndCorners(
+        Rect.fromCenter(center: Offset(cx + 6.5, cy - 20), width: 5, height: 3),
+        topRight: const Radius.circular(2),
+        bottomRight: const Radius.circular(2),
+      ),
+      hlPaint,
+    );
+    // DRL glow
+    canvas.drawRect(
+      Rect.fromLTWH(cx - 11, cy - 21.5, 22, 1.5),
+      Paint()
+        ..color = const Color(0xAAE8F4FF)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2),
+    );
 
-    // Wheels
-    final wheelPaint = Paint()..color = const Color(0xFF111111);
+    // ── Tail lights – vivid red ──
+    final tlPaint = Paint()..color = const Color(0xFFFF1A1A);
+    canvas.drawRRect(
+      RRect.fromRectAndCorners(
+        Rect.fromCenter(center: Offset(cx - 6.5, cy + 20), width: 5, height: 3),
+        bottomLeft: const Radius.circular(2),
+        topLeft: const Radius.circular(2),
+      ),
+      tlPaint,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndCorners(
+        Rect.fromCenter(center: Offset(cx + 6.5, cy + 20), width: 5, height: 3),
+        bottomRight: const Radius.circular(2),
+        topRight: const Radius.circular(2),
+      ),
+      tlPaint,
+    );
+    // Tail glow
+    canvas.drawRect(
+      Rect.fromLTWH(cx - 11, cy + 20, 22, 1.5),
+      Paint()
+        ..color = const Color(0x88FF1A1A)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+    );
+
+    // ── Wheels – black with silver rim ──
     for (final pt in [
-      Offset(cx - 11, cy - 10),
-      Offset(cx + 11, cy - 10),
-      Offset(cx - 11, cy + 8),
-      Offset(cx + 11, cy + 8),
+      Offset(cx - 12, cy - 11),
+      Offset(cx + 12, cy - 11),
+      Offset(cx - 12, cy + 9),
+      Offset(cx + 12, cy + 9),
     ]) {
+      // Tire (black)
       canvas.drawRRect(
         RRect.fromRectAndRadius(
-            Rect.fromCenter(center: pt, width: 5, height: 9),
-            const Radius.circular(2)),
-        wheelPaint,
+          Rect.fromCenter(center: pt, width: 6, height: 10),
+          const Radius.circular(2),
+        ),
+        Paint()..color = const Color(0xFF0A0A0A),
+      );
+      // Rim (silver)
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(center: pt, width: 3.5, height: 7),
+          const Radius.circular(1.5),
+        ),
+        Paint()..color = const Color(0xFF8A8A8A),
       );
     }
 

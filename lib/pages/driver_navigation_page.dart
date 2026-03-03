@@ -34,7 +34,7 @@ class DriverNavigationPage extends StatefulWidget {
     this.tripId = 'demo-trip',
     this.initialDriverPos,
     this.routePoints,
-    this.demoMode = true,
+    this.demoMode = false,
     this.riderName = 'Rider',
     this.vehiclePlate = '',
   });

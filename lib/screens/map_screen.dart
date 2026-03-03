@@ -5968,6 +5968,13 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                             ? _driverPlate
                             : 'ABC-1234',
                         tripId: _firestoreTripId ?? 'demo-trip',
+                        driverLocationStream:
+                            (_firestoreTripId != null &&
+                                _firestoreTripId != 'demo-trip')
+                            ? TripFirestoreService.watchDriverLocation(
+                                _firestoreTripId!,
+                              )
+                            : null,
                         onCancelRide: () => Navigator.of(context).pop(),
                       ),
                     ),

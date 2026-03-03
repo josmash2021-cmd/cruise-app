@@ -10,6 +10,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import '../../services/api_service.dart';
 import '../../services/navigation_service.dart';
+import '../../services/trip_firestore_service.dart';
 import '../../config/api_keys.dart';
 import '../../config/map_styles.dart';
 import '../../navigation/car_renderer.dart';
@@ -663,6 +664,15 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
               lat: pos.latitude,
               lng: pos.longitude,
             ).catchError((_) => <String, dynamic>{});
+          }
+          // Sync driver GPS to Firestore so rider tracking gets real position
+          if (_tripId != null) {
+            TripFirestoreService.syncDriverLocation(
+              _tripId!.toString(),
+              pos.latitude,
+              pos.longitude,
+              _smoothedBearing,
+            );
           }
         }, onError: (_) {});
   }
