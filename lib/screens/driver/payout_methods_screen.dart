@@ -617,8 +617,9 @@ class _PayoutMethodsScreenState extends State<PayoutMethodsScreen> {
                     child: ElevatedButton(
                       onPressed: () async {
                         if (institutionCtrl.text.trim().isEmpty ||
-                            accountCtrl.text.trim().isEmpty)
+                            accountCtrl.text.trim().isEmpty) {
                           return;
+                        }
                         Navigator.pop(ctx);
                         final acct = accountCtrl.text.trim();
                         final mask = acct.length >= 4

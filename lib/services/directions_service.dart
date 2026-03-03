@@ -67,8 +67,9 @@ class DirectionsService {
 
       final meters = (element['distance']?['value'] as num?)?.toDouble();
       final durationText = element['duration']?['text']?.toString();
-      if (meters == null || durationText == null || durationText.isEmpty)
+      if (meters == null || durationText == null || durationText.isEmpty) {
         continue;
+      }
 
       result[_pointKey(destinations[i])] = DistanceEstimate(
         miles: meters / 1609.344,

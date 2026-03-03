@@ -50,7 +50,7 @@ class CarSpriteManager {
     final img = await picture.toImage(_tileW, _tileH);
     final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
     final list = Uint8List.view(bytes!.buffer);
-    return BitmapDescriptor.fromBytes(list);
+    return BitmapDescriptor.bytes(list);
   }
 
   static void _drawCar(ui.Canvas canvas, double bearing) {

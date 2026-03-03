@@ -86,8 +86,9 @@ class _HomeScreenState extends State<HomeScreen>
       // 1. Check if location services are enabled
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        if (mounted)
+        if (mounted) {
           setState(() => _locationError = 'Location services disabled');
+        }
         return;
       }
 
@@ -96,16 +97,18 @@ class _HomeScreenState extends State<HomeScreen>
       if (perm == LocationPermission.denied) {
         perm = await Geolocator.requestPermission();
         if (perm == LocationPermission.denied) {
-          if (mounted)
+          if (mounted) {
             setState(() => _locationError = 'Location permission denied');
+          }
           return;
         }
       }
       if (perm == LocationPermission.deniedForever) {
-        if (mounted)
+        if (mounted) {
           setState(
             () => _locationError = 'Location permission permanently denied',
           );
+        }
         return;
       }
 

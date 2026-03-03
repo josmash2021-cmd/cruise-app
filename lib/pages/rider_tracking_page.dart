@@ -330,7 +330,7 @@ class _RiderTrackingPageState extends State<RiderTrackingPage>
         rotation: 0,
         flat: false,
         anchor: const Offset(0.5, 0.7),
-        zIndex: 100,
+        zIndexInt: 100,
       ),
     );
 
@@ -344,7 +344,7 @@ class _RiderTrackingPageState extends State<RiderTrackingPage>
           icon: BitmapDescriptor.defaultMarkerWithHue(
             BitmapDescriptor.hueGreen,
           ),
-          zIndex: 90,
+          zIndexInt: 90,
         ),
       );
     }
@@ -355,7 +355,7 @@ class _RiderTrackingPageState extends State<RiderTrackingPage>
         markerId: const MarkerId('dropoff'),
         position: widget.dropoffLatLng,
         icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-        zIndex: 90,
+        zIndexInt: 90,
       ),
     );
 
@@ -403,6 +403,7 @@ class _RiderTrackingPageState extends State<RiderTrackingPage>
         children: [
           // ─── MAP ───
           GoogleMap(
+            style: isDark ? MapStyles.dark : MapStyles.light,
             initialCameraPosition: CameraPosition(
               target: widget.pickupLatLng,
               zoom: 14,
@@ -412,9 +413,6 @@ class _RiderTrackingPageState extends State<RiderTrackingPage>
             onMapCreated: (c) {
               _map = c;
               _mapReady = true;
-              try {
-                c.setMapStyle(isDark ? MapStyles.dark : MapStyles.light);
-              } catch (_) {}
               Future.delayed(const Duration(milliseconds: 400), () {
                 _fitBounds([widget.pickupLatLng, widget.dropoffLatLng]);
               });
@@ -807,7 +805,7 @@ class _RiderTrackingPageState extends State<RiderTrackingPage>
                               child: Image.network(
                                 widget.driverPhotoUrl!,
                                 fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) => Icon(
+                                errorBuilder: (context, error, _) => Icon(
                                   Icons.person_rounded,
                                   color: text,
                                   size: 28,

@@ -73,7 +73,9 @@ class RouteSnapper {
 
   static double totalRouteMeters(List<LatLng> route) {
     double t = 0;
-    for (int i = 0; i < route.length - 1; i++) t += _haversineM(route[i], route[i + 1]);
+    for (int i = 0; i < route.length - 1; i++) {
+      t += _haversineM(route[i], route[i + 1]);
+    }
     return t;
   }
 
@@ -81,7 +83,9 @@ class RouteSnapper {
     if (route.length < 2) return 0;
     final idx = segIdx.clamp(0, route.length - 2);
     double rem = _haversineM(snapped, route[idx + 1]);
-    for (int i = idx + 1; i < route.length - 1; i++) rem += _haversineM(route[i], route[i + 1]);
+    for (int i = idx + 1; i < route.length - 1; i++) {
+      rem += _haversineM(route[i], route[i + 1]);
+    }
     return rem;
   }
 

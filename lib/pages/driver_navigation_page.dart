@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -325,7 +324,7 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
         rotation: 0,
         flat: false,
         anchor: const Offset(0.5, 0.7),
-        zIndex: 100,
+        zIndexInt: 100,
       ),
     );
 
@@ -342,7 +341,7 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
         markerId: const MarkerId('destination'),
         position: dest,
         icon: BitmapDescriptor.defaultMarkerWithHue(destHue),
-        zIndex: 90,
+        zIndexInt: 90,
       ),
     );
 
@@ -354,7 +353,7 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
           icon: BitmapDescriptor.defaultMarkerWithHue(
             BitmapDescriptor.hueOrange,
           ),
-          zIndex: 80,
+          zIndexInt: 80,
         ),
       );
     }
@@ -409,6 +408,7 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
         children: [
           // ─── MAP ───
           GoogleMap(
+            style: MapStyles.dark,
             initialCameraPosition: CameraPosition(
               target: _pos,
               zoom: 17.5,
@@ -418,9 +418,6 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
             onMapCreated: (c) {
               _map = c;
               _mapReady = true;
-              try {
-                c.setMapStyle(MapStyles.dark);
-              } catch (_) {}
               _map!.moveCamera(
                 CameraUpdate.newCameraPosition(
                   CameraPosition(

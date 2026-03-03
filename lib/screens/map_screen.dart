@@ -3793,7 +3793,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         Polyline(
           polylineId: PolylineId('${id}_glow'),
           points: List.from(_driverRoutePoints),
-          color: color.withOpacity(0.15),
+          color: color.withValues(alpha: 0.15),
           width: 12,
           startCap: Cap.roundCap,
           endCap: Cap.roundCap,
@@ -3857,7 +3857,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           Polyline(
             polylineId: const PolylineId('driver_to_pickup_glow'),
             points: driverToPickup,
-            color: Colors.greenAccent.withOpacity(0.15),
+            color: Colors.greenAccent.withValues(alpha: 0.15),
             width: 12,
             startCap: Cap.roundCap,
             endCap: Cap.roundCap,
@@ -3877,7 +3877,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           Polyline(
             polylineId: const PolylineId('pickup_to_dropoff_glow'),
             points: pickupToDropoff,
-            color: const Color(0xFFD4A843).withOpacity(0.15),
+            color: const Color(0xFFD4A843).withValues(alpha: 0.15),
             width: 12,
             startCap: Cap.roundCap,
             endCap: Cap.roundCap,
@@ -3911,7 +3911,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             Polyline(
               polylineId: const PolylineId('driver_to_dropoff_glow'),
               points: driverToDropoff,
-              color: const Color(0xFFD4A843).withOpacity(0.15),
+              color: const Color(0xFFD4A843).withValues(alpha: 0.15),
               width: 12,
               startCap: Cap.roundCap,
               endCap: Cap.roundCap,
@@ -4121,7 +4121,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         rotation: _driverBearing,
         anchor: const Offset(0.5, 0.5),
         flat: true, // flat top-down car rotates with map
-        zIndex: 100,
+        zIndexInt: 100,
         infoWindow: InfoWindow(title: _driverName, snippet: _driverCar),
       );
     });

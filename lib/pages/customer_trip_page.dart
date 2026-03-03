@@ -1,9 +1,8 @@
 import 'dart:async';
+import 'dart:ui' show ImageFilter;
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../config/map_styles.dart';
@@ -69,7 +68,7 @@ class _CustomerTripPageState extends State<CustomerTripPage>
   // Route
   List<LatLng> _routePts = [];
   Set<Polyline> _polylines = {};
-  Set<Marker> _markers = {};
+  final Set<Marker> _markers = {};
 
   // ETA / distance
   double _distRemainingKm = 0;
@@ -102,7 +101,6 @@ class _CustomerTripPageState extends State<CustomerTripPage>
     _motion = SmoothMotion(
       onTick: _onMotionTick,
       lerpFactor: 0.12,
-      bearingLerpFactor: 0.15,
     );
     _motion.start(this);
 
@@ -285,7 +283,7 @@ class _CustomerTripPageState extends State<CustomerTripPage>
           rotation: _driverBearing,
           flat: true, // top-down view → flat on map
           anchor: const Offset(0.5, 0.5),
-          zIndex: 100,
+          zIndexInt: 100,
         ),
       );
     }
@@ -300,7 +298,7 @@ class _CustomerTripPageState extends State<CustomerTripPage>
           icon: BitmapDescriptor.defaultMarkerWithHue(
             BitmapDescriptor.hueGreen,
           ),
-          zIndex: 90,
+          zIndexInt: 90,
         ),
       );
     }
@@ -311,7 +309,7 @@ class _CustomerTripPageState extends State<CustomerTripPage>
         markerId: const MarkerId('dropoff'),
         position: widget.dropoffLatLng,
         icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-        zIndex: 90,
+        zIndexInt: 90,
       ),
     );
 
@@ -330,6 +328,7 @@ class _CustomerTripPageState extends State<CustomerTripPage>
         children: [
           // Map
           GoogleMap(
+            style: isDark ? MapStyles.dark : MapStyles.light,
             initialCameraPosition: CameraPosition(
               target: widget.pickupLatLng,
               zoom: 14,
@@ -339,9 +338,6 @@ class _CustomerTripPageState extends State<CustomerTripPage>
             onMapCreated: (c) {
               _map = c;
               _mapReady = true;
-              try {
-                c.setMapStyle(isDark ? MapStyles.dark : MapStyles.light);
-              } catch (_) {}
               // Initial fit
               Future.delayed(const Duration(milliseconds: 300), () {
                 _fitBounds([widget.pickupLatLng, widget.dropoffLatLng]);

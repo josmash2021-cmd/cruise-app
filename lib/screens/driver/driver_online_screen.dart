@@ -1039,7 +1039,7 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
           anchor: const Offset(0.5, 0.7), // grounded below visual center
           flat:
               false, // billboard mode: stands up from map, 3D Uber-style effect
-          zIndex: 100,
+          zIndexInt: 100,
         ),
       );
     }
@@ -2308,6 +2308,7 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
     if (isDark == _lastStyleDark) return;
     _lastStyleDark = isDark;
     try {
+      // ignore: deprecated_member_use
       _map!.setMapStyle(isDark ? MapStyles.dark : MapStyles.light);
     } catch (_) {}
   }
@@ -2355,6 +2356,7 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
           _map = c;
           _lastStyleDark = isDark;
           try {
+            // ignore: deprecated_member_use
             c.setMapStyle(isDark ? MapStyles.dark : MapStyles.light);
           } catch (_) {}
           // Immediately move to correct searching-phase camera

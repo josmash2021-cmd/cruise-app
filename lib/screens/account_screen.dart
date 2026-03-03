@@ -235,6 +235,7 @@ class _AccountScreenState extends State<AccountScreen> {
               case 'Drive':
                 await UserSession.saveMode('driver');
                 if (!context.mounted) return;
+                // ignore: use_build_context_synchronously
                 Navigator.of(context).pushAndRemoveUntil(
                   slideFromRightRoute(const DriverHomeScreen()),
                   (_) => false,
