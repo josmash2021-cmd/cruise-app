@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -14,18 +14,6 @@ import '../navigation/route_service.dart';
 import '../navigation/smooth_motion.dart';
 import '../services/navigation_service.dart';
 
-/// Driver full-screen navigation page — Uber / Google Maps "en ruta" style.
-///
-/// Provides:
-///  • 3D follow-camera (tilt 65°, bearing follows heading, zoom 17.5)
-///  • High-fidelity 3D car marker via CarRenderer
-///  • Google Maps–style turn-by-turn top banner + street name
-///  • Bottom bar: ETA, distance, progress bar, action buttons
-///  • Route trimming (polyline erased behind driver)
-///  • Smooth 60 fps motion with prediction
-///  • Trip lifecycle state machine with haptic transitions
-///
-/// Can run in demo mode (no GPS) or with live GPS.
 class DriverNavigationPage extends StatefulWidget {
   const DriverNavigationPage({
     super.key,
@@ -37,6 +25,7 @@ class DriverNavigationPage extends StatefulWidget {
     this.demoMode = false,
     this.riderName = 'Rider',
     this.vehiclePlate = '',
+    this.speedLimitMph = 35,
   });
 
   final LatLng pickupLatLng;
@@ -47,6 +36,7 @@ class DriverNavigationPage extends StatefulWidget {
   final bool demoMode;
   final String riderName;
   final String vehiclePlate;
+  final int speedLimitMph;
 
   @override
   State<DriverNavigationPage> createState() => _DriverNavigationPageState();
@@ -54,10 +44,8 @@ class DriverNavigationPage extends StatefulWidget {
 
 class _DriverNavigationPageState extends State<DriverNavigationPage>
     with TickerProviderStateMixin {
-  // ─── MAP ───
   GoogleMapController? _map;
-
-  // ─── STATE ───
+  bool _mapReady = false;
   late final NavStateMachine _sm;
   late final SmoothMotion _motion;
   final NavigationService _navService = NavigationService();
@@ -68,34 +56,27 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
   bool _cameraFollowing = true;
   Timer? _reFollowTimer;
 
-  // ─── ROUTE ───
   List<LatLng> _routePts = [];
-  List<LatLng> _displayRoutePts = []; // trimmed polyline (behind driver erased)
+  List<LatLng> _displayRoutePts = [];
   NavigationState? _navState;
 
-  // ─── STATS ───
   double _distRemainingMi = 0;
   int _etaMinutes = 0;
-  double _speedMph = 0;
 
-  // ─── STREAMS ───
   StreamSubscription? _gpsSub;
-
-  // ─── DEMO ───
   Timer? _demoTimer;
   int _demoIdx = 0;
+  bool _muted = false;
 
-  bool _mapReady = false;
-
-  // Theme colors
+  static const _blue = Color(0xFF4285F4);
+  static const _green = Color(0xFF34A853);
+  static const _red = Color(0xFFEF5350);
   static const _gold = Color(0xFFD4A24C);
 
   @override
   void initState() {
     super.initState();
-
     _pos = widget.initialDriverPos ?? widget.pickupLatLng;
-
     _sm = NavStateMachine(
       onPhaseChanged: (p) {
         if (mounted) setState(() {});
@@ -107,7 +88,6 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
       pickup: widget.pickupLatLng,
       dropoff: widget.dropoffLatLng,
     );
-
     _motion = SmoothMotion(
       onTick: _onMotionTick,
       lerpFactor: 0.15,
@@ -115,7 +95,6 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
     );
     _motion.start(this);
     _motion.teleport(_pos, 0);
-
     _routePts =
         widget.routePoints ?? _makeStraightRoute(_pos, widget.pickupLatLng);
     _displayRoutePts = List.of(_routePts);
@@ -133,8 +112,6 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
     _map?.dispose();
     super.dispose();
   }
-
-  // ─── BOOT ───
 
   Future<void> _loadIcon() async {
     await CarSpriteManager.init();
@@ -157,15 +134,8 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
       }
     }
     if (mounted) setState(() {});
-
-    if (widget.demoMode) {
-      _startDemo();
-    } else {
-      _startGPS();
-    }
+    widget.demoMode ? _startDemo() : _startGPS();
   }
-
-  // ─── GPS ───
 
   void _startGPS() {
     _gpsSub =
@@ -180,8 +150,6 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
         });
   }
 
-  // ─── DEMO SIMULATION ───
-
   void _startDemo() {
     if (_routePts.length < 2) return;
     _demoIdx = 0;
@@ -192,7 +160,6 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
       final prev = _routePts[(_demoIdx - 1).clamp(0, _routePts.length - 1)];
       final bearing = SmoothMotion.computeBearing(prev, pt);
       _onRawPosition(pt, bearing);
-
       if (_demoIdx >= _routePts.length - 1) {
         _demoTimer?.cancel();
         if (_sm.phase == TripPhase.toPickup) {
@@ -204,26 +171,14 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
     });
   }
 
-  // ─── POSITION PROCESSING ───
-
   void _onRawPosition(LatLng raw, double rawBearing) {
     final snap = RouteSnapper.snap(raw, _routePts, lastIndex: _snapIdx);
     _snapIdx = snap.segmentIndex;
-
-    // Always use route-tangent bearing from snap, never raw GPS heading
     _motion.pushTarget(snap.snapped, snap.bearingDeg);
-    // Nav service update
-    if (_navService.isNavigating) {
+    if (_navService.isNavigating)
       _navState = _navService.updatePosition(snap.snapped);
-    }
-
-    // Proximity check
     _sm.checkProximity(snap.snapped);
-
-    // Trim route behind driver (Google Maps style)
     _trimRouteBehind(snap.segmentIndex);
-
-    // Update stats
     final dest = _sm.phase == TripPhase.onTrip
         ? widget.dropoffLatLng
         : widget.pickupLatLng;
@@ -232,7 +187,6 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
       _distRemainingMi = dM / 1609.34;
       _etaMinutes =
           _navState?.etaMinutes ?? (dM / 500 / 60).ceil().clamp(1, 99);
-      _speedMph = _motion.estimatedSpeedMps * 2.237;
     });
   }
 
@@ -246,22 +200,17 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
     _pos = pos;
     _bearing = bearing;
     setState(() {});
-
     if (_cameraFollowing && _map != null && _mapReady) {
       _map!.moveCamera(
         CameraUpdate.newCameraPosition(
-          CameraPosition(target: pos, zoom: 17.5, bearing: bearing, tilt: 65),
+          CameraPosition(target: pos, zoom: 17.8, bearing: bearing, tilt: 65),
         ),
       );
     }
   }
 
-  // ─── PHASE TRANSITIONS ───
-
   void _onPhaseChanged(TripPhase phase) {
-    if (phase == TripPhase.onTrip) {
-      _switchToDropoffRoute();
-    }
+    if (phase == TripPhase.onTrip) _switchToDropoffRoute();
   }
 
   Future<void> _switchToDropoffRoute() async {
@@ -291,13 +240,11 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
     }
   }
 
-  // ─── CAMERA CONTROL ───
-
   void _onCameraMoveStarted() {
     if (!_cameraFollowing) return;
     setState(() => _cameraFollowing = false);
     _reFollowTimer?.cancel();
-    _reFollowTimer = Timer(const Duration(seconds: 5), _recenter);
+    _reFollowTimer = Timer(const Duration(seconds: 7), _recenter);
   }
 
   void _recenter() {
@@ -306,16 +253,13 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
     setState(() => _cameraFollowing = true);
     _map?.animateCamera(
       CameraUpdate.newCameraPosition(
-        CameraPosition(target: _pos, zoom: 17.5, bearing: _bearing, tilt: 65),
+        CameraPosition(target: _pos, zoom: 17.8, bearing: _bearing, tilt: 65),
       ),
     );
   }
 
-  // ─── MARKERS ───
-
   Set<Marker> get _allMarkers {
     final m = <Marker>{};
-
     m.add(
       Marker(
         markerId: const MarkerId('driver'),
@@ -323,78 +267,61 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
         icon: CarSpriteManager.iconForBearing(_bearing),
         rotation: 0,
         flat: false,
-        anchor: const Offset(0.5, 0.7),
+        anchor: const Offset(0.5, 0.65),
         zIndexInt: 100,
       ),
     );
-
     final dest =
         _sm.phase == TripPhase.onTrip || _sm.phase == TripPhase.arrivedDropoff
         ? widget.dropoffLatLng
         : widget.pickupLatLng;
-    final destHue = (_sm.phase == TripPhase.toPickup)
-        ? BitmapDescriptor.hueGreen
-        : BitmapDescriptor.hueRed;
-
     m.add(
       Marker(
         markerId: const MarkerId('destination'),
         position: dest,
-        icon: BitmapDescriptor.defaultMarkerWithHue(destHue),
+        icon: BitmapDescriptor.defaultMarkerWithHue(
+          _sm.phase == TripPhase.toPickup
+              ? BitmapDescriptor.hueGreen
+              : BitmapDescriptor.hueRed,
+        ),
         zIndexInt: 90,
       ),
     );
-
-    if (_sm.phase == TripPhase.toPickup) {
-      m.add(
-        Marker(
-          markerId: const MarkerId('dropoff_preview'),
-          position: widget.dropoffLatLng,
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            BitmapDescriptor.hueOrange,
-          ),
-          zIndexInt: 80,
-        ),
-      );
-    }
-
     return m;
   }
 
   Set<Polyline> get _polylines {
     final s = <Polyline>{};
     if (_displayRoutePts.length >= 2) {
-      // Main route
       s.add(
         Polyline(
-          polylineId: const PolylineId('nav_route'),
+          polylineId: const PolylineId('shadow'),
           points: _displayRoutePts,
-          color: _sm.phase == TripPhase.toPickup
-              ? const Color(0xFF34A853)
-              : const Color(0xFF4285F4),
-          width: 6,
+          color: const Color(0x44000000),
+          width: 12,
         ),
       );
-      // Route outline (shadow below main)
       s.add(
         Polyline(
-          polylineId: const PolylineId('nav_route_shadow'),
+          polylineId: const PolylineId('route'),
           points: _displayRoutePts,
-          color: const Color(0x30000000),
-          width: 10,
+          color: _sm.phase == TripPhase.toPickup ? _green : _blue,
+          width: 7,
         ),
       );
     }
     return s;
   }
 
-  // ─── BUILD ───
+  // =========================================================================
+  //  BUILD
+  // =========================================================================
 
   @override
   Widget build(BuildContext context) {
-    final isDark = true; // Driver nav is always dark (like Google Maps nav)
-    final top = MediaQuery.of(context).padding.top;
-    final bot = MediaQuery.of(context).padding.bottom;
+    final mq = MediaQuery.of(context);
+    final top = mq.padding.top;
+    final bot = mq.padding.bottom;
 
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
@@ -404,73 +331,75 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
     );
 
     return Scaffold(
+      backgroundColor: const Color(0xFF1A1A2E),
       body: Stack(
         children: [
-          // ─── MAP ───
-          GoogleMap(
-            style: MapStyles.dark,
-            initialCameraPosition: CameraPosition(
-              target: _pos,
-              zoom: 17.5,
-              bearing: 0,
-              tilt: 65,
-            ),
-            onMapCreated: (c) {
-              _map = c;
-              _mapReady = true;
-              _map!.moveCamera(
-                CameraUpdate.newCameraPosition(
-                  CameraPosition(
-                    target: _pos,
-                    zoom: 17.5,
-                    bearing: 0,
-                    tilt: 65,
+          // ── FULLSCREEN MAP ────────────────────────────────────────────────
+          Positioned.fill(
+            child: GoogleMap(
+              style: MapStyles.dark,
+              initialCameraPosition: CameraPosition(
+                target: _pos,
+                zoom: 17.8,
+                tilt: 65,
+              ),
+              onMapCreated: (c) {
+                _map = c;
+                _mapReady = true;
+                _map!.moveCamera(
+                  CameraUpdate.newCameraPosition(
+                    CameraPosition(target: _pos, zoom: 17.8, tilt: 65),
                   ),
-                ),
-              );
-            },
-            onCameraMoveStarted: _onCameraMoveStarted,
-            markers: _allMarkers,
-            polylines: _polylines,
-            myLocationEnabled: false,
-            myLocationButtonEnabled: false,
-            zoomControlsEnabled: false,
-            mapToolbarEnabled: false,
-            compassEnabled: false,
-            buildingsEnabled: true,
-            trafficEnabled: true,
-            padding: EdgeInsets.only(top: top + 130, bottom: 220),
+                );
+              },
+              onCameraMoveStarted: _onCameraMoveStarted,
+              markers: _allMarkers,
+              polylines: _polylines,
+              myLocationEnabled: false,
+              myLocationButtonEnabled: false,
+              zoomControlsEnabled: false,
+              mapToolbarEnabled: false,
+              compassEnabled: false,
+              buildingsEnabled: true,
+              trafficEnabled: true,
+              padding: EdgeInsets.only(top: top + 130, bottom: 200 + bot),
+            ),
           ),
 
-          // ─── NAV HEADER (turn-by-turn) ───
-          Positioned(top: top, left: 0, right: 0, child: _navHeader()),
+          // ── TOP NAV BANNER ────────────────────────────────────────────────
+          Positioned(top: top + 8, left: 12, right: 12, child: _navBanner()),
 
-          // ─── SPEED INDICATOR ───
-          Positioned(bottom: 230 + bot, left: 16, child: _speedBadge()),
+          // ── SPEED LIMIT SIGN (bottom-left above ETA bar) ──────────────────
+          Positioned(bottom: 172 + bot, left: 14, child: _speedLimitSign()),
 
-          // ─── RECENTER FAB ───
+          // ── RIGHT FLOATING BUTTON STACK ───────────────────────────────────
+          Positioned(right: 14, bottom: 192 + bot, child: _rightFabStack()),
+
+          // ── RECENTER BUTTON ───────────────────────────────────────────────
           if (!_cameraFollowing)
+            Positioned(bottom: 190 + bot, left: 80, child: _recenterButton()),
+
+          // ── ACTION PILL (ARRIVED / START / END TRIP) ──────────────────────
+          if (_showActionPill)
             Positioned(
-              bottom: 230 + bot,
+              bottom: 132 + bot,
+              left: 16,
               right: 16,
-              child: _fab(
-                Icons.navigation_rounded,
-                48,
-                _recenter,
-                iconColor: const Color(0xFF4285F4),
-              ),
+              child: _actionPill(),
             ),
 
-          // ─── BOTTOM BAR ───
-          Positioned(bottom: 0, left: 0, right: 0, child: _bottomBar(bot)),
+          // ── BOTTOM ETA BAR ────────────────────────────────────────────────
+          Positioned(bottom: 0, left: 0, right: 0, child: _etaBar(bot)),
         ],
       ),
     );
   }
 
-  // ─── NAV HEADER ───
+  // =========================================================================
+  //  TOP NAV BANNER
+  // =========================================================================
 
-  Widget _navHeader() {
+  Widget _navBanner() {
     final maneuver = _navState?.currentManeuver ?? 'straight';
     final mInfo = NavigationService.getManeuverIcon(maneuver);
     final distText = _navState?.distanceToTurnText ?? '';
@@ -479,46 +408,47 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
     final isOffRoute = _navState?.isOffRoute ?? false;
 
     final bgColor = isOffRoute
-        ? const Color(0xFFEF5350)
+        ? const Color(0xFFB71C1C)
         : (_sm.phase == TripPhase.toPickup
               ? const Color(0xFF1B5E20)
-              : const Color(0xFF0D47A1));
+              : const Color(0xFF0A2E6E));
 
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: bgColor,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.4),
-            blurRadius: 14,
-            offset: const Offset(0, 4),
+            color: Colors.black.withValues(alpha: 0.45),
+            blurRadius: 18,
+            offset: const Offset(0, 5),
           ),
         ],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Main turn instruction
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
+                // Maneuver arrow
                 Container(
-                  width: 52,
-                  height: 52,
+                  width: 58,
+                  height: 58,
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(14),
+                    color: Colors.white.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(16),
                   ),
                   child: Icon(
                     IconData(mInfo.iconCodePoint, fontFamily: 'MaterialIcons'),
                     color: Colors.white,
-                    size: 30,
+                    size: 34,
                   ),
                 ),
                 const SizedBox(width: 14),
+                // Distance + instruction
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -529,17 +459,20 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
                           distText,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 26,
+                            fontSize: 30,
                             fontWeight: FontWeight.w900,
+                            height: 1,
                             fontFeatures: [FontFeature.tabularFigures()],
                           ),
                         ),
+                      const SizedBox(height: 2),
                       Text(
                         instruction,
                         style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.92),
+                          color: Colors.white.withValues(alpha: 0.88),
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
+                          height: 1.2,
                         ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
@@ -549,12 +482,13 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
                 ),
                 if (isOffRoute)
                   Container(
+                    margin: const EdgeInsets.only(left: 8),
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
+                      horizontal: 7,
                       vertical: 5,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.2),
+                      color: Colors.red.withValues(alpha: 0.8),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: const Text(
@@ -572,27 +506,39 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
               ],
             ),
           ),
-          // Street name bar
+          // Street name
           if (streetName.isNotEmpty)
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
               decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.25),
-                borderRadius: const BorderRadius.only(
-                  bottomLeft: Radius.circular(16),
-                  bottomRight: Radius.circular(16),
+                color: Colors.black.withValues(alpha: 0.28),
+                borderRadius: const BorderRadius.vertical(
+                  bottom: Radius.circular(18),
                 ),
               ),
-              child: Text(
-                streetName,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.8),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.turn_slight_right_rounded,
+                    size: 14,
+                    color: Colors.white.withValues(alpha: 0.5),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      streetName,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.3,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
               ),
             ),
         ],
@@ -613,166 +559,280 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
       case TripPhase.completed:
         return 'Trip complete';
       default:
-        return 'Waiting...';
+        return 'Ready';
     }
   }
 
-  // ─── SPEED BADGE ───
+  // =========================================================================
+  //  SPEED LIMIT SIGN — US MUTCD style (white box, black border, number)
+  // =========================================================================
 
-  Widget _speedBadge() {
+  Widget _speedLimitSign() {
     return Container(
-      width: 56,
-      height: 56,
+      width: 48,
+      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
       decoration: BoxDecoration(
-        color: const Color(0xFF1A1A1A).withValues(alpha: 0.85),
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 8),
-        ],
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            '${_speedMph.round()}',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-              fontFeatures: [FontFeature.tabularFigures()],
-              height: 1,
-            ),
-          ),
-          Text(
-            'mph',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.5),
-              fontSize: 9,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ─── BOTTOM BAR ───
-
-  Widget _bottomBar(double botPad) {
-    return Container(
-      padding: EdgeInsets.only(
-        top: 16,
-        bottom: botPad + 12,
-        left: 20,
-        right: 20,
-      ),
-      decoration: BoxDecoration(
-        color: const Color(0xFF111111),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.black, width: 2.5),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.3),
-            blurRadius: 20,
-            offset: const Offset(0, -6),
+            color: Colors.black.withValues(alpha: 0.35),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
           ),
         ],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Handle
-          Container(
-            width: 36,
-            height: 4,
-            margin: const EdgeInsets.only(bottom: 14),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(2),
+          const Text(
+            'SPEED\nLIMIT',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.black,
+              fontSize: 7.5,
+              fontWeight: FontWeight.w900,
+              height: 1.15,
+              letterSpacing: 0.2,
             ),
           ),
-          // ETA strip
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _statChip(Icons.access_time_rounded, '$_etaMinutes min', 'ETA'),
-              Container(width: 1, height: 32, color: Colors.white12),
-              _statChip(
-                Icons.straighten_rounded,
-                '${_distRemainingMi.toStringAsFixed(1)} mi',
-                'Distance',
-              ),
-              Container(width: 1, height: 32, color: Colors.white12),
-              _statChip(
-                Icons.speed_rounded,
-                '${_navState?.progress != null ? (_navState!.progress * 100).round() : 0}%',
-                'Progress',
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          // Progress bar
-          ClipRRect(
-            borderRadius: BorderRadius.circular(3),
-            child: LinearProgressIndicator(
-              value: _navState?.progress ?? 0,
-              minHeight: 4,
-              backgroundColor: Colors.white12,
-              valueColor: AlwaysStoppedAnimation<Color>(
-                _sm.phase == TripPhase.toPickup
-                    ? const Color(0xFF34A853)
-                    : const Color(0xFF4285F4),
-              ),
+          const SizedBox(height: 1),
+          Text(
+            '${widget.speedLimitMph}',
+            style: const TextStyle(
+              color: Colors.black,
+              fontSize: 22,
+              fontWeight: FontWeight.w900,
+              height: 1,
+              fontFeatures: [FontFeature.tabularFigures()],
             ),
           ),
-          const SizedBox(height: 16),
-          // Action button
-          _actionButton(),
         ],
       ),
     );
   }
 
-  Widget _statChip(IconData icon, String value, String label) {
+  // =========================================================================
+  //  RIGHT FLOATING ACTION BUTTONS
+  // =========================================================================
+
+  Widget _rightFabStack() {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 14, color: Colors.white54),
-            const SizedBox(width: 4),
-            Text(
-              value,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                fontFeatures: [FontFeature.tabularFigures()],
+        _circleFab(
+          icon: Icons.home_rounded,
+          tooltip: 'Go Home',
+          onTap: () => Navigator.of(context).pop(),
+        ),
+        const SizedBox(height: 10),
+        _circleFab(
+          icon: Icons.share_rounded,
+          tooltip: 'Share ETA',
+          onTap: () {
+            HapticFeedback.lightImpact();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('ETA shared'),
+                duration: Duration(seconds: 1),
               ),
+            );
+          },
+        ),
+        const SizedBox(height: 10),
+        _circleFab(
+          icon: _muted ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+          tooltip: _muted ? 'Unmute' : 'Mute',
+          active: _muted,
+          onTap: () {
+            HapticFeedback.lightImpact();
+            setState(() => _muted = !_muted);
+          },
+        ),
+        const SizedBox(height: 10),
+        _circleFab(
+          icon: Icons.report_problem_rounded,
+          tooltip: 'Report incident',
+          onTap: () {
+            HapticFeedback.mediumImpact();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Incident reported'),
+                duration: Duration(seconds: 1),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _circleFab({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onTap,
+    bool active = false,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 46,
+          height: 46,
+          decoration: BoxDecoration(
+            color: active
+                ? _blue
+                : const Color(0xFF1E1E2A).withValues(alpha: 0.92),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.3),
+                blurRadius: 8,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Icon(
+            icon,
+            color: active ? Colors.white : Colors.white.withValues(alpha: 0.85),
+            size: 22,
+          ),
+        ),
+      ),
+    );
+  }
+
+  // =========================================================================
+  //  RECENTER BUTTON
+  // =========================================================================
+
+  Widget _recenterButton() {
+    return GestureDetector(
+      onTap: _recenter,
+      child: Container(
+        width: 48,
+        height: 48,
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E1E2A).withValues(alpha: 0.92),
+          shape: BoxShape.circle,
+          border: Border.all(color: _blue.withValues(alpha: 0.6), width: 1.5),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.35),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
             ),
           ],
         ),
+        child: const Icon(Icons.navigation_rounded, color: _blue, size: 24),
+      ),
+    );
+  }
+
+  // =========================================================================
+  //  BOTTOM ETA BAR  — 3 columns: arrival | time remaining | distance
+  // =========================================================================
+
+  Widget _etaBar(double botPad) {
+    final arrival = DateTime.now().add(Duration(minutes: _etaMinutes));
+    final h12 = arrival.hour % 12 == 0 ? 12 : arrival.hour % 12;
+    final min = arrival.minute.toString().padLeft(2, '0');
+    final ampm = arrival.hour < 12 ? 'AM' : 'PM';
+    final arrivalStr = '$h12:$min $ampm';
+    final distStr = _distRemainingMi < 0.1
+        ? '${(_distRemainingMi * 5280).round()} ft'
+        : '${_distRemainingMi.toStringAsFixed(1)} mi';
+
+    return Container(
+      padding: EdgeInsets.only(top: 14, bottom: botPad + 14),
+      decoration: const BoxDecoration(
+        color: Color(0xFF111116),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        boxShadow: [
+          BoxShadow(
+            color: Color(0x55000000),
+            blurRadius: 24,
+            offset: Offset(0, -6),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _etaCell(primary: arrivalStr, secondary: 'arrival'),
+          ),
+          _etaDivider(),
+          Expanded(
+            child: _etaCell(
+              primary: '$_etaMinutes min',
+              secondary: 'remaining',
+            ),
+          ),
+          _etaDivider(),
+          Expanded(
+            child: _etaCell(primary: distStr, secondary: 'distance'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _etaCell({required String primary, required String secondary}) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
         Text(
-          label,
+          primary,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 17,
+            fontWeight: FontWeight.w800,
+            fontFeatures: [FontFeature.tabularFigures()],
+            height: 1,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          secondary,
+          textAlign: TextAlign.center,
           style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.4),
-            fontSize: 10,
+            color: Colors.white.withValues(alpha: 0.45),
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
           ),
         ),
       ],
     );
   }
 
-  Widget _actionButton() {
-    String label;
-    Color bgColor;
-    VoidCallback? onTap;
+  Widget _etaDivider() => Container(
+    width: 1,
+    height: 28,
+    color: Colors.white.withValues(alpha: 0.1),
+  );
 
+  // =========================================================================
+  //  ACTION PILL  — floating above bottom bar, only when action needed
+  // =========================================================================
+
+  bool get _showActionPill =>
+      _sm.phase == TripPhase.toPickup ||
+      _sm.phase == TripPhase.arrivedPickup ||
+      _sm.phase == TripPhase.onTrip ||
+      _sm.phase == TripPhase.arrivedDropoff;
+
+  Widget _actionPill() {
+    String label;
+    Color bg;
+    VoidCallback onTap;
     switch (_sm.phase) {
       case TripPhase.toPickup:
         label = 'ARRIVED AT PICKUP';
-        bgColor = const Color(0xFF2E7D32);
+        bg = const Color(0xFF2E7D32);
         onTap = () {
           HapticFeedback.heavyImpact();
           _sm.arriveAtPickup();
@@ -780,7 +840,7 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
         break;
       case TripPhase.arrivedPickup:
         label = 'START TRIP';
-        bgColor = _gold;
+        bg = _gold;
         onTap = () {
           HapticFeedback.heavyImpact();
           _sm.beginTrip();
@@ -788,7 +848,7 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
         break;
       case TripPhase.onTrip:
         label = 'END TRIP';
-        bgColor = const Color(0xFFEF5350);
+        bg = _red;
         onTap = () {
           HapticFeedback.heavyImpact();
           _sm.arriveAtDropoff();
@@ -796,80 +856,44 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
         break;
       case TripPhase.arrivedDropoff:
         label = 'FINISH RIDE';
-        bgColor = _gold;
+        bg = _gold;
         onTap = () {
           HapticFeedback.heavyImpact();
           _sm.completeTrip();
           Navigator.of(context).pop();
         };
         break;
-      case TripPhase.completed:
-        label = 'DONE';
-        bgColor = Colors.grey;
-        onTap = () => Navigator.of(context).pop();
-        break;
       default:
-        label = 'WAITING...';
-        bgColor = Colors.grey;
-        onTap = null;
+        return const SizedBox.shrink();
     }
-
     return SizedBox(
-      width: double.infinity,
-      height: 54,
+      height: 50,
       child: ElevatedButton(
         onPressed: onTap,
         style: ElevatedButton.styleFrom(
-          backgroundColor: bgColor,
+          backgroundColor: bg,
           foregroundColor: Colors.white,
+          elevation: 4,
+          shadowColor: Colors.black54,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(25),
           ),
-          elevation: 0,
         ),
         child: Text(
           label,
           style: const TextStyle(
-            fontSize: 17,
+            fontSize: 15,
             fontWeight: FontWeight.w800,
-            letterSpacing: 1.2,
+            letterSpacing: 1.1,
           ),
         ),
       ),
     );
   }
 
-  // ─── FAB HELPER ───
-
-  Widget _fab(
-    IconData icon,
-    double size,
-    VoidCallback onTap, {
-    Color? iconColor,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          color: const Color(0xFF1A1A1A).withValues(alpha: 0.85),
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.white10),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.2),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Icon(icon, color: iconColor ?? Colors.white70, size: size * 0.5),
-      ),
-    );
-  }
-
-  // ─── UTILS ───
+  // =========================================================================
+  //  UTILS
+  // =========================================================================
 
   List<LatLng> _makeStraightRoute(LatLng from, LatLng to) {
     const n = 60;
