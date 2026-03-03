@@ -1,0 +1,643 @@
+import 'dart:math';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../config/app_theme.dart';
+import '../config/page_transitions.dart';
+import '../services/api_service.dart';
+import '../services/email_service.dart';
+import '../services/sms_service.dart';
+import '../services/user_session.dart';
+import 'login_verify_screen.dart';
+import 'map_screen.dart';
+
+/// Screen for users who already have an account — enter email/phone + password.
+class LoginPasswordScreen extends StatefulWidget {
+  const LoginPasswordScreen({super.key});
+
+  @override
+  State<LoginPasswordScreen> createState() => _LoginPasswordScreenState();
+}
+
+class _LoginPasswordScreenState extends State<LoginPasswordScreen> {
+  static const _gold = Color(0xFFD4A843);
+  static const _goldLight = Color(0xFFF5D990);
+
+  final _emailCtrl = TextEditingController();
+  final _passCtrl = TextEditingController();
+  bool _obscure = true;
+  bool _canLogin = false;
+  bool _loading = false;
+  String? _errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _emailCtrl.addListener(_validate);
+    _passCtrl.addListener(_validate);
+  }
+
+  @override
+  void dispose() {
+    _emailCtrl.dispose();
+    _passCtrl.dispose();
+    super.dispose();
+  }
+
+  void _validate() {
+    final ok = _emailCtrl.text.trim().isNotEmpty && _passCtrl.text.isNotEmpty;
+    if (ok != _canLogin || _errorText != null) {
+      setState(() {
+        _canLogin = ok;
+        _errorText = null;
+      });
+    }
+  }
+
+  /// Bypass all security and login directly as a dev rider.
+  Future<void> _bypassLogin() async {
+    setState(() {
+      _loading = true;
+      _errorText = null;
+    });
+    try {
+      // Offline-first: save a mock dev session without hitting the backend.
+      await UserSession.saveUser(
+        firstName: 'Rider',
+        lastName: 'Dev',
+        email: 'rider@cruise.app',
+        userId: 1,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _errorText = 'Quick access failed: $e';
+      });
+      return;
+    }
+    await UserSession.saveMode('rider');
+    if (!mounted) return;
+    setState(() => _loading = false);
+    Navigator.of(
+      context,
+    ).pushAndRemoveUntil(slideFromRightRoute(const MapScreen()), (_) => false);
+  }
+
+  String _generateCode() {
+    final r = Random();
+    return List.generate(6, (_) => r.nextInt(10)).join();
+  }
+
+  /// Normalize phone to E.164 format (safety net)
+  String _normalizePhone(String text) {
+    var cleaned = text.replaceAll(RegExp(r'[\s\-\(\)]'), '');
+    if (!cleaned.startsWith('+')) {
+      cleaned = '+1$cleaned'; // Default to US
+    }
+    return cleaned;
+  }
+
+  // ── Send code via chosen method and navigate ──
+  Future<void> _sendCodeAndNavigate({
+    required String loginToken,
+    required String method, // "phone" or "email"
+    required String contact,
+  }) async {
+    if (method == 'phone') {
+      final normalizedPhone = _normalizePhone(contact);
+      final result = await SmsService.sendVerificationCode(
+        toPhone: normalizedPhone,
+      );
+      if (!mounted) return;
+      setState(() => _loading = false);
+
+      if (result.ok) {
+        Navigator.of(context).push(
+          slideFromRightRoute(
+            LoginVerifyScreen(
+              loginToken: loginToken,
+              contact: normalizedPhone,
+              useVerifyApi: true,
+            ),
+          ),
+        );
+      } else if (result.trialBlocked) {
+        // Trial account fallback — use local code
+        final devCode = _generateCode();
+        debugPrint(
+          '\ud83d\udcf1 DEV MODE — login code for $normalizedPhone: $devCode',
+        );
+        Navigator.of(context).push(
+          slideFromRightRoute(
+            LoginVerifyScreen(
+              loginToken: loginToken,
+              contact: normalizedPhone,
+              useVerifyApi: false,
+              expectedCode: devCode,
+            ),
+          ),
+        );
+      } else {
+        setState(() => _errorText = 'Failed to send SMS code');
+        return;
+      }
+    } else {
+      final code = _generateCode();
+      await EmailService.sendVerificationCode(toEmail: contact, code: code);
+      if (!mounted) return;
+      setState(() => _loading = false);
+
+      Navigator.of(context).push(
+        slideFromRightRoute(
+          LoginVerifyScreen(
+            loginToken: loginToken,
+            contact: contact,
+            useVerifyApi: false,
+            expectedCode: code,
+          ),
+        ),
+      );
+    }
+  }
+
+  // ── Bottom sheet to choose between phone and email ──
+  void _showMethodPicker({
+    required String loginToken,
+    required String phone,
+    required String email,
+  }) {
+    final c = AppColors.of(context);
+
+    String maskPhone(String p) {
+      if (p.length <= 4) return p;
+      return '${'•' * (p.length - 4)}${p.substring(p.length - 4)}';
+    }
+
+    String maskEmail(String e) {
+      final parts = e.split('@');
+      if (parts.length != 2) return e;
+      final name = parts[0];
+      final domain = parts[1];
+      if (name.length <= 2) return e;
+      return '${name[0]}${'•' * (name.length - 2)}${name[name.length - 1]}@$domain';
+    }
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Container(
+          decoration: BoxDecoration(
+            color: c.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // ── Handle bar ──
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: c.textTertiary.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              Text(
+                'Where should we send\nyour verification code?',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: c.textPrimary,
+                  height: 1.25,
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // ── Phone option ──
+              _MethodTile(
+                icon: Icons.sms_outlined,
+                title: 'Text message (SMS)',
+                subtitle: maskPhone(phone),
+                gold: _gold,
+                colors: c,
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _sendCodeAndNavigate(
+                    loginToken: loginToken,
+                    method: 'phone',
+                    contact: phone,
+                  );
+                },
+              ),
+              const SizedBox(height: 12),
+
+              // ── Email option ──
+              _MethodTile(
+                icon: Icons.email_outlined,
+                title: 'Email',
+                subtitle: maskEmail(email),
+                gold: _gold,
+                colors: c,
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _sendCodeAndNavigate(
+                    loginToken: loginToken,
+                    method: 'email',
+                    contact: email,
+                  );
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _login() async {
+    if (_loading) return;
+    final identity = _emailCtrl.text.trim();
+    final password = _passCtrl.text;
+
+    if (identity.isEmpty || password.isEmpty) return;
+
+    setState(() {
+      _loading = true;
+      _errorText = null;
+    });
+
+    try {
+      // 1. Validate credentials against server
+      final loginResult = await ApiService.login(
+        identifier: identity,
+        password: password,
+      );
+
+      if (!mounted) return;
+
+      final loginToken = loginResult['login_token'] as String;
+      final email = loginResult['email'] as String?;
+      final phone = loginResult['phone'] as String?;
+
+      final hasPhone = phone != null && phone.isNotEmpty;
+      final hasEmail = email != null && email.isNotEmpty;
+
+      // 2. If both methods available → let user choose
+      if (hasPhone && hasEmail) {
+        setState(() => _loading = false);
+        _showMethodPicker(loginToken: loginToken, phone: phone, email: email);
+        return;
+      }
+
+      // 3. Only one method available → send directly
+      if (hasPhone) {
+        await _sendCodeAndNavigate(
+          loginToken: loginToken,
+          method: 'phone',
+          contact: phone,
+        );
+      } else if (hasEmail) {
+        await _sendCodeAndNavigate(
+          loginToken: loginToken,
+          method: 'email',
+          contact: email,
+        );
+      } else {
+        setState(() {
+          _loading = false;
+          _errorText = 'No contact method available';
+        });
+      }
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _errorText = e.statusCode == 401
+            ? 'Invalid email/phone or password'
+            : e.message;
+      });
+      HapticFeedback.mediumImpact();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _errorText = 'Connection error — is the server running?';
+      });
+      HapticFeedback.mediumImpact();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+
+    return Scaffold(
+      backgroundColor: c.bg,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 8),
+
+              // ── Back button ──
+              GestureDetector(
+                onTap: () => Navigator.of(context).pop(),
+                child: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: c.surface,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    Icons.arrow_back_ios_new_rounded,
+                    color: c.textPrimary,
+                    size: 18,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 28),
+
+              // ── Title ──
+              Text(
+                'Welcome back',
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w800,
+                  color: c.textPrimary,
+                  letterSpacing: -0.5,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Sign in with your email or phone number.',
+                style: TextStyle(fontSize: 15, color: c.textSecondary),
+              ),
+              const SizedBox(height: 28),
+
+              // ── Email/phone field ──
+              Container(
+                decoration: BoxDecoration(
+                  color: c.surface,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: c.border),
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 4,
+                ),
+                child: TextField(
+                  controller: _emailCtrl,
+                  keyboardType: TextInputType.emailAddress,
+                  style: TextStyle(color: c.textPrimary, fontSize: 16),
+                  decoration: InputDecoration(
+                    border: InputBorder.none,
+                    hintText: 'Email or phone number',
+                    hintStyle: TextStyle(color: c.textTertiary, fontSize: 16),
+                    prefixIcon: Icon(
+                      Icons.person_outline_rounded,
+                      color: c.textTertiary,
+                      size: 20,
+                    ),
+                    prefixIconConstraints: const BoxConstraints(
+                      minWidth: 36,
+                      minHeight: 0,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // ── Password field ──
+              Container(
+                decoration: BoxDecoration(
+                  color: c.surface,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: c.border),
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 4,
+                ),
+                child: TextField(
+                  controller: _passCtrl,
+                  obscureText: _obscure,
+                  style: TextStyle(color: c.textPrimary, fontSize: 16),
+                  decoration: InputDecoration(
+                    border: InputBorder.none,
+                    hintText: 'Password',
+                    hintStyle: TextStyle(color: c.textTertiary, fontSize: 16),
+                    prefixIcon: Icon(
+                      Icons.lock_outline_rounded,
+                      color: c.textTertiary,
+                      size: 20,
+                    ),
+                    prefixIconConstraints: const BoxConstraints(
+                      minWidth: 36,
+                      minHeight: 0,
+                    ),
+                    suffixIcon: GestureDetector(
+                      onTap: () => setState(() => _obscure = !_obscure),
+                      child: Icon(
+                        _obscure
+                            ? Icons.visibility_off_outlined
+                            : Icons.visibility_outlined,
+                        color: c.textTertiary,
+                        size: 20,
+                      ),
+                    ),
+                    suffixIconConstraints: const BoxConstraints(
+                      minWidth: 36,
+                      minHeight: 0,
+                    ),
+                  ),
+                ),
+              ),
+
+              // ── Error text ──
+              AnimatedSize(
+                duration: const Duration(milliseconds: 200),
+                child: _errorText != null
+                    ? Padding(
+                        padding: const EdgeInsets.only(top: 12, left: 4),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.error_outline_rounded,
+                              color: Colors.white.withValues(alpha: 0.6),
+                              size: 16,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                _errorText!,
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.6),
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : const SizedBox.shrink(),
+              ),
+              const SizedBox(height: 28),
+
+              // ── Sign in button ──
+              SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 250),
+                  decoration: BoxDecoration(
+                    gradient: _canLogin
+                        ? const LinearGradient(colors: [_gold, _goldLight])
+                        : null,
+                    color: _canLogin ? null : c.surface,
+                    borderRadius: BorderRadius.circular(28),
+                  ),
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.transparent,
+                      shadowColor: Colors.transparent,
+                      foregroundColor: _canLogin
+                          ? const Color(0xFF1A1400)
+                          : c.textTertiary,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(28),
+                      ),
+                    ),
+                    onPressed: _canLogin ? _login : null,
+                    child: _loading
+                        ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              color: Color(0xFF1A1400),
+                              strokeWidth: 2.5,
+                            ),
+                          )
+                        : const Text(
+                            'Sign In',
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              // ── Quick Access (Dev) ──
+              Center(
+                child: TextButton.icon(
+                  onPressed: _loading ? null : _bypassLogin,
+                  icon: const Icon(Icons.bolt_rounded, size: 18),
+                  label: const Text(
+                    'Quick Access (Dev)',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                  style: TextButton.styleFrom(foregroundColor: c.textTertiary),
+                ),
+              ),
+
+              const Spacer(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+//  Reusable tile for the method-picker bottom sheet
+// ─────────────────────────────────────────────────────────
+class _MethodTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color gold;
+  final AppColors colors;
+  final VoidCallback onTap;
+
+  const _MethodTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.gold,
+    required this.colors,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: colors.border),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: gold.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: gold, size: 22),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: colors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: colors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: colors.textTertiary,
+                size: 22,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
