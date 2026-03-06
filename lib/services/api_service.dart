@@ -7,36 +7,87 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 /// Communicates with the Cruise Ride backend (FastAPI + PostgreSQL).
 ///
-/// Base URL resolves to `10.0.2.2` on Android emulator (host localhost).
-/// On web, dynamically uses the browser's hostname so it works from any device.
+/// The active server URL is loaded from SharedPreferences on startup so it
+/// can be updated at runtime (e.g. after starting a new Cloudflare tunnel)
+/// without rebuilding the app.  Use [setServerUrl] to persist a new URL and
+/// [probeAndSetBestUrl] to auto-detect which endpoint is reachable.
 class ApiService {
-  /// Local backend server URL
-  /// On Android emulator: 10.0.2.2 maps to host machine's localhost
-  /// On physical devices: use your computer's local IP or Cloudflare tunnel
+  // ── Known endpoints ────────────────────────────────────────────────────────
+
+  /// Android emulator loopback — maps to host machine localhost.
   static const String _localUrl = 'http://10.0.2.2:8000';
-  
-  /// Public tunnel URL — accessible from anywhere without WiFi.
-  /// Powered by Cloudflare Tunnel → routes to the backend server.
-  /// UPDATE THIS URL when you start a new Cloudflare tunnel
-  static const String _tunnelUrl =
+
+  /// Default Cloudflare Tunnel URL.  Free tunnels change every restart;
+  /// update via the in-app Settings → "Server URL" dialog instead of rebuilding.
+  static const String _defaultTunnelUrl =
       'https://warner-adware-thickness-kelkoo.trycloudflare.com';
 
+  static const String _serverUrlPrefKey = 'cruise_server_url';
+
+  /// In-memory active URL.  Populated by [init]; defaults to tunnel so the
+  /// first call before [init] completes still reaches *something*.
+  static String _activeUrl = _defaultTunnelUrl;
+
+  /// Returns the URL currently in use by all API calls.
+  static String get activeServerUrl => _activeUrl;
+
+  /// Load persisted server URL from SharedPreferences.
+  /// Call once in main() before runApp().
+  static Future<void> init() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(_serverUrlPrefKey);
+    if (saved != null && saved.isNotEmpty) {
+      _activeUrl = saved;
+    }
+    debugPrint('[ApiService] active URL: $_activeUrl');
+  }
+
+  /// Persist a new server URL and update all subsequent requests immediately.
+  static Future<void> setServerUrl(String url) async {
+    _activeUrl = url.trimRight().replaceAll(RegExp(r'/+$'), '');
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_serverUrlPrefKey, _activeUrl);
+    debugPrint('[ApiService] server URL updated → $_activeUrl');
+  }
+
+  /// Try each candidate URL with a lightweight health-check (`GET /health`).
+  /// Keeps the first one that responds 200 within [timeout] and persists it.
+  /// Also clears any stored URL and resets to [_defaultTunnelUrl] if none work.
+  static Future<String?> probeAndSetBestUrl({
+    List<String>? candidates,
+    Duration timeout = const Duration(seconds: 6),
+  }) async {
+    final urls = candidates ??
+        [_activeUrl, _defaultTunnelUrl, _localUrl];
+
+    for (final url in urls) {
+      try {
+        final response = await http.get(
+          Uri.parse('$url/health'),
+          headers: {'Accept': 'application/json'},
+        ).timeout(timeout);
+        if (response.statusCode == 200) {
+          await setServerUrl(url);
+          return url;
+        }
+      } catch (_) {
+        // This endpoint not reachable — try next
+      }
+    }
+    return null; // No reachable endpoint found
+  }
+
+  // ── Internal helper ────────────────────────────────────────────────────────
+
+  static String get _baseUrl => _activeUrl;
+
   /// API Key — must match the server's API_KEY in .env
-  /// This prevents unauthorized apps from accessing the API.
   static const String _apiKey =
       'HWB88VurhLM-1GdVML2PT92iqNSbeJ52TU1VO37MBZS6RYlyWvfIpaTdD54GT_5u';
 
-  /// HMAC Signing Secret — cryptographically signs every request.
-  /// Even if someone extracts the API key, they CANNOT forge valid
-  /// requests without this secret + the timestamp + the signature.
+  /// HMAC Signing Secret — signs every request to prevent spoofing.
   static const String _hmacSecret =
       'qUDmTNu1Dxxg_xo7kaUfRba4XiU_5H1ZhkUMDuVrD2dLQ2ImT8JXZ5FgUyXpSJ5h';
-
-  static String get _baseUrl {
-    // Use tunnel URL for physical devices (iPhone/Android)
-    // Switch to _localUrl only when running on Android emulator
-    return _tunnelUrl;
-  }
 
   // ── Token persistence ────────────────────────────────
 

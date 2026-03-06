@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../config/api_keys.dart';
 import '../config/app_theme.dart';
 import '../config/page_transitions.dart';
+import '../services/api_service.dart';
 import '../services/local_data_service.dart';
 import '../services/places_service.dart';
 import '../services/user_session.dart';
@@ -462,6 +463,17 @@ class _SettingsScreen extends StatelessWidget {
                   );
                 },
               ),
+              const SizedBox(height: 10),
+              _settingsItem(
+                c,
+                icon: Icons.dns_outlined,
+                label: 'Server URL',
+                onTap: () {
+                  Navigator.of(context).push(
+                    slideFromRightRoute(const _ServerUrlScreen()),
+                  );
+                },
+              ),
 
               const Spacer(),
 
@@ -767,6 +779,216 @@ class _FavoriteAddressSheetState extends State<_FavoriteAddressSheet> {
                   ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Server URL Screen – change the backend URL without rebuilding the app
+// ────────────────────────────────────────────────────────────────────
+class _ServerUrlScreen extends StatefulWidget {
+  const _ServerUrlScreen();
+
+  @override
+  State<_ServerUrlScreen> createState() => _ServerUrlScreenState();
+}
+
+class _ServerUrlScreenState extends State<_ServerUrlScreen> {
+  late final TextEditingController _ctrl;
+  bool _probing = false;
+  String? _probeResult;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: ApiService.activeServerUrl);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final url = _ctrl.text.trim();
+    if (url.isEmpty) return;
+    await ApiService.setServerUrl(url);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Server URL saved'), duration: Duration(seconds: 2)),
+    );
+    Navigator.of(context).pop();
+  }
+
+  Future<void> _probe() async {
+    setState(() { _probing = true; _probeResult = null; });
+    final url = _ctrl.text.trim();
+    final reached = await ApiService.probeAndSetBestUrl(candidates: [url]);
+    if (!mounted) return;
+    setState(() {
+      _probing = false;
+      _probeResult = reached != null
+          ? '✓ Reachable – saved as active URL'
+          : '✗ Not reachable (server offline or wrong URL?)';
+    });
+    if (reached != null) _ctrl.text = reached;
+  }
+
+  Future<void> _autoDetect() async {
+    setState(() { _probing = true; _probeResult = null; });
+    final reached = await ApiService.probeAndSetBestUrl();
+    if (!mounted) return;
+    setState(() {
+      _probing = false;
+      _probeResult = reached != null
+          ? '✓ Auto-detected: $reached'
+          : '✗ No server reachable. Start your backend + tunnel first.';
+    });
+    if (reached != null) _ctrl.text = reached;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+
+    return Scaffold(
+      backgroundColor: c.bg,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 8),
+              GestureDetector(
+                onTap: () => Navigator.of(context).pop(),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Icon(Icons.arrow_back_rounded, color: c.textPrimary, size: 24),
+                ),
+              ),
+              const SizedBox(height: 28),
+              Text(
+                'Server URL',
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w800,
+                  color: c.textPrimary,
+                  letterSpacing: -0.5,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Paste the Cloudflare tunnel URL each time you restart it.\nThe URL is saved locally – no rebuild needed.',
+                style: TextStyle(fontSize: 14, color: c.textSecondary, height: 1.5),
+              ),
+              const SizedBox(height: 28),
+              TextField(
+                controller: _ctrl,
+                autocorrect: false,
+                keyboardType: TextInputType.url,
+                style: TextStyle(color: c.textPrimary, fontSize: 15),
+                decoration: InputDecoration(
+                  hintText: 'https://your-tunnel.trycloudflare.com',
+                  hintStyle: TextStyle(color: c.textTertiary),
+                  filled: true,
+                  fillColor: c.surface,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Probe result message
+              if (_probeResult != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: _probeResult!.startsWith('✓')
+                        ? Colors.green.withValues(alpha: 0.15)
+                        : Colors.red.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    _probeResult!,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: _probeResult!.startsWith('✓') ? Colors.green : Colors.red,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+
+              if (_probing)
+                const Padding(
+                  padding: EdgeInsets.only(top: 12),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+
+              const SizedBox(height: 20),
+
+              // Test button
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: OutlinedButton.icon(
+                  onPressed: _probing ? null : _probe,
+                  icon: const Icon(Icons.wifi_tethering_rounded, size: 20),
+                  label: const Text('Test Connection', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFFE8C547),
+                    side: const BorderSide(color: Color(0xFFE8C547)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+
+              // Auto-detect button
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: OutlinedButton.icon(
+                  onPressed: _probing ? null : _autoDetect,
+                  icon: const Icon(Icons.search_rounded, size: 20),
+                  label: const Text('Auto-Detect Best URL', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: c.textSecondary,
+                    side: BorderSide(color: c.textTertiary),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
+                  ),
+                ),
+              ),
+              const Spacer(),
+
+              // Save button
+              Padding(
+                padding: const EdgeInsets.only(bottom: 32),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 56,
+                  child: ElevatedButton(
+                    onPressed: _probing ? null : _save,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFE8C547),
+                      foregroundColor: Colors.black,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+                    ),
+                    child: const Text(
+                      'Save',
+                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

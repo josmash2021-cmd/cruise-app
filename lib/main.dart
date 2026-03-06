@@ -7,9 +7,13 @@ import 'firebase_options.dart';
 import 'config/api_keys.dart';
 import 'config/app_theme.dart';
 import 'screens/splash_screen.dart';
+import 'services/api_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // ── Load persisted server URL (must run before any ApiService call) ──
+  await ApiService.init();
 
   // ── Stripe (not supported on web) ──
   if (!kIsWeb) {
