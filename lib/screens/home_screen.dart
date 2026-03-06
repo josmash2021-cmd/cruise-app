@@ -1,11 +1,12 @@
 import 'dart:async';
+import 'dart:io' show Platform, File;
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:apple_maps_flutter/apple_maps_flutter.dart' as amap;
 import 'package:geolocator/geolocator.dart';
 
-import 'dart:io' if (dart.library.html) 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'airport_terminal_sheet.dart';
 import 'map_screen.dart';
@@ -29,8 +30,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen>
-    with TickerProviderStateMixin {
+class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // Brand colors — premium shiny gold
   static const _gold = Color(0xFFE8C547);
   static const _goldLight = Color(0xFFFBE47A);
@@ -58,6 +58,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   // Mini-map state
   GoogleMapController? _miniMapController;
+  amap.AppleMapController? _appleMinimapController;
   LatLng? _currentLatLng;
   String? _locationError;
   bool _imagesPrecached = false;
@@ -95,7 +96,10 @@ class _HomeScreenState extends State<HomeScreen>
     _loadPromoUsed();
     _fetchCurrentLocation();
     _checkDriversOnline();
-    _driverCheckTimer = Timer.periodic(const Duration(seconds: 30), (_) => _checkDriversOnline());
+    _driverCheckTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _checkDriversOnline(),
+    );
   }
 
   @override
@@ -176,6 +180,11 @@ class _HomeScreenState extends State<HomeScreen>
       _miniMapController?.animateCamera(
         CameraUpdate.newLatLng(_currentLatLng!),
       );
+      _appleMinimapController?.animateCamera(
+        amap.CameraUpdate.newLatLng(
+          amap.LatLng(_currentLatLng!.latitude, _currentLatLng!.longitude),
+        ),
+      );
 
       // Start continuous location stream for always-centered map
       _locationSub?.cancel();
@@ -190,6 +199,11 @@ class _HomeScreenState extends State<HomeScreen>
             final ll = LatLng(p.latitude, p.longitude);
             setState(() => _currentLatLng = ll);
             _miniMapController?.animateCamera(CameraUpdate.newLatLng(ll));
+            _appleMinimapController?.animateCamera(
+              amap.CameraUpdate.newLatLng(
+                amap.LatLng(ll.latitude, ll.longitude),
+              ),
+            );
           });
     } catch (e) {
       if (mounted && _currentLatLng == null) {
@@ -224,18 +238,27 @@ class _HomeScreenState extends State<HomeScreen>
         final c = AppColors.of(ctx);
         return AlertDialog(
           backgroundColor: c.panel,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
           contentPadding: const EdgeInsets.fromLTRB(28, 28, 28, 12),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 64, height: 64,
+                width: 64,
+                height: 64,
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(colors: [Color(0xFFE8C547), Color(0xFFFBE47A)]),
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFE8C547), Color(0xFFFBE47A)],
+                  ),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.card_giftcard_rounded, color: Colors.black, size: 32),
+                child: const Icon(
+                  Icons.card_giftcard_rounded,
+                  color: Colors.black,
+                  size: 32,
+                ),
               ),
               const SizedBox(height: 20),
               Text(
@@ -266,17 +289,25 @@ class _HomeScreenState extends State<HomeScreen>
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFE8C547),
                     foregroundColor: Colors.black,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                     elevation: 0,
                   ),
                   onPressed: () => Navigator.of(ctx).pop(true),
-                  child: const Text('Apply & Ride', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                  child: const Text(
+                    'Apply & Ride',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                  ),
                 ),
               ),
               const SizedBox(height: 8),
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(false),
-                child: Text('Cancel', style: TextStyle(color: c.textTertiary, fontSize: 14)),
+                child: Text(
+                  'Cancel',
+                  style: TextStyle(color: c.textTertiary, fontSize: 14),
+                ),
               ),
             ],
           ),
@@ -285,9 +316,9 @@ class _HomeScreenState extends State<HomeScreen>
     );
 
     if (confirmed == true && mounted) {
-      Navigator.of(context).push(slideUpFadeRoute(
-        const RideRequestScreen(applyPromo: true),
-      ));
+      Navigator.of(
+        context,
+      ).push(slideUpFadeRoute(const RideRequestScreen(applyPromo: true)));
     }
   }
 
@@ -386,8 +417,11 @@ class _HomeScreenState extends State<HomeScreen>
           CustomScrollView(
             physics: const BouncingScrollPhysics(
               parent: AlwaysScrollableScrollPhysics(),
+              decelerationRate: ScrollDecelerationRate.normal,
             ),
-            cacheExtent: 800, // pre-render 800px off-screen for buttery scroll
+            cacheExtent:
+                1500, // pre-render more off-screen for buttery smooth scroll
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             slivers: [
               SliverToBoxAdapter(child: SizedBox(height: topPad + 16)),
 
@@ -816,7 +850,7 @@ class _HomeScreenState extends State<HomeScreen>
                           const SizedBox(height: 12),
                           // ── Now / Later toggle ──
                           GestureDetector(
-                            onTap: () {},  // absorb tap so parent doesn't fire
+                            onTap: () {}, // absorb tap so parent doesn't fire
                             child: Container(
                               decoration: BoxDecoration(
                                 color: Colors.white.withValues(alpha: 0.06),
@@ -826,15 +860,26 @@ class _HomeScreenState extends State<HomeScreen>
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  _nowLaterPill('Now', Icons.bolt_rounded, _rideNow, () {
-                                    if (!_rideNow) setState(() => _rideNow = true);
-                                  }),
-                                  _nowLaterPill('Later', Icons.schedule_rounded, !_rideNow, () {
-                                    if (_rideNow) {
-                                      setState(() => _rideNow = false);
-                                      _showScheduleSheet();
-                                    }
-                                  }),
+                                  _nowLaterPill(
+                                    'Now',
+                                    Icons.bolt_rounded,
+                                    _rideNow,
+                                    () {
+                                      if (!_rideNow)
+                                        setState(() => _rideNow = true);
+                                    },
+                                  ),
+                                  _nowLaterPill(
+                                    'Later',
+                                    Icons.schedule_rounded,
+                                    !_rideNow,
+                                    () {
+                                      if (_rideNow) {
+                                        setState(() => _rideNow = false);
+                                        _showScheduleSheet();
+                                      }
+                                    },
+                                  ),
                                 ],
                               ),
                             ),
@@ -890,8 +935,16 @@ class _HomeScreenState extends State<HomeScreen>
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    Color.lerp(const Color(0xFFFBE47A), Colors.white, glow * 0.7)!,
-                    Color.lerp(const Color(0xFFE8C547), const Color(0xFFFBE47A), glow)!,
+                    Color.lerp(
+                      const Color(0xFFFBE47A),
+                      Colors.white,
+                      glow * 0.7,
+                    )!,
+                    Color.lerp(
+                      const Color(0xFFE8C547),
+                      const Color(0xFFFBE47A),
+                      glow,
+                    )!,
                   ],
                 ).createShader(bounds),
                 child: Icon(Icons.bolt_rounded, color: Colors.white, size: 26),
@@ -907,17 +960,22 @@ class _HomeScreenState extends State<HomeScreen>
                   backgroundColor: const Color(0xFF2A2A2A),
                   content: const Text(
                     'No drivers available right now. Please try again later.',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                   behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               );
               return;
             }
-            Navigator.of(context).push(slideUpFadeRoute(
-              const RideRequestScreen(fastRide: true),
-            ));
+            Navigator.of(
+              context,
+            ).push(slideUpFadeRoute(const RideRequestScreen(fastRide: true)));
           },
         ),
         // Clock — rotates continuously
@@ -933,7 +991,11 @@ class _HomeScreenState extends State<HomeScreen>
                     end: Alignment.bottomCenter,
                     colors: [Color(0xFFFBE47A), Color(0xFFE8C547)],
                   ).createShader(bounds),
-                  child: const Icon(Icons.schedule_rounded, color: Colors.white, size: 26),
+                  child: const Icon(
+                    Icons.schedule_rounded,
+                    color: Colors.white,
+                    size: 26,
+                  ),
                 ),
               );
             },
@@ -948,7 +1010,11 @@ class _HomeScreenState extends State<HomeScreen>
                   shaderCallback: (bounds) => LinearGradient(
                     colors: [Colors.grey.shade600, Colors.grey.shade500],
                   ).createShader(bounds),
-                  child: const Icon(Icons.local_offer_rounded, color: Colors.white, size: 26),
+                  child: const Icon(
+                    Icons.local_offer_rounded,
+                    color: Colors.white,
+                    size: 26,
+                  ),
                 )
               : AnimatedBuilder(
                   animation: _promoShimmerCtrl,
@@ -967,7 +1033,11 @@ class _HomeScreenState extends State<HomeScreen>
                         ],
                         stops: const [0.0, 0.3, 0.5, 0.7, 1.0],
                       ).createShader(bounds),
-                      child: const Icon(Icons.local_offer_rounded, color: Colors.white, size: 26),
+                      child: const Icon(
+                        Icons.local_offer_rounded,
+                        color: Colors.white,
+                        size: 26,
+                      ),
                     );
                   },
                 ),
@@ -979,7 +1049,12 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _nowLaterPill(String label, IconData icon, bool active, VoidCallback onTap) {
+  Widget _nowLaterPill(
+    String label,
+    IconData icon,
+    bool active,
+    VoidCallback onTap,
+  ) {
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
@@ -992,14 +1067,22 @@ class _HomeScreenState extends State<HomeScreen>
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 14, color: active ? Colors.black : Colors.white.withValues(alpha: 0.45)),
+            Icon(
+              icon,
+              size: 14,
+              color: active
+                  ? Colors.black
+                  : Colors.white.withValues(alpha: 0.45),
+            ),
             const SizedBox(width: 4),
             Text(
               label,
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
-                color: active ? Colors.black : Colors.white.withValues(alpha: 0.45),
+                color: active
+                    ? Colors.black
+                    : Colors.white.withValues(alpha: 0.45),
               ),
             ),
           ],
@@ -1036,9 +1119,7 @@ class _HomeScreenState extends State<HomeScreen>
                   ],
                   stops: [0.0, 0.3, 0.7, 1.0],
                 ),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.18),
-                ),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.white.withValues(alpha: 0.06),
@@ -1229,10 +1310,7 @@ class _HomeScreenState extends State<HomeScreen>
               padding: const EdgeInsets.fromLTRB(20, 14, 0, 14),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [
-                    const Color(0xFF1A1D24),
-                    const Color(0xFF141820),
-                  ],
+                  colors: [const Color(0xFF1A1D24), const Color(0xFF141820)],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
@@ -1501,9 +1579,7 @@ class _HomeScreenState extends State<HomeScreen>
         decoration: BoxDecoration(
           color: _gold.withValues(alpha: 0.10),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: _gold.withValues(alpha: 0.18),
-          ),
+          border: Border.all(color: _gold.withValues(alpha: 0.18)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1549,7 +1625,8 @@ class _HomeScreenState extends State<HomeScreen>
           children: [
             const SizedBox(height: 8),
             Container(
-              width: 36, height: 4,
+              width: 36,
+              height: 4,
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(2),
@@ -1575,25 +1652,16 @@ class _HomeScreenState extends State<HomeScreen>
             ),
             const SizedBox(height: 20),
             // Edit Address
-            _placeOptionBtn(
-              Icons.edit_rounded,
-              'Edit Address',
-              () {
-                Navigator.pop(ctx);
-                editTap();
-              },
-            ),
+            _placeOptionBtn(Icons.edit_rounded, 'Edit Address', () {
+              Navigator.pop(ctx);
+              editTap();
+            }),
             const SizedBox(height: 8),
             // Request a Ride
-            _placeOptionBtn(
-              Icons.directions_car_rounded,
-              'Request a Ride',
-              () {
-                Navigator.pop(ctx);
-                _requestRideToAddress(address);
-              },
-              highlight: true,
-            ),
+            _placeOptionBtn(Icons.directions_car_rounded, 'Request a Ride', () {
+              Navigator.pop(ctx);
+              _requestRideToAddress(address);
+            }, highlight: true),
             const SizedBox(height: 20),
           ],
         ),
@@ -1601,7 +1669,12 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _placeOptionBtn(IconData icon, String label, VoidCallback onTap, {bool highlight = false}) {
+  Widget _placeOptionBtn(
+    IconData icon,
+    String label,
+    VoidCallback onTap, {
+    bool highlight = false,
+  }) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: GestureDetector(
@@ -1642,9 +1715,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   void _requestRideToAddress(String address) {
     LocalDataService.incrementDestinationUsage(address);
-    Navigator.of(context).push(
-      slideUpFadeRoute(const RideRequestScreen()),
-    );
+    Navigator.of(context).push(slideUpFadeRoute(const RideRequestScreen()));
   }
 
   // ─── Recent trips timeline ───
@@ -1843,6 +1914,36 @@ class _HomeScreenState extends State<HomeScreen>
                           strokeWidth: 2,
                         ),
                 ),
+              )
+            else if (Platform.isIOS)
+              amap.AppleMap(
+                initialCameraPosition: amap.CameraPosition(
+                  target: amap.LatLng(
+                    _currentLatLng!.latitude,
+                    _currentLatLng!.longitude,
+                  ),
+                  zoom: 15,
+                ),
+                onMapCreated: (controller) {
+                  _appleMinimapController = controller;
+                },
+                annotations: {
+                  amap.Annotation(
+                    annotationId: amap.AnnotationId('current'),
+                    position: amap.LatLng(
+                      _currentLatLng!.latitude,
+                      _currentLatLng!.longitude,
+                    ),
+                    icon: amap.BitmapDescriptor.defaultAnnotation,
+                  ),
+                },
+                myLocationEnabled: false,
+                myLocationButtonEnabled: false,
+                scrollGesturesEnabled: false,
+                zoomGesturesEnabled: false,
+                rotateGesturesEnabled: false,
+                compassEnabled: false,
+                trafficEnabled: false,
               )
             else
               GoogleMap(
@@ -2078,35 +2179,35 @@ class _HomeScreenState extends State<HomeScreen>
     final choice = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (context) => _LaterOptionsSheet(isDark: AppColors.of(context).isDark),
+      builder: (context) =>
+          _LaterOptionsSheet(isDark: AppColors.of(context).isDark),
     );
-    
+
     // If cancelled or no choice, revert to Now
     if (choice == null || !mounted) {
       setState(() => _rideNow = true);
       return;
     }
-    
+
     if (choice == 'airport') {
       // Airport ride — show terminal selector first
       final airportResult = await showModalBottomSheet<AirportSelection>(
         context: context,
         isScrollControlled: true,
         backgroundColor: Colors.transparent,
-        builder: (_) => AirportTerminalSheet(isDark: AppColors.of(context).isDark),
+        builder: (_) =>
+            AirportTerminalSheet(isDark: AppColors.of(context).isDark),
       );
       if (airportResult == null || !mounted) {
         setState(() => _rideNow = true);
         return;
       }
-      Navigator.of(context).push(slideUpFadeRoute(
-        RideRequestScreen(
-          isAirportTrip: true,
-        ),
-      ));
+      Navigator.of(
+        context,
+      ).push(slideUpFadeRoute(RideRequestScreen(isAirportTrip: true)));
       return;
     }
-    
+
     // Schedule option - show date/time picker
     final result = await showModalBottomSheet<(DateTime, bool)>(
       context: context,
@@ -2115,7 +2216,7 @@ class _HomeScreenState extends State<HomeScreen>
       builder: (_) =>
           _ScheduleBottomSheet(isDark: AppColors.of(context).isDark),
     );
-    
+
     // If cancelled, revert to Now
     if (result == null || !mounted) {
       setState(() => _rideNow = true);
@@ -2123,7 +2224,8 @@ class _HomeScreenState extends State<HomeScreen>
     }
 
     final (scheduledAt, isAirport) = result;
-    final formattedDate = '${scheduledAt.month}/${scheduledAt.day}/${scheduledAt.year}';
+    final formattedDate =
+        '${scheduledAt.month}/${scheduledAt.day}/${scheduledAt.year}';
     final formattedTime = TimeOfDay.fromDateTime(scheduledAt).format(context);
 
     final airportLabel = isAirport ? ' ✈ Airport' : '';
@@ -2141,12 +2243,11 @@ class _HomeScreenState extends State<HomeScreen>
       ),
     );
 
-    Navigator.of(context).push(slideUpFadeRoute(
-      RideRequestScreen(
-        scheduledAt: scheduledAt,
-        isAirportTrip: isAirport,
+    Navigator.of(context).push(
+      slideUpFadeRoute(
+        RideRequestScreen(scheduledAt: scheduledAt, isAirportTrip: isAirport),
       ),
-    ));
+    );
   }
 
   void _openMapWithDropoff(String query) {
@@ -2224,7 +2325,6 @@ class _HomeScreenState extends State<HomeScreen>
       ),
     );
   }
-
 
   void _openTripReceipt(TripHistoryItem trip) {
     Navigator.of(
@@ -2388,7 +2488,7 @@ class _LaterOptionsSheet extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 24),
-            
+
             // Airport option
             _optionCard(
               context: context,
@@ -2397,9 +2497,9 @@ class _LaterOptionsSheet extends StatelessWidget {
               subtitle: 'Book a ride to or from the airport',
               onTap: () => Navigator.pop(context, 'airport'),
             ),
-            
+
             const SizedBox(height: 12),
-            
+
             // Schedule option
             _optionCard(
               context: context,
@@ -2429,9 +2529,7 @@ class _LaterOptionsSheet extends StatelessWidget {
         decoration: BoxDecoration(
           color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.06),
-          ),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
         ),
         child: Row(
           children: [
@@ -2462,10 +2560,7 @@ class _LaterOptionsSheet extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     subtitle,
-                    style: TextStyle(
-                      color: c.textSecondary,
-                      fontSize: 13,
-                    ),
+                    style: TextStyle(color: c.textSecondary, fontSize: 13),
                   ),
                 ],
               ),
@@ -2617,15 +2712,21 @@ class _GlowBorderPainter extends CustomPainter {
 
       // Bright line
       canvas.drawLine(
-        pts[idx], pts[nextIdx],
+        pts[idx],
+        pts[nextIdx],
         Paint()
           ..strokeWidth = 2.5
-          ..color = Color.lerp(gold, goldLight, t)!.withValues(alpha: alpha * 0.95)
+          ..color = Color.lerp(
+            gold,
+            goldLight,
+            t,
+          )!.withValues(alpha: alpha * 0.95)
           ..strokeCap = StrokeCap.round,
       );
       // Outer glow halo
       canvas.drawLine(
-        pts[idx], pts[nextIdx],
+        pts[idx],
+        pts[nextIdx],
         Paint()
           ..strokeWidth = 10
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8)
@@ -2858,7 +2959,10 @@ class _ScheduleBottomSheetState extends State<_ScheduleBottomSheet>
                 onTap: () => setState(() => _isAirport = !_isAirport),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 250),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   decoration: BoxDecoration(
                     color: _isAirport
                         ? const Color(0xFF4285F4).withValues(alpha: 0.12)
@@ -2875,13 +2979,17 @@ class _ScheduleBottomSheetState extends State<_ScheduleBottomSheet>
                       Icon(
                         Icons.flight_rounded,
                         size: 20,
-                        color: _isAirport ? const Color(0xFF4285F4) : _textSecondary,
+                        color: _isAirport
+                            ? const Color(0xFF4285F4)
+                            : _textSecondary,
                       ),
                       const SizedBox(width: 12),
                       Text(
                         'Airport trip',
                         style: TextStyle(
-                          color: _isAirport ? const Color(0xFF4285F4) : _textPrimary,
+                          color: _isAirport
+                              ? const Color(0xFF4285F4)
+                              : _textPrimary,
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
                         ),
@@ -2893,11 +3001,15 @@ class _ScheduleBottomSheetState extends State<_ScheduleBottomSheet>
                         height: 24,
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(12),
-                          color: _isAirport ? const Color(0xFF4285F4) : Colors.white12,
+                          color: _isAirport
+                              ? const Color(0xFF4285F4)
+                              : Colors.white12,
                         ),
                         child: AnimatedAlign(
                           duration: const Duration(milliseconds: 200),
-                          alignment: _isAirport ? Alignment.centerRight : Alignment.centerLeft,
+                          alignment: _isAirport
+                              ? Alignment.centerRight
+                              : Alignment.centerLeft,
                           child: Container(
                             width: 20,
                             height: 20,

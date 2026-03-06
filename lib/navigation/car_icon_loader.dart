@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -76,6 +77,8 @@ class CarIconLoader {
   CarIconLoader._();
 
   static final Map<String, BitmapDescriptor> _cache = {};
+  // Raw PNG bytes cache — used by Apple Maps on iOS (BitmapDescriptor is opaque).
+  static final Map<String, Uint8List> _bytesCache = {};
 
   static Future<BitmapDescriptor> load() => loadUber();
 
@@ -104,8 +107,32 @@ class CarIconLoader {
   }
 
   static Future<BitmapDescriptor> loadDriverIcon() => loadUber();
+
+  /// Returns raw PNG bytes for the uber (white sedan) icon.
+  /// Used by apple_maps_flutter on iOS to create BitmapDescriptor.
+  static Future<Uint8List?> loadUberBytes() async {
+    if (_bytesCache.containsKey('white')) return _bytesCache['white'];
+    await loadUber(); // triggers _render, which fills _bytesCache
+    return _bytesCache['white'];
+  }
+
+  /// Returns raw PNG bytes for a ride-specific icon.
+  static Future<Uint8List?> loadForRideBytes(String rideName) async {
+    final key = rideName.trim().toLowerCase();
+    if (key.contains('suburba')) {
+      if (_bytesCache.containsKey('suv_black')) return _bytesCache['suv_black'];
+      await loadForRide(rideName);
+      return _bytesCache['suv_black'];
+    }
+    final cacheKey = key.contains('fusion') ? 'black' : 'white';
+    if (_bytesCache.containsKey(cacheKey)) return _bytesCache[cacheKey];
+    await loadForRide(rideName);
+    return _bytesCache[cacheKey];
+  }
+
   static void invalidate() {
     _cache.clear();
+    _bytesCache.clear();
     _cardCache.clear();
   }
 
@@ -265,8 +292,12 @@ class CarIconLoader {
     final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
     if (bytes == null) return BitmapDescriptor.defaultMarker;
 
+    final pixelBytes = bytes.buffer.asUint8List();
+    // Cache raw bytes by palette so Apple Maps can use them on iOS.
+    final bKey = p == _CarPalette.whitePearl ? 'white' : 'black';
+    _bytesCache[bKey] = pixelBytes;
     // ignore: deprecated_member_use
-    return BitmapDescriptor.fromBytes(bytes.buffer.asUint8List());
+    return BitmapDescriptor.fromBytes(pixelBytes);
   }
 
   // =================================================================
@@ -315,8 +346,10 @@ class CarIconLoader {
     final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
     if (bytes == null) return BitmapDescriptor.defaultMarker;
 
+    final pixelBytes = bytes.buffer.asUint8List();
+    _bytesCache['suv_black'] = pixelBytes; // SUV marker is always black
     // ignore: deprecated_member_use
-    return BitmapDescriptor.fromBytes(bytes.buffer.asUint8List());
+    return BitmapDescriptor.fromBytes(pixelBytes);
   }
 
   // ── SUV Ground shadow ──────────────────────────────────────────────

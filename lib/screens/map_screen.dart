@@ -1,12 +1,15 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:apple_maps_flutter/apple_maps_flutter.dart' as amap;
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 import '../config/api_keys.dart';
@@ -107,8 +110,19 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   BitmapDescriptor? _goldPinIcon;
   BitmapDescriptor? _dropoffPinIcon;
+  // Raw bytes for the gold pins — used by Apple Maps on iOS.
+  Uint8List? _goldPinIconBytes;
+  Uint8List? _dropoffPinIconBytes;
+  Uint8List? _driverCarIconBytes;
 
   GoogleMapController? _mapController;
+
+  /// Apple Maps controller — non-null only on iOS.
+  amap.AppleMapController? _appleMapController;
+
+  /// True when either the Google or Apple map controller is ready.
+  bool get _hasMapController =>
+      Platform.isIOS ? _appleMapController != null : _mapController != null;
   LatLng? _currentPosition;
   LatLng? _cameraTarget;
 
@@ -230,7 +244,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     bool withHouse = false,
     bool isPickup = true,
   }) async {
-    const double size = 120;
+    const double size = 80;
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, size, size));
 
@@ -287,9 +301,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
     );
 
-    // White icon
+    // Black icon
     final iconPaint = Paint()
-      ..color = Colors.white
+      ..color = Colors.black
       ..isAntiAlias = true;
 
     if (withHouse) {
@@ -332,8 +346,114 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     final picture = recorder.endRecording();
     final img = await picture.toImage(size.toInt(), size.toInt());
     final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
+    final rawBytes = byteData!.buffer.asUint8List();
     // ignore: deprecated_member_use
-    return BitmapDescriptor.fromBytes(byteData!.buffer.asUint8List());
+    return BitmapDescriptor.fromBytes(rawBytes);
+  }
+
+  /// Renders the gold pin as raw PNG bytes (for Apple Maps on iOS).
+  Future<Uint8List> _buildGoldPinBytes({
+    bool withHouse = false,
+    bool isPickup = true,
+  }) async {
+    // Re-use the BitmapDescriptor builder; extract bytes from it.
+    final byteRecorder = ui.PictureRecorder();
+    const double size = 80;
+    final canvas = Canvas(byteRecorder, const Rect.fromLTWH(0, 0, size, size));
+
+    const cx = size / 2;
+    const cy = size / 2;
+    const r = size * 0.38;
+
+    // Drop shadow
+    canvas.drawCircle(
+      const Offset(cx, cy + 2),
+      r + 2,
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.35)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+    );
+
+    if (isPickup && !withHouse) {
+      canvas.drawCircle(const Offset(cx, cy), r, Paint()..color = _gold);
+      canvas.drawCircle(
+        const Offset(cx, cy),
+        r,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.5
+          ..color = Colors.white.withValues(alpha: 0.25),
+      );
+    } else {
+      final rect = RRect.fromRectAndRadius(
+        Rect.fromCenter(
+          center: const Offset(cx, cy),
+          width: r * 2,
+          height: r * 2,
+        ),
+        Radius.circular(r * 0.28),
+      );
+      canvas.drawRRect(rect, Paint()..color = _gold);
+      canvas.drawRRect(
+        rect,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.5
+          ..color = Colors.white.withValues(alpha: 0.25),
+      );
+    }
+
+    canvas.drawCircle(
+      Offset(cx - r * 0.2, cy - r * 0.2),
+      r * 0.5,
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.15)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+    );
+
+    final iconPaint = Paint()
+      ..color = Colors.black
+      ..isAntiAlias = true;
+
+    if (withHouse) {
+      final hs = size * 0.10;
+      final roof = Path()
+        ..moveTo(cx, cy - hs * 1.1)
+        ..lineTo(cx - hs * 1.0, cy - hs * 0.1)
+        ..lineTo(cx + hs * 1.0, cy - hs * 0.1)
+        ..close();
+      canvas.drawPath(roof, iconPaint);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTRB(
+            cx - hs * 0.7,
+            cy - hs * 0.1,
+            cx + hs * 0.7,
+            cy + hs * 0.8,
+          ),
+          Radius.circular(hs * 0.08),
+        ),
+        iconPaint,
+      );
+    } else {
+      final s = size * 0.10;
+      canvas.drawCircle(Offset(cx, cy - s * 0.6), s * 0.5, iconPaint);
+      canvas.drawRRect(
+        RRect.fromRectAndCorners(
+          Rect.fromLTRB(cx - s * 0.8, cy + s * 0.1, cx + s * 0.8, cy + s * 0.9),
+          topLeft: Radius.circular(s * 0.8),
+          topRight: Radius.circular(s * 0.8),
+          bottomLeft: Radius.circular(s * 0.15),
+          bottomRight: Radius.circular(s * 0.15),
+        ),
+        iconPaint,
+      );
+    }
+
+    final pic = byteRecorder.endRecording();
+    final img = await pic.toImage(size.toInt(), size.toInt());
+    final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
+    return byteData!.buffer.asUint8List();
   }
 
   Marker _pickupMapMarker(LatLng position, {String? snippet}) {
@@ -418,8 +538,13 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _loadPinIcons() async {
-    _goldPinIcon = await _buildGoldPin(isPickup: true);
-    _dropoffPinIcon = await _buildGoldPin(withHouse: true, isPickup: false);
+    _goldPinIconBytes = await _buildGoldPinBytes(isPickup: true);
+    _goldPinIcon = BitmapDescriptor.fromBytes(_goldPinIconBytes!);
+    _dropoffPinIconBytes = await _buildGoldPinBytes(
+      withHouse: true,
+      isPickup: false,
+    );
+    _dropoffPinIcon = BitmapDescriptor.fromBytes(_dropoffPinIconBytes!);
     if (!mounted) return;
     setState(() {
       _pickupMarker = _pickupMapMarker(
@@ -970,15 +1095,99 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     if (_currentPosition != null) {
       _centerMapOn(_currentPosition!, zoom: _defaultMapZoom);
     }
-    // Apply map style after a brief delay — passing style: in the constructor
-    // prevents tile loading on iOS (tiles stay grey). setMapStyle after
-    // onMapCreated is the reliable cross-platform approach.
-    Future.delayed(const Duration(milliseconds: 150), () {
-      if (!mounted) return;
-      // ignore: deprecated_member_use
-      _mapController?.setMapStyle(_mapStyle);
-    });
+    // On Android apply dark style; on iOS skip custom style to prevent
+    // tile loading failure (grey map). Tiles load fine on iOS without style.
+    if (!kIsWeb && !Platform.isIOS) {
+      Future.delayed(const Duration(milliseconds: 150), () {
+        if (!mounted) return;
+        // ignore: deprecated_member_use
+        _mapController?.setMapStyle(_mapStyle);
+      });
+    }
   }
+
+  /// Called when the Apple Maps widget is ready (iOS only).
+  void _onAppleMapCreated(amap.AppleMapController controller) {
+    _appleMapController = controller;
+    if (_currentPosition != null) {
+      _centerMapOn(_currentPosition!, zoom: _defaultMapZoom);
+    }
+  }
+
+  /// Camera-move callback for Apple Maps on iOS.
+  void _onAppleCameraMove(amap.CameraPosition position) {
+    _cameraTarget = LatLng(position.target.latitude, position.target.longitude);
+    if (!_isRecentering) _isCenteredOnPickup = false;
+  }
+
+  // ── Platform-aware camera helpers ─────────────────────────────────────
+
+  /// Pan the camera to [target] with optional zoom/bearing/tilt.
+  /// Works for both Google Maps (Android) and Apple Maps (iOS).
+  Future<void> _panTo(
+    LatLng target, {
+    double? zoom,
+    double bearing = 0,
+    double tilt = 0,
+  }) async {
+    final z = zoom ?? await _currentZoom();
+    if (Platform.isIOS) {
+      await _appleMapController?.animateCamera(
+        amap.CameraUpdate.newCameraPosition(
+          amap.CameraPosition(
+            target: amap.LatLng(target.latitude, target.longitude),
+            zoom: z,
+            heading: bearing,
+          ),
+        ),
+      );
+    } else {
+      await _mapController?.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(target: target, zoom: z, bearing: bearing, tilt: tilt),
+        ),
+      );
+    }
+  }
+
+  /// Fit the camera to [bounds] with [padding] (pixels) on all sides.
+  Future<void> _fitBounds(LatLngBounds bounds, double padding) async {
+    if (Platform.isIOS) {
+      await _appleMapController?.animateCamera(
+        amap.CameraUpdate.newLatLngBounds(
+          amap.LatLngBounds(
+            southwest: amap.LatLng(
+              bounds.southwest.latitude,
+              bounds.southwest.longitude,
+            ),
+            northeast: amap.LatLng(
+              bounds.northeast.latitude,
+              bounds.northeast.longitude,
+            ),
+          ),
+          padding,
+        ),
+      );
+    } else {
+      await _mapController?.animateCamera(
+        CameraUpdate.newLatLngBounds(bounds, padding),
+      );
+    }
+  }
+
+  /// Returns the current map zoom level on whichever platform is active.
+  Future<double> _currentZoom() async {
+    try {
+      if (Platform.isIOS) {
+        return await _appleMapController?.getZoomLevel() ?? _defaultMapZoom;
+      }
+      return await _mapController?.getZoomLevel() ?? _defaultMapZoom;
+    } catch (_) {
+      return _defaultMapZoom;
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────
 
   EdgeInsets _mapPaddingForContext(BuildContext context) {
     final media = MediaQuery.of(context);
@@ -989,7 +1198,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _centerMapOn(LatLng target, {double zoom = 15.5}) async {
-    if (_mapController == null) return;
+    if (!_hasMapController) return;
     await _smoothCameraTransition(target, zoom);
   }
 
@@ -997,31 +1206,19 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   /// For large zoom deltas, performs an intermediate step so the animation
   /// doesn't "jump" â€” mimicking the fluid feel of premium ride-hailing apps.
   Future<void> _smoothCameraTransition(LatLng target, double targetZoom) async {
-    if (_mapController == null) return;
-    final currentZoom = await _mapController!.getZoomLevel();
+    if (!_hasMapController) return;
+    final currentZoom = await _currentZoom();
     final zoomDelta = (targetZoom - currentZoom).abs();
 
     if (zoomDelta > 4.0) {
       // Large zoom change â†’ 2-step glide via midpoint zoom
       final midZoom = currentZoom + (targetZoom - currentZoom) * 0.5;
-      await _mapController!.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(target: target, zoom: midZoom),
-        ),
-      );
+      await _panTo(target, zoom: midZoom);
       await Future.delayed(const Duration(milliseconds: 120));
-      await _mapController!.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(target: target, zoom: targetZoom),
-        ),
-      );
+      await _panTo(target, zoom: targetZoom);
     } else {
       // Normal zoom change â†’ single smooth animation
-      await _mapController!.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(target: target, zoom: targetZoom),
-        ),
-      );
+      await _panTo(target, zoom: targetZoom);
     }
   }
 
@@ -1030,7 +1227,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   /// 2nd tap â†’ zoom IN close to pickup (street-level).
   /// Never moves or resets the pickup marker.
   Future<void> _recenterToMyLocation() async {
-    if (_mapController == null) return;
+    if (!_hasMapController) return;
     final pickup = _pickupMarker?.position ?? _currentPosition;
     if (pickup == null) return;
 
@@ -1968,9 +2165,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _fitMapToRoute() async {
-    if (_mapController == null ||
-        _pickupMarker == null ||
-        _dropoffMarker == null) {
+    if (!_hasMapController || _pickupMarker == null || _dropoffMarker == null) {
       return;
     }
 
@@ -1989,15 +2184,13 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       // that accounts for the top bar and bottom panel.
       // So newLatLngBounds with a small extra padding will center the route
       // perfectly in the visible area between the UI elements.
-      await _mapController!.animateCamera(
-        CameraUpdate.newLatLngBounds(bounds, 50),
-      );
+      await _fitBounds(bounds, 50);
 
       // Wait for animation to settle, then clamp zoom
       await Future.delayed(const Duration(milliseconds: 250));
-      if (!mounted || _mapController == null) return;
+      if (!mounted || !_hasMapController) return;
 
-      final currentZoom = await _mapController!.getZoomLevel();
+      final currentZoom = await _currentZoom();
       // Min 12.0 (not too zoomed out), Max 15.5 (keeps context)
       final clampedZoom = currentZoom.clamp(12.0, 15.5);
       if ((clampedZoom - currentZoom).abs() > 0.2) {
@@ -2006,28 +2199,20 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             (bounds.northeast.latitude + bounds.southwest.latitude) / 2;
         final midLng =
             (bounds.northeast.longitude + bounds.southwest.longitude) / 2;
-        await _mapController!.animateCamera(
-          CameraUpdate.newCameraPosition(
-            CameraPosition(target: LatLng(midLat, midLng), zoom: clampedZoom),
-          ),
-        );
+        await _panTo(LatLng(midLat, midLng), zoom: clampedZoom);
       }
     } catch (_) {
       final center = LatLng(
         (bounds.southwest.latitude + bounds.northeast.latitude) / 2,
         (bounds.southwest.longitude + bounds.northeast.longitude) / 2,
       );
-      await _mapController!.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(target: center, zoom: 13.0),
-        ),
-      );
+      await _panTo(center, zoom: 13.0);
       await _applyRouteVerticalBias(bounds);
     }
   }
 
   Future<void> _applyRouteVerticalBias(LatLngBounds bounds) async {
-    if (_mapController == null) return;
+    if (!_hasMapController) return;
 
     final latSpan = (bounds.northeast.latitude - bounds.southwest.latitude)
         .abs();
@@ -2047,21 +2232,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       _usBounds.northeast.latitude,
     );
 
-    double zoom;
-    try {
-      zoom = await _mapController!.getZoomLevel();
-    } catch (_) {
-      zoom = 13.8;
-    }
-
-    await _mapController!.animateCamera(
-      CameraUpdate.newCameraPosition(
-        CameraPosition(
-          target: LatLng(boundedLat, center.longitude),
-          zoom: zoom,
-        ),
-      ),
-    );
+    final zoom = await _currentZoom().catchError((_) => 13.8);
+    await _panTo(LatLng(boundedLat, center.longitude), zoom: zoom);
   }
 
   double _routeVerticalShiftFactor() {
@@ -2124,7 +2296,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _animateCameraToSelection(LatLng target) async {
-    if (_mapController == null) return;
+    if (!_hasMapController) return;
     await _smoothCameraTransition(target, 16.4);
   }
 
@@ -2162,6 +2334,93 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   // Route line color: always gold for brand consistency
   Color get _routeColor => const Color(0xFF4285F4);
+
+  // ── Apple Maps computed overlays (iOS only) ─────────────────────────────
+
+  /// Converts current markers to Apple Maps [Annotation] objects.
+  Set<amap.Annotation> get _appleAnnotations {
+    final result = <amap.Annotation>{};
+
+    // Pickup
+    final pickup = _pickupMarker;
+    if (pickup != null && _tripStatus != 'in_trip') {
+      final bytes = _goldPinIconBytes;
+      result.add(
+        amap.Annotation(
+          annotationId: amap.AnnotationId(pickup.markerId.value),
+          position: amap.LatLng(
+            pickup.position.latitude,
+            pickup.position.longitude,
+          ),
+          icon: bytes != null
+              ? amap.BitmapDescriptor.fromBytes(bytes)
+              : amap.BitmapDescriptor.defaultAnnotation,
+          draggable: pickup.draggable,
+          onDragEnd: pickup.onDragEnd != null
+              ? (amap.LatLng p) =>
+                    pickup.onDragEnd!(LatLng(p.latitude, p.longitude))
+              : null,
+        ),
+      );
+    }
+
+    // Dropoff
+    final dropoff = _dropoffMarker;
+    if (dropoff != null) {
+      final bytes = _dropoffPinIconBytes ?? _goldPinIconBytes;
+      result.add(
+        amap.Annotation(
+          annotationId: amap.AnnotationId(dropoff.markerId.value),
+          position: amap.LatLng(
+            dropoff.position.latitude,
+            dropoff.position.longitude,
+          ),
+          icon: bytes != null
+              ? amap.BitmapDescriptor.fromBytes(bytes)
+              : amap.BitmapDescriptor.defaultAnnotation,
+        ),
+      );
+    }
+
+    // Driver (rotation not supported in apple_maps_flutter; icon still shown)
+    final driver = _driverMarker;
+    if (driver != null) {
+      final bytes = _driverCarIconBytes;
+      result.add(
+        amap.Annotation(
+          annotationId: amap.AnnotationId(driver.markerId.value),
+          position: amap.LatLng(
+            driver.position.latitude,
+            driver.position.longitude,
+          ),
+          icon: bytes != null
+              ? amap.BitmapDescriptor.fromBytes(bytes)
+              : amap.BitmapDescriptor.defaultAnnotation,
+          alpha: 1.0,
+        ),
+      );
+    }
+
+    return result;
+  }
+
+  /// Converts current Google polylines to Apple Maps [Polyline] objects.
+  Set<amap.Polyline> get _applePolylines {
+    return _polylines
+        .map(
+          (p) => amap.Polyline(
+            polylineId: amap.PolylineId(p.polylineId.value),
+            points: p.points
+                .map((ll) => amap.LatLng(ll.latitude, ll.longitude))
+                .toList(),
+            color: p.color,
+            width: p.width,
+          ),
+        )
+        .toSet();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
 
   Set<Polyline> _buildRoutePolylines(List<LatLng> points) {
     final baseColor = _routeColor;
@@ -2237,6 +2496,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     // When the theme flips between light â†” dark, re-apply the map JSON style
     if (_lastIsDark != null &&
         _lastIsDark != _c.isDark &&
+        !Platform.isIOS &&
         _mapController != null) {
       final style = _mapStyle;
       // ignore: deprecated_member_use
@@ -2250,37 +2510,58 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       body: Stack(
         children: [
           RepaintBoundary(
-            child: GoogleMap(
-              onMapCreated: _onMapCreated,
-              onCameraMove: _onCameraMove,
-              onCameraIdle: _onCameraIdle,
-              onTap: _onMapTap,
-              initialCameraPosition: CameraPosition(
-                target: _currentPosition!,
-                zoom: 14,
-              ),
-              cameraTargetBounds: CameraTargetBounds(_usBounds),
-              padding: _mapPaddingForContext(context),
-              myLocationEnabled: true,
-              myLocationButtonEnabled: false,
-              zoomControlsEnabled: false,
-              zoomGesturesEnabled: true,
-              rotateGesturesEnabled: true,
-              scrollGesturesEnabled: true,
-              tiltGesturesEnabled: false,
-              compassEnabled: true,
-              mapToolbarEnabled: false,
-              buildingsEnabled: false,
-              liteModeEnabled: false,
-              markers: {
-                // Hide pickup pin once the driver starts the trip
-                if (_pickupMarker != null && _tripStatus != 'in_trip')
-                  _pickupMarker!,
-                ?_dropoffMarker,
-                ?_driverMarker,
-              },
-              polylines: _polylines,
-            ),
+            child: Platform.isIOS
+                ? amap.AppleMap(
+                    initialCameraPosition: amap.CameraPosition(
+                      target: amap.LatLng(
+                        _currentPosition!.latitude,
+                        _currentPosition!.longitude,
+                      ),
+                      zoom: 14,
+                    ),
+                    onMapCreated: _onAppleMapCreated,
+                    onCameraMove: _onAppleCameraMove,
+                    onCameraIdle: _onCameraIdle,
+                    onTap: (p) => _onMapTap(LatLng(p.latitude, p.longitude)),
+                    myLocationEnabled: true,
+                    myLocationButtonEnabled: false,
+                    zoomGesturesEnabled: true,
+                    rotateGesturesEnabled: true,
+                    scrollGesturesEnabled: true,
+                    compassEnabled: true,
+                    annotations: _appleAnnotations,
+                    polylines: _applePolylines,
+                  )
+                : GoogleMap(
+                    onMapCreated: _onMapCreated,
+                    onCameraMove: _onCameraMove,
+                    onCameraIdle: _onCameraIdle,
+                    onTap: _onMapTap,
+                    initialCameraPosition: CameraPosition(
+                      target: _currentPosition!,
+                      zoom: 14,
+                    ),
+                    cameraTargetBounds: CameraTargetBounds(_usBounds),
+                    padding: _mapPaddingForContext(context),
+                    myLocationEnabled: true,
+                    myLocationButtonEnabled: false,
+                    zoomControlsEnabled: false,
+                    zoomGesturesEnabled: true,
+                    rotateGesturesEnabled: true,
+                    scrollGesturesEnabled: true,
+                    tiltGesturesEnabled: false,
+                    compassEnabled: true,
+                    mapToolbarEnabled: false,
+                    buildingsEnabled: false,
+                    liteModeEnabled: false,
+                    markers: {
+                      if (_pickupMarker != null && _tripStatus != 'in_trip')
+                        _pickupMarker!,
+                      ?_dropoffMarker,
+                      ?_driverMarker,
+                    },
+                    polylines: _polylines,
+                  ),
           ),
           if (_stage == RideStage.pin && !_hasPreparedRoute)
             Center(
@@ -3368,12 +3649,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     // Zoom into current location for precise pickup selection
     _isRecentering = true;
     final myPos = _currentPosition ?? _pickupMarker?.position;
-    if (myPos != null && _mapController != null) {
-      await _mapController!.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(target: myPos, zoom: 17.5),
-        ),
-      );
+    if (myPos != null && _hasMapController) {
+      await _panTo(myPos, zoom: 17.5);
     }
   }
 
@@ -3707,16 +3984,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     math.sin(aLat) * math.cos(bLat) * math.cos(dLng);
                 tripBearing = (math.atan2(x, y) * 180 / math.pi + 360) % 360;
               }
-              _mapController?.animateCamera(
-                CameraUpdate.newCameraPosition(
-                  CameraPosition(
-                    target: _driverPosition!,
-                    zoom: 18.5,
-                    bearing: tripBearing,
-                    tilt: 0,
-                  ),
-                ),
-              );
+              _panTo(_driverPosition!, zoom: 18.5, bearing: tripBearing);
             }
             // Draw/update route from driver â†’ dropoff
             await _updateDriverRoute(status);
@@ -3783,16 +4051,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     math.sin(aLat) * math.cos(bLat) * math.cos(dLng);
                 pickupBearing = (math.atan2(x, y) * 180 / math.pi + 360) % 360;
               }
-              _mapController?.animateCamera(
-                CameraUpdate.newCameraPosition(
-                  CameraPosition(
-                    target: _driverPosition!,
-                    zoom: 18.5,
-                    bearing: pickupBearing,
-                    tilt: 0,
-                  ),
-                ),
-              );
+              _panTo(_driverPosition!, zoom: 18.5, bearing: pickupBearing);
             }
             // Draw/update route from driver â†’ pickup
             await _updateDriverRoute(status);
@@ -4081,7 +4340,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   /// Fit the map to show all the given points with padding.
   void _fitRideBounds(List<LatLng> points) {
-    if (points.isEmpty || _mapController == null) return;
+    if (points.isEmpty || !_hasMapController) return;
     double minLat = points.first.latitude, maxLat = minLat;
     double minLng = points.first.longitude, maxLng = minLng;
     for (final p in points) {
@@ -4101,14 +4360,12 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       minLng -= adj;
       maxLng += adj;
     }
-    _mapController?.animateCamera(
-      CameraUpdate.newLatLngBounds(
-        LatLngBounds(
-          southwest: LatLng(minLat - 0.003, minLng - 0.003),
-          northeast: LatLng(maxLat + 0.003, maxLng + 0.003),
-        ),
-        80,
+    _fitBounds(
+      LatLngBounds(
+        southwest: LatLng(minLat - 0.003, minLng - 0.003),
+        northeast: LatLng(maxLat + 0.003, maxLng + 0.003),
       ),
+      80,
     );
   }
 
@@ -4263,16 +4520,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
     // ── 3D Chase-Cam: follow driver every frame for game-like feel ──
     if (_stage == RideStage.riding && _driverPosition != null) {
-      _mapController?.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(
-            target: _driverPosition!,
-            zoom: 18.5,
-            bearing: _driverBearing,
-            tilt: 0, // max 3D perspective
-          ),
-        ),
-      );
+      _panTo(_driverPosition!, zoom: 18.5, bearing: _driverBearing);
     }
 
     // Trim route behind driver on every frame for seamless visual
@@ -4283,7 +4531,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   /// Uber-style driver car icon (delegates to CarIconLoader).
   Future<void> _buildDriverCarIcon() async {
-    final icon = await CarIconLoader.loadUber();
+    _driverCarIconBytes = await CarIconLoader.loadUberBytes();
+    final icon = _driverCarIconBytes != null
+        ? BitmapDescriptor.fromBytes(_driverCarIconBytes!)
+        : await CarIconLoader.loadUber();
     if (mounted) setState(() => _driverCarIcon = icon);
   }
 
