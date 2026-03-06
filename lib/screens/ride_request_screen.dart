@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:apple_maps_flutter/apple_maps_flutter.dart' as amap;
 import 'package:geolocator/geolocator.dart';
 
 import '../navigation/car_icon_loader.dart';
@@ -54,6 +56,7 @@ class _RideRequestScreenState extends State<RideRequestScreen>
     with TickerProviderStateMixin {
   // ── Map ──
   GoogleMapController? _mapCtrl;
+  amap.AppleMapController? _appleMapCtrl;
   LatLng _center = const LatLng(25.7617, -80.1918); // Miami default
   LatLng? _userLocation;
   bool _mapReady = false;
@@ -147,7 +150,7 @@ class _RideRequestScreenState extends State<RideRequestScreen>
     if (mounted) setState(() {});
   }
 
-  static const _gold = Color(0xFFE8C547);
+  static const _gold = Color(0xFF222222);
 
   /// Detect what icon to show on the dropoff pin based on address text.
   static _PinIcon _detectDropoffType(String address) {
@@ -241,7 +244,7 @@ class _RideRequestScreenState extends State<RideRequestScreen>
     final showEta = etaText != null && etaText.isNotEmpty;
 
     // ── Pin dimensions ──
-    const pinSize = 180.0;
+    const pinSize = 130.0;
 
     // ── Measure label text ──
     final textPainter = TextPainter(
@@ -368,7 +371,7 @@ class _RideRequestScreenState extends State<RideRequestScreen>
     _PinIcon icon = _PinIcon.none,
     bool isPickup = true,
   }) async {
-    const double size = 170;
+    const double size = 120;
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, size, size));
     _drawGoldPinAt(canvas, 0, 0, size, icon: icon, isPickup: isPickup);
@@ -438,7 +441,7 @@ class _RideRequestScreenState extends State<RideRequestScreen>
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
     );
 
-    // Draw icon directly on gold — modern filled style
+    // Draw icon directly on pin — modern filled style
     final iconColor = Colors.white;
     final iconPaint = Paint()
       ..color = iconColor
@@ -669,6 +672,14 @@ class _RideRequestScreenState extends State<RideRequestScreen>
         _fetchingLocation = false;
       });
       _mapCtrl?.animateCamera(CameraUpdate.newLatLngZoom(ll, 15.5));
+      _appleMapCtrl?.animateCamera(
+        amap.CameraUpdate.newCameraPosition(
+          amap.CameraPosition(
+            target: amap.LatLng(ll.latitude, ll.longitude),
+            zoom: 15.5,
+          ),
+        ),
+      );
 
       // Reverse geocode for address
       final places = PlacesService(ApiKeys.webServices);
@@ -792,7 +803,7 @@ class _RideRequestScreenState extends State<RideRequestScreen>
     if (s.route == null) return;
 
     final fallback =
-        _goldPinIcon ?? BitmapDescriptor.defaultMarkerWithHue(45.0);
+        _goldPinIcon ?? BitmapDescriptor.defaultMarker;
     final markers = <Marker>{};
 
     // Pickup: one single marker, swaps between pin-only and pin+label
@@ -854,7 +865,9 @@ class _RideRequestScreenState extends State<RideRequestScreen>
   void _togglePinLabels() {}
 
   void _fitRoute(List<LatLng> pts) {
-    if (pts.isEmpty || _mapCtrl == null) return;
+    if (pts.isEmpty) return;
+    final hasCtrl = Platform.isIOS ? _appleMapCtrl != null : _mapCtrl != null;
+    if (!hasCtrl) return;
     double minLat = 90, maxLat = -90, minLng = 180, maxLng = -180;
     for (final p in pts) {
       if (p.latitude < minLat) minLat = p.latitude;
@@ -862,15 +875,27 @@ class _RideRequestScreenState extends State<RideRequestScreen>
       if (p.longitude < minLng) minLng = p.longitude;
       if (p.longitude > maxLng) maxLng = p.longitude;
     }
-    _mapCtrl!.animateCamera(
-      CameraUpdate.newLatLngBounds(
-        LatLngBounds(
-          southwest: LatLng(minLat, minLng),
-          northeast: LatLng(maxLat, maxLng),
+    if (Platform.isIOS) {
+      _appleMapCtrl!.animateCamera(
+        amap.CameraUpdate.newLatLngBounds(
+          amap.LatLngBounds(
+            southwest: amap.LatLng(minLat, minLng),
+            northeast: amap.LatLng(maxLat, maxLng),
+          ),
+          80,
         ),
-        80,
-      ),
-    );
+      );
+    } else {
+      _mapCtrl!.animateCamera(
+        CameraUpdate.newLatLngBounds(
+          LatLngBounds(
+            southwest: LatLng(minLat, minLng),
+            northeast: LatLng(maxLat, maxLng),
+          ),
+          80,
+        ),
+      );
+    }
   }
 
   void _goToTracking() {
@@ -948,6 +973,33 @@ class _RideRequestScreenState extends State<RideRequestScreen>
   }
 
   // ═══════════════════════════════════════════════════════
+  //  APPLE MAPS CONVERTERS
+  // ═══════════════════════════════════════════════════════
+
+  Set<amap.Annotation> get _appleAnnotations {
+    return _markers.map((m) {
+      return amap.Annotation(
+        annotationId: amap.AnnotationId(m.markerId.value),
+        position: amap.LatLng(m.position.latitude, m.position.longitude),
+        icon: amap.BitmapDescriptor.defaultAnnotation,
+      );
+    }).toSet();
+  }
+
+  Set<amap.Polyline> get _applePolylines {
+    return _polylines.map((p) {
+      return amap.Polyline(
+        polylineId: amap.PolylineId(p.polylineId.value),
+        points: p.points
+            .map((ll) => amap.LatLng(ll.latitude, ll.longitude))
+            .toList(),
+        color: p.color,
+        width: p.width,
+      );
+    }).toSet();
+  }
+
+  // ═══════════════════════════════════════════════════════
   //  BUILD
   // ═══════════════════════════════════════════════════════
 
@@ -966,44 +1018,83 @@ class _RideRequestScreenState extends State<RideRequestScreen>
           children: [
             // ── Map ──
             RepaintBoundary(
-              child: GoogleMap(
-                style: isDark ? MapStyles.dark : MapStyles.light,
-                initialCameraPosition: CameraPosition(
-                  target: _center,
-                  zoom: 15.5,
-                ),
-                onMapCreated: (ctrl) {
-                  _mapCtrl = ctrl;
-                  setState(() => _mapReady = true);
-                  if (_userLocation != null) {
-                    ctrl.animateCamera(
-                      CameraUpdate.newLatLngZoom(_userLocation!, 15.5),
-                    );
-                  }
-                },
-                onCameraMoveStarted: () {
-                  if (!_programmaticCam) {
-                    setState(() => _userMovedMap = true);
-                  }
-                },
-                onCameraMove: (_) {},
-                onCameraIdle: () => _programmaticCam = false,
-                markers: _markers,
-                polylines: _polylines,
-                myLocationEnabled: true,
-                myLocationButtonEnabled: false,
-                zoomControlsEnabled: false,
-                zoomGesturesEnabled: true,
-                scrollGesturesEnabled: true,
-                compassEnabled: false,
-                mapToolbarEnabled: false,
-                buildingsEnabled: false,
-                trafficEnabled: false,
-                liteModeEnabled: false,
-                padding: EdgeInsets.only(
-                  bottom: _bottomSheetHeight(phase, bottomPad),
-                ),
-              ),
+              child: Platform.isIOS
+                  ? amap.AppleMap(
+                      initialCameraPosition: amap.CameraPosition(
+                        target: amap.LatLng(
+                          _center.latitude,
+                          _center.longitude,
+                        ),
+                        zoom: 15.5,
+                      ),
+                      mapType: amap.MapType.standard,
+                      onMapCreated: (ctrl) {
+                        _appleMapCtrl = ctrl;
+                        setState(() => _mapReady = true);
+                        if (_userLocation != null) {
+                          ctrl.animateCamera(
+                            amap.CameraUpdate.newCameraPosition(
+                              amap.CameraPosition(
+                                target: amap.LatLng(
+                                  _userLocation!.latitude,
+                                  _userLocation!.longitude,
+                                ),
+                                zoom: 15.5,
+                              ),
+                            ),
+                          );
+                        }
+                      },
+                      myLocationEnabled: true,
+                      myLocationButtonEnabled: false,
+                      zoomGesturesEnabled: true,
+                      scrollGesturesEnabled: true,
+                      pitchGesturesEnabled: true,
+                      compassEnabled: false,
+                      padding: EdgeInsets.only(
+                        bottom: _bottomSheetHeight(phase, bottomPad),
+                      ),
+                      annotations: _appleAnnotations,
+                      polylines: _applePolylines,
+                    )
+                  : GoogleMap(
+                      style: isDark ? MapStyles.dark : MapStyles.light,
+                      initialCameraPosition: CameraPosition(
+                        target: _center,
+                        zoom: 15.5,
+                      ),
+                      onMapCreated: (ctrl) {
+                        _mapCtrl = ctrl;
+                        setState(() => _mapReady = true);
+                        if (_userLocation != null) {
+                          ctrl.animateCamera(
+                            CameraUpdate.newLatLngZoom(_userLocation!, 15.5),
+                          );
+                        }
+                      },
+                      onCameraMoveStarted: () {
+                        if (!_programmaticCam) {
+                          setState(() => _userMovedMap = true);
+                        }
+                      },
+                      onCameraMove: (_) {},
+                      onCameraIdle: () => _programmaticCam = false,
+                      markers: _markers,
+                      polylines: _polylines,
+                      myLocationEnabled: true,
+                      myLocationButtonEnabled: false,
+                      zoomControlsEnabled: false,
+                      zoomGesturesEnabled: true,
+                      scrollGesturesEnabled: true,
+                      compassEnabled: false,
+                      mapToolbarEnabled: false,
+                      buildingsEnabled: false,
+                      trafficEnabled: false,
+                      liteModeEnabled: false,
+                      padding: EdgeInsets.only(
+                        bottom: _bottomSheetHeight(phase, bottomPad),
+                      ),
+                    ),
             ),
 
             // ── Back button ──
@@ -1424,10 +1515,11 @@ class _RideRequestScreenState extends State<RideRequestScreen>
                                 Future.delayed(
                                   const Duration(milliseconds: 250),
                                   () {
-                                    if (mounted)
+                                    if (mounted) {
                                       setState(
                                         () => _rideOptionsExpanded = false,
                                       );
+                                    }
                                   },
                                 );
                               },
@@ -3097,8 +3189,34 @@ class _RideRequestScreenState extends State<RideRequestScreen>
         ),
       );
       _mapCtrl?.animateCamera(CameraUpdate.newLatLngBounds(bounds, 80));
+      _appleMapCtrl?.animateCamera(
+        amap.CameraUpdate.newLatLngBounds(
+          amap.LatLngBounds(
+            southwest: amap.LatLng(
+              bounds.southwest.latitude,
+              bounds.southwest.longitude,
+            ),
+            northeast: amap.LatLng(
+              bounds.northeast.latitude,
+              bounds.northeast.longitude,
+            ),
+          ),
+          80,
+        ),
+      );
     } else if (_userLocation != null) {
       _mapCtrl?.animateCamera(CameraUpdate.newLatLngZoom(_userLocation!, 15.5));
+      _appleMapCtrl?.animateCamera(
+        amap.CameraUpdate.newCameraPosition(
+          amap.CameraPosition(
+            target: amap.LatLng(
+              _userLocation!.latitude,
+              _userLocation!.longitude,
+            ),
+            zoom: 15.5,
+          ),
+        ),
+      );
     }
   }
 

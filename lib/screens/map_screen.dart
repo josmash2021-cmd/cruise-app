@@ -93,6 +93,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   static const _gold = Color(0xFFE8C547);
+  static const _pinColor = Color(0xFF222222);
   static const _birminghamDefault = LatLng(33.5186, -86.8104);
 
   /// Picks the right JSON map style based on the system theme (light phone = light map).
@@ -106,7 +107,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     northeast: LatLng(49.384358, -66.885444),
   );
   static const double _defaultMapZoom = 13.7;
-  static const double _goldPinHue = 42.0;
+  static const double _goldPinHue = 0.0;
 
   BitmapDescriptor? _goldPinIcon;
   BitmapDescriptor? _dropoffPinIcon;
@@ -263,7 +264,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
     if (isPickup) {
       // ── Circle shape for pickup ──
-      canvas.drawCircle(const Offset(cx, cy), r, Paint()..color = _gold);
+      canvas.drawCircle(const Offset(cx, cy), r, Paint()..color = _pinColor);
       canvas.drawCircle(
         const Offset(cx, cy),
         r,
@@ -282,7 +283,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         ),
         Radius.circular(r * 0.28),
       );
-      canvas.drawRRect(rect, Paint()..color = _gold);
+      canvas.drawRRect(rect, Paint()..color = _pinColor);
       canvas.drawRRect(
         rect,
         Paint()
@@ -301,9 +302,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
     );
 
-    // Black icon
+    // White icon on dark pin
     final iconPaint = Paint()
-      ..color = Colors.black
+      ..color = Colors.white
       ..isAntiAlias = true;
 
     if (withHouse) {
@@ -375,7 +376,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     );
 
     if (isPickup && !withHouse) {
-      canvas.drawCircle(const Offset(cx, cy), r, Paint()..color = _gold);
+      canvas.drawCircle(const Offset(cx, cy), r, Paint()..color = _pinColor);
       canvas.drawCircle(
         const Offset(cx, cy),
         r,
@@ -393,7 +394,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         ),
         Radius.circular(r * 0.28),
       );
-      canvas.drawRRect(rect, Paint()..color = _gold);
+      canvas.drawRRect(rect, Paint()..color = _pinColor);
       canvas.drawRRect(
         rect,
         Paint()
@@ -412,7 +413,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     );
 
     final iconPaint = Paint()
-      ..color = Colors.black
+      ..color = Colors.white
       ..isAntiAlias = true;
 
     if (withHouse) {
@@ -1138,7 +1139,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             target: amap.LatLng(target.latitude, target.longitude),
             zoom: z,
             heading: bearing,
-            pitch: tilt,       // 3D tilt for navigation chase-cam on iOS
+            pitch: tilt, // 3D tilt for navigation chase-cam on iOS
           ),
         ),
       );
@@ -3988,7 +3989,12 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     math.sin(aLat) * math.cos(bLat) * math.cos(dLng);
                 tripBearing = (math.atan2(x, y) * 180 / math.pi + 360) % 360;
               }
-              _panTo(_driverPosition!, zoom: 18.5, bearing: tripBearing, tilt: 45);
+              _panTo(
+                _driverPosition!,
+                zoom: 18.5,
+                bearing: tripBearing,
+                tilt: 45,
+              );
             }
             // Draw/update route from driver â†’ dropoff
             await _updateDriverRoute(status);
@@ -4055,7 +4061,12 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     math.sin(aLat) * math.cos(bLat) * math.cos(dLng);
                 pickupBearing = (math.atan2(x, y) * 180 / math.pi + 360) % 360;
               }
-              _panTo(_driverPosition!, zoom: 18.5, bearing: pickupBearing, tilt: 45);
+              _panTo(
+                _driverPosition!,
+                zoom: 18.5,
+                bearing: pickupBearing,
+                tilt: 45,
+              );
             }
             // Draw/update route from driver â†’ pickup
             await _updateDriverRoute(status);
@@ -6876,4 +6887,3 @@ class _AnimatedSearchTextState extends State<_AnimatedSearchText> {
 }
 
 // Map styles are now in config/map_styles.dart (MapStyles.dark / MapStyles.light)
-

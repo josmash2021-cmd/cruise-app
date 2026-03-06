@@ -1962,9 +1962,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   Marker(
                     markerId: const MarkerId('current'),
                     position: _currentLatLng!,
-                    icon: BitmapDescriptor.defaultMarkerWithHue(
-                      BitmapDescriptor.hueOrange,
-                    ),
+                    icon: BitmapDescriptor.defaultMarker,
                   ),
                 },
                 myLocationEnabled: false,

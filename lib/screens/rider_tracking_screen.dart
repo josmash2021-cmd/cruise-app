@@ -1,17 +1,18 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:apple_maps_flutter/apple_maps_flutter.dart' as amap;
 
 import '../config/app_theme.dart';
 import '../config/map_styles.dart';
-import '../navigation/car_icon_loader.dart';
 import '../services/directions_service.dart';
 import '../config/api_keys.dart';
-import 'chat_screen.dart';
 
 class RiderTrackingScreen extends StatefulWidget {
   const RiderTrackingScreen({
@@ -58,17 +59,10 @@ enum _TrackPhase { arriving, arrived, onTrip, completed }
 class _RiderTrackingScreenState extends State<RiderTrackingScreen>
     with TickerProviderStateMixin {
   GoogleMapController? _map;
+  amap.AppleMapController? _appleMap;
   BitmapDescriptor? _carIcon;
-  BitmapDescriptor? _carIconCar;
-  BitmapDescriptor? _navArrowIcon;
-  BitmapDescriptor? _goldPinIcon;
-  BitmapDescriptor? _pickupPersonPin;
-  BitmapDescriptor? _dropoffHousePin;
-  Marker? _cachedCarMarker;
-  Marker? _cachedMilesBadge;
-  BitmapDescriptor? _milesBadgeIcon;
-  String _lastMilesText = '';
-  DateTime? _lastMarkerRebuild;
+  Uint8List? _carIconBytes;
+  Uint8List? _blackPinBytes;
 
   _TrackPhase _phase = _TrackPhase.arriving;
   LatLng _driverPos = const LatLng(0, 0);
@@ -78,7 +72,7 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
   int _etaMinutes = 2;
   double _distanceMiles = 0;
   List<LatLng> _routePts = [];
-  bool _showDetails = false;
+  bool _showDetails = true;
   int _ratingStars = 5;
   double _tipAmount = 0;
   bool _customTip = false;
@@ -94,7 +88,6 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
   Timer? _camTimer;
   bool _userMovedMap = false;
   bool _programmaticCam = false;
-  bool _followingDriver = false;
 
   // ── Smooth camera bounds (60fps lerp) ──
   double _camSWLat = 0, _camSWLng = 0, _camNELat = 0, _camNELng = 0;
@@ -118,10 +111,9 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
       duration: const Duration(milliseconds: 1200),
     )..repeat(reverse: true);
     _loadCarIcon();
-    _loadPinIcon();
     _initRoute();
     _interpTimer = Timer.periodic(
-      const Duration(milliseconds: 33),
+      const Duration(milliseconds: 16),
       _interpolate,
     );
   }
@@ -136,239 +128,54 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
   }
 
   Future<void> _loadCarIcon() async {
-    final car = await CarIconLoader.loadForRide(widget.rideName);
-    final arrow = await _buildNavArrow();
-    if (mounted) {
-      setState(() {
-        _carIconCar = car;
-        _navArrowIcon = arrow;
-        _carIcon = car;
-      });
-    }
+    final bd = await rootBundle.load('assets/images/car_white_top.png');
+    final bytes = bd.buffer.asUint8List();
+    _carIconBytes = bytes;
+    final icon = BitmapDescriptor.bytes(bytes, width: 14, height: 26);
+    if (mounted) setState(() => _carIcon = icon);
+    await _loadBlackPin();
   }
 
-  /// Blue navigation arrow for GPS follow mode.
-  Future<BitmapDescriptor> _buildNavArrow() async {
-    const double size = 100;
+  Future<void> _loadBlackPin() async {
+    const double size = 80;
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, size, size));
-    final cx = size / 2, cy = size / 2;
-
-    // Outer glow
-    canvas.drawCircle(Offset(cx, cy), size * 0.42,
-      Paint()..color = const Color(0x304A9EFF)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8));
-
-    // Blue circle background
-    canvas.drawCircle(Offset(cx, cy), size * 0.32,
-      Paint()..color = const Color(0xFF4A9EFF));
-    // Highlight
-    canvas.drawCircle(Offset(cx - size * 0.06, cy - size * 0.06), size * 0.18,
-      Paint()..color = Colors.white.withValues(alpha: 0.20)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4));
-
-    // White arrow pointing up
-    final arrow = Path()
-      ..moveTo(cx, cy - size * 0.18)
-      ..lineTo(cx + size * 0.12, cy + size * 0.12)
-      ..lineTo(cx, cy + size * 0.05)
-      ..lineTo(cx - size * 0.12, cy + size * 0.12)
-      ..close();
-    canvas.drawPath(arrow, Paint()..color = Colors.white..isAntiAlias = true);
-
-    final pic = recorder.endRecording();
-    final img = await pic.toImage(size.toInt(), size.toInt());
-    final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
-    if (bytes == null) return BitmapDescriptor.defaultMarker;
-    // ignore: deprecated_member_use
-    return BitmapDescriptor.fromBytes(bytes.buffer.asUint8List());
-  }
-
-  static const _gold = Color(0xFFE8C547);
-
-  Future<void> _loadPinIcon() async {
-    _goldPinIcon = await _buildPin(isPickup: true);
-    _pickupPersonPin = await _buildPin(icon: 'person', isPickup: true);
-    // Detect dropoff type from address — square shape
-    _dropoffHousePin = await _buildPin(icon: _detectDropoffIcon(widget.dropoffLabel), isPickup: false);
-    if (mounted) setState(() {});
-  }
-
-  /// Detect what icon to show on the dropoff pin based on address text.
-  static String _detectDropoffIcon(String address) {
-    final lower = address.toLowerCase();
-    if (lower.contains('airport') ||
-        lower.contains('aeropuerto') ||
-        lower.contains('intl') ||
-        lower.contains('terminal') ||
-        lower.contains('aviation') ||
-        RegExp(r'\b(mia|jfk|lax|ord|atl|sfo|dfw)\b').hasMatch(lower)) {
-      return 'airplane';
-    }
-    if (lower.contains('mall') ||
-        lower.contains('plaza') ||
-        lower.contains('store') ||
-        lower.contains('shop') ||
-        lower.contains('market') ||
-        lower.contains('restaurant') ||
-        lower.contains('hotel') ||
-        lower.contains('hospital') ||
-        lower.contains('clinic') ||
-        lower.contains('center') ||
-        lower.contains('centre') ||
-        lower.contains('office') ||
-        lower.contains('building') ||
-        lower.contains('tower') ||
-        lower.contains('suite') ||
-        lower.contains('walmart') ||
-        lower.contains('target') ||
-        lower.contains('costco') ||
-        lower.contains('starbucks') ||
-        lower.contains('gym') ||
-        lower.contains('fitness') ||
-        lower.contains('church') ||
-        lower.contains('school') ||
-        lower.contains('university') ||
-        lower.contains('college') ||
-        lower.contains('stadium') ||
-        lower.contains('arena') ||
-        lower.contains('museum') ||
-        lower.contains('cinema') ||
-        lower.contains('theater') ||
-        lower.contains('theatre') ||
-        lower.contains('bank') ||
-        lower.contains('station')) {
-      return 'store';
-    }
-    return 'house';
-  }
-
-  /// Pickup = gold circle with icon; Dropoff = gold rounded square with icon.
-  Future<BitmapDescriptor> _buildPin({String icon = '', bool isPickup = false}) async {
-    const double size = 90;
-    final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, size, size));
-
     const cx = size / 2;
     const cy = size / 2;
-    const r = size * 0.38; // radius / half-side
-
-    // Shadow
+    const r = size * 0.38;
     canvas.drawCircle(
-      const Offset(cx, cy + 2), r + 2,
-      Paint()..color = Colors.black.withValues(alpha: 0.30)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6));
-
-    if (isPickup) {
-      // ── Circle shape for pickup ──
-      canvas.drawCircle(const Offset(cx, cy), r, Paint()..color = _gold);
-      // Inner highlight
-      canvas.drawCircle(
-        Offset(cx - r * 0.2, cy - r * 0.2), r * 0.5,
-        Paint()..color = Colors.white.withValues(alpha: 0.15)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6));
-      // Border
-      canvas.drawCircle(const Offset(cx, cy), r,
-        Paint()..style = PaintingStyle.stroke..strokeWidth = 2.5
-          ..color = Colors.white.withValues(alpha: 0.25));
-    } else {
-      // ── Rounded square shape for dropoff ──
-      final rect = RRect.fromRectAndRadius(
-        Rect.fromCenter(center: const Offset(cx, cy), width: r * 2, height: r * 2),
-        Radius.circular(r * 0.28),
-      );
-      canvas.drawRRect(rect, Paint()..color = _gold);
-      // Inner highlight
-      canvas.drawCircle(
-        Offset(cx - r * 0.2, cy - r * 0.2), r * 0.5,
-        Paint()..color = Colors.white.withValues(alpha: 0.15)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6));
-      // Border
-      canvas.drawRRect(rect,
-        Paint()..style = PaintingStyle.stroke..strokeWidth = 2.5
-          ..color = Colors.white.withValues(alpha: 0.25));
-    }
-
-    // Draw icon — modern filled style
-    const iconColor = Colors.white;
-    final iconPaint = Paint()..color = iconColor..isAntiAlias = true;
-
-    if (icon == 'person') {
-      final s = size * 0.12;
-      canvas.drawCircle(Offset(cx, cy - s * 0.65), s * 0.55, iconPaint);
-      canvas.drawRRect(
-        RRect.fromRectAndCorners(
-          Rect.fromLTRB(cx - s * 0.9, cy + s * 0.1, cx + s * 0.9, cy + s * 1.0),
-          topLeft: Radius.circular(s * 0.9),
-          topRight: Radius.circular(s * 0.9),
-          bottomLeft: Radius.circular(s * 0.2),
-          bottomRight: Radius.circular(s * 0.2),
-        ),
-        iconPaint,
-      );
-    } else if (icon == 'house') {
-      final s = size * 0.12;
-      final roof = Path()
-        ..moveTo(cx, cy - s * 1.25)
-        ..lineTo(cx - s * 1.15, cy - s * 0.1)
-        ..lineTo(cx + s * 1.15, cy - s * 0.1)
-        ..close();
-      canvas.drawPath(roof, iconPaint);
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTRB(cx - s * 0.8, cy - s * 0.1, cx + s * 0.8, cy + s * 0.9),
-          Radius.circular(s * 0.08),
-        ),
-        iconPaint,
-      );
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTRB(cx - s * 0.22, cy + s * 0.3, cx + s * 0.22, cy + s * 0.9),
-          Radius.circular(s * 0.15),
-        ),
-        Paint()..color = _gold,
-      );
-    } else if (icon == 'store') {
-      final s = size * 0.12;
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTRB(cx - s * 1.0, cy - s * 0.3, cx + s * 1.0, cy + s * 1.0),
-          Radius.circular(s * 0.1),
-        ),
-        iconPaint,
-      );
-      canvas.drawRRect(
-        RRect.fromRectAndCorners(
-          Rect.fromLTRB(cx - s * 1.1, cy - s * 1.0, cx + s * 1.1, cy - s * 0.3),
-          topLeft: Radius.circular(s * 0.2),
-          topRight: Radius.circular(s * 0.2),
-        ),
-        iconPaint,
-      );
-      for (double dx = -0.7; dx <= 0.71; dx += 0.7) {
-        canvas.drawCircle(Offset(cx + s * dx, cy - s * 0.3), s * 0.24, Paint()..color = _gold);
-      }
-    } else if (icon == 'airplane') {
-      final s = size * 0.12;
-      canvas.drawOval(Rect.fromCenter(center: const Offset(cx, cy), width: s * 0.55, height: s * 2.0), iconPaint);
-      final wings = Path()
-        ..moveTo(cx, cy - s * 0.05)..lineTo(cx - s * 1.2, cy + s * 0.35)..lineTo(cx - s * 1.2, cy + s * 0.5)
-        ..lineTo(cx, cy + s * 0.18)..lineTo(cx + s * 1.2, cy + s * 0.5)..lineTo(cx + s * 1.2, cy + s * 0.35)..close();
-      canvas.drawPath(wings, iconPaint);
-      final tail = Path()
-        ..moveTo(cx, cy + s * 0.65)..lineTo(cx - s * 0.5, cy + s * 1.0)..lineTo(cx - s * 0.5, cy + s * 1.1)
-        ..lineTo(cx, cy + s * 0.85)..lineTo(cx + s * 0.5, cy + s * 1.1)..lineTo(cx + s * 0.5, cy + s * 1.0)..close();
-      canvas.drawPath(tail, iconPaint);
-    } else {
-      // Default: small dot
-      canvas.drawCircle(const Offset(cx, cy), size * 0.08, iconPaint);
-    }
-
+      const Offset(cx, cy + 2),
+      r + 2,
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.35)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+    );
+    canvas.drawCircle(
+      const Offset(cx, cy),
+      r,
+      Paint()..color = const Color(0xFF222222),
+    );
+    canvas.drawCircle(
+      const Offset(cx, cy),
+      r,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5
+        ..color = Colors.white.withValues(alpha: 0.3),
+    );
+    // Inner highlight
+    canvas.drawCircle(
+      Offset(cx - r * 0.2, cy - r * 0.2),
+      r * 0.5,
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.15)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+    );
     final picture = recorder.endRecording();
     final img = await picture.toImage(size.toInt(), size.toInt());
     final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
-    // ignore: deprecated_member_use
-    return BitmapDescriptor.fromBytes(byteData!.buffer.asUint8List());
+    _blackPinBytes = byteData!.buffer.asUint8List();
+    if (mounted) setState(() {});
   }
 
   Future<void> _initRoute() async {
@@ -450,8 +257,8 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
 
   void _startSim() {
     _simTimer?.cancel();
-    const tickMs = 150;          // optimized for low-end devices
-    const mPerTick = 0.87;       // adjusted for new tick rate
+    const tickMs = 100;
+    const mPerTick = 1.6;
 
     _simTimer = Timer.periodic(const Duration(milliseconds: tickMs), (t) {
       if (!mounted) {
@@ -519,61 +326,50 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
     });
   }
 
-  int _interpFrameCount = 0;
-
   void _interpolate(Timer t) {
     if (!mounted) return;
 
-    // ── Constant-speed smooth interpolation ──
-    const posLerp = 0.18;
-    const brgLerp = 0.16;
-
+    // ── Smooth chase interpolation (no jumps) ──
+    const chase = 0.12;
     final lat =
-        _animPos.latitude + (_tgtPos.latitude - _animPos.latitude) * posLerp;
+        _animPos.latitude + (_tgtPos.latitude - _animPos.latitude) * chase;
     final lng =
-        _animPos.longitude + (_tgtPos.longitude - _animPos.longitude) * posLerp;
-
-    // Smooth shortest-path bearing interpolation
+        _animPos.longitude + (_tgtPos.longitude - _animPos.longitude) * chase;
     double db = _tgtBrg - _animBearing;
     if (db > 180) db -= 360;
     if (db < -180) db += 360;
-    final nb = (_animBearing + db * brgLerp) % 360;
+    final nb = (_animBearing + db * chase) % 360;
 
-    _animPos = LatLng(lat, lng);
-    _animBearing = nb;
-
-    // Rebuild marker data (lightweight — just creates Marker objects)
-    _rebuildCarMarker();
-
-    // Only trigger widget rebuild every 2nd frame (~15fps) for smoother visuals
-    _interpFrameCount++;
-    if (_interpFrameCount % 2 == 0) {
+    // Only call setState when there's meaningful change (perf optimization)
+    final dLat = (lat - _animPos.latitude).abs();
+    final dLng = (lng - _animPos.longitude).abs();
+    final dBrg = (nb - _animBearing).abs();
+    if (dLat > 0.0000001 || dLng > 0.0000001 || dBrg > 0.01) {
+      _animPos = LatLng(lat, lng);
+      _animBearing = nb;
       setState(() {});
     }
 
-    // ── Camera control ──
-    if (_map != null && !_userMovedMap && _camInitialized) {
-      if (_followingDriver && _interpFrameCount % 5 == 0) {
-        // GPS navigation mode: follow driver with 3D tilt + bearing — throttled for performance
-        _programmaticCam = true;
-        _map!.moveCamera(
-          CameraUpdate.newCameraPosition(
-            CameraPosition(
-              target: _animPos,
-              zoom: 18.0, // Closer zoom for GPS navigation view
-              bearing: _animBearing, // Follow driver's direction
-              tilt: 60, // Enhanced 3D tilt for GPS-style navigation
+    // ── Smooth camera bounds interpolation (60fps) ──
+    final hasCtrl = Platform.isIOS ? _appleMap != null : _map != null;
+    if (hasCtrl && !_userMovedMap && _camInitialized) {
+      const lerpSpeed = 0.06;
+      _camSWLat += (_tgtSWLat - _camSWLat) * lerpSpeed;
+      _camSWLng += (_tgtSWLng - _camSWLng) * lerpSpeed;
+      _camNELat += (_tgtNELat - _camNELat) * lerpSpeed;
+      _camNELng += (_tgtNELng - _camNELng) * lerpSpeed;
+      _programmaticCam = true;
+      if (Platform.isIOS) {
+        _appleMap!.moveCamera(
+          amap.CameraUpdate.newLatLngBounds(
+            amap.LatLngBounds(
+              southwest: amap.LatLng(_camSWLat, _camSWLng),
+              northeast: amap.LatLng(_camNELat, _camNELng),
             ),
+            50,
           ),
         );
       } else {
-        // Default: smooth bounds interpolation
-        const lerpSpeed = 0.06;
-        _camSWLat += (_tgtSWLat - _camSWLat) * lerpSpeed;
-        _camSWLng += (_tgtSWLng - _camSWLng) * lerpSpeed;
-        _camNELat += (_tgtNELat - _camNELat) * lerpSpeed;
-        _camNELng += (_tgtNELng - _camNELng) * lerpSpeed;
-        _programmaticCam = true;
         _map!.moveCamera(
           CameraUpdate.newLatLngBounds(
             LatLngBounds(
@@ -594,7 +390,8 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
 
   // ── Compute ideal bounds and set as smooth target ──
   void _updateCamTarget() {
-    if (_map == null || _userMovedMap) return;
+    final hasCtrl = Platform.isIOS ? _appleMap != null : _map != null;
+    if (!hasCtrl || _userMovedMap) return;
     final pts = <LatLng>[_animPos];
     if (_phase == _TrackPhase.arriving || _phase == _TrackPhase.arrived) {
       pts.add(widget.pickupLatLng);
@@ -635,15 +432,27 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
       _camNELng = _tgtNELng;
       _camInitialized = true;
       _programmaticCam = true;
-      _map!.moveCamera(
-        CameraUpdate.newLatLngBounds(
-          LatLngBounds(
-            southwest: LatLng(_camSWLat, _camSWLng),
-            northeast: LatLng(_camNELat, _camNELng),
+      if (Platform.isIOS) {
+        _appleMap!.moveCamera(
+          amap.CameraUpdate.newLatLngBounds(
+            amap.LatLngBounds(
+              southwest: amap.LatLng(_camSWLat, _camSWLng),
+              northeast: amap.LatLng(_camNELat, _camNELng),
+            ),
+            50,
           ),
-          50,
-        ),
-      );
+        );
+      } else {
+        _map!.moveCamera(
+          CameraUpdate.newLatLngBounds(
+            LatLngBounds(
+              southwest: LatLng(_camSWLat, _camSWLng),
+              northeast: LatLng(_camNELat, _camNELng),
+            ),
+            50,
+          ),
+        );
+      }
     }
   }
 
@@ -652,49 +461,8 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
   }
 
   void _recenter() {
-    setState(() {
-      _userMovedMap = false;
-    });
-    _programmaticCam = true;
-    if (_followingDriver) {
-      _followDriverCamera();
-    } else {
-      _fitAllPoints();
-    }
-  }
-
-  void _toggleFollowDriver() {
-    final follow = !_followingDriver;
-    setState(() {
-      _followingDriver = follow;
-      _userMovedMap = false;
-      // Switch to 3D icon in GPS follow mode, normal otherwise
-      _carIcon = follow
-          ? (_navArrowIcon ?? _carIcon)
-          : (_carIconCar ?? _carIcon);
-    });
-    _rebuildCarMarker();
-    if (follow) {
-      _followDriverCamera();
-    } else {
-      _fitAllPoints();
-    }
-  }
-
-  void _followDriverCamera() {
-    if (!_followingDriver || _map == null) return;
-    _programmaticCam = true;
-    // GPS navigation view: higher zoom, 3D tilt, following bearing
-    _map!.animateCamera(
-      CameraUpdate.newCameraPosition(
-        CameraPosition(
-          target: _animPos,
-          zoom: 18.0, // Closer zoom for better navigation view
-          bearing: _animBearing, // Follow driver's direction
-          tilt: 60, // More tilt for 3D GPS-style view
-        ),
-      ),
-    );
+    setState(() => _userMovedMap = false);
+    _fitAllPoints();
   }
 
   double _hav(LatLng a, LatLng b) {
@@ -733,74 +501,87 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
         body: Stack(
           children: [
             RepaintBoundary(
-              child: GoogleMap(
-                style: MapStyles.dark,
-                initialCameraPosition: CameraPosition(
-                  target: widget.pickupLatLng,
-                  zoom: 14,
-                ),
-                onMapCreated: (ctrl) {
-                  _map = ctrl;
-                },
-                onCameraMoveStarted: () {
-                  if (!_programmaticCam) setState(() => _userMovedMap = true);
-                },
-                onCameraIdle: () => _programmaticCam = false,
-                markers: _markers(),
-                polylines: _polylines(),
-                myLocationEnabled: false,
-                myLocationButtonEnabled: false,
-                zoomControlsEnabled: false,
-                zoomGesturesEnabled: true,
-                scrollGesturesEnabled: true,
-                rotateGesturesEnabled: true,
-                compassEnabled: false,
-                mapToolbarEnabled: false,
-                tiltGesturesEnabled: true,
-                buildingsEnabled: false,
-                trafficEnabled: false,
-                indoorViewEnabled: false,
-                liteModeEnabled: false,
-                padding: EdgeInsets.only(
-                  bottom: 260 + botPad,
-                  top: topPad + 56,
-                ),
+              child: Platform.isIOS
+                  ? amap.AppleMap(
+                      initialCameraPosition: amap.CameraPosition(
+                        target: amap.LatLng(
+                          widget.pickupLatLng.latitude,
+                          widget.pickupLatLng.longitude,
+                        ),
+                        zoom: 14,
+                      ),
+                      mapType: amap.MapType.standard,
+                      onMapCreated: (ctrl) {
+                        _appleMap = ctrl;
+                      },
+                      myLocationEnabled: false,
+                      myLocationButtonEnabled: false,
+                      pitchGesturesEnabled: true,
+                      compassEnabled: false,
+                      padding: EdgeInsets.only(
+                        bottom: 370 + botPad,
+                        top: topPad + 16,
+                      ),
+                      annotations: _appleAnnotations(),
+                      polylines: _applePolylines(),
+                    )
+                  : GoogleMap(
+                      initialCameraPosition: CameraPosition(
+                        target: widget.pickupLatLng,
+                        zoom: 14,
+                      ),
+                      onMapCreated: (ctrl) {
+                        _map = ctrl;
+                        // On Android apply dark style; skip on iOS to avoid grey tiles
+                        if (!kIsWeb && !Platform.isIOS) {
+                          Future.delayed(const Duration(milliseconds: 150), () {
+                            // ignore: deprecated_member_use
+                            ctrl.setMapStyle(MapStyles.dark);
+                          });
+                        }
+                      },
+                      onCameraMoveStarted: () {
+                        if (!_programmaticCam)
+                          setState(() => _userMovedMap = true);
+                      },
+                      onCameraIdle: () => _programmaticCam = false,
+                      markers: _markers(),
+                      polylines: _polylines(),
+                      myLocationEnabled: false,
+                      myLocationButtonEnabled: false,
+                      zoomControlsEnabled: false,
+                      compassEnabled: false,
+                      mapToolbarEnabled: false,
+                      tiltGesturesEnabled: false,
+                      padding: EdgeInsets.only(
+                        bottom: 370 + botPad,
+                        top: topPad + 16,
+                      ),
+                    ),
+            ),
+            // ── Back button ──
+            Positioned(
+              top: topPad + 12,
+              left: 16,
+              child: _circleBtn(
+                Icons.arrow_back,
+                () => Navigator.of(context).pop(),
               ),
             ),
-            // ── Back arrow for iOS / all platforms ──
-            Positioned(
-              top: topPad + 10,
-              left: 14,
-              child: _phase != _TrackPhase.completed
-                  ? GestureDetector(
-                      onTap: () => Navigator.of(context).pop(),
-                      child: Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF2A2A2A),
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.35),
-                              blurRadius: 10,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 18),
-                      ),
-                    )
-                  : const SizedBox.shrink(),
-            ),
-            // ── Bottom card + control buttons ──
+            // Recenter button — visible only when user panned / zoomed
+            if (_userMovedMap)
+              Positioned(
+                bottom: 370 + botPad,
+                right: 16,
+                child: _circleBtn(Icons.navigation_rounded, _recenter),
+              ),
             Positioned(
               left: 0,
               right: 0,
               bottom: 0,
               child: _phase == _TrackPhase.completed
                   ? _ratingOverlay(botPad)
-                  : _bottomSection(c, botPad),
+                  : _bottomCard(c, botPad),
             ),
           ],
         ),
@@ -808,14 +589,14 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
     );
   }
 
-  Widget _circleBtn(IconData icon, VoidCallback onTap, {bool highlight = false}) {
+  Widget _circleBtn(IconData icon, VoidCallback onTap) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
         width: 44,
         height: 44,
         decoration: BoxDecoration(
-          color: highlight ? _gold : const Color(0xFF2A2A2A),
+          color: const Color(0xFF2A2A2A),
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
@@ -825,7 +606,7 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
             ),
           ],
         ),
-        child: Icon(icon, size: 20, color: highlight ? Colors.black : Colors.white),
+        child: Icon(icon, size: 20, color: Colors.white),
       ),
     );
   }
@@ -891,7 +672,7 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
             width: 8,
             height: 8,
             decoration: const BoxDecoration(
-              color: Color(0xFFE8C547),
+              color: Color(0xFFD4A843),
               shape: BoxShape.circle,
             ),
           ),
@@ -944,130 +725,102 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
     );
   }
 
-  void _rebuildCarMarker() {
-    if (_carIcon == null) {
-      _cachedCarMarker = null;
-      return;
-    }
-    _cachedCarMarker = Marker(
-      markerId: const MarkerId('car'),
-      position: _animPos,
-      icon: _carIcon!,
-      rotation: _animBearing,
-      anchor: const Offset(0.5, 0.5),
-      flat: true,
-      zIndexInt: 10,
-    );
-    // Miles badge — update bitmap when text changes, always reposition
-    if (_phase != _TrackPhase.completed && _distanceMiles > 0.01) {
-      final miText = _distanceMiles >= 0.1
-          ? '${_distanceMiles.toStringAsFixed(1)} mi'
-          : '${(_distanceMiles * 5280).round()} ft';
-      if (miText != _lastMilesText) {
-        _lastMilesText = miText;
-        _buildMilesBadge(miText); // async — sets _milesBadgeIcon when done
-      }
-      // Always reposition badge at car pos (even if icon not yet ready)
-      if (_milesBadgeIcon != null) {
-        _cachedMilesBadge = Marker(
-          markerId: const MarkerId('miles_badge'),
-          position: _animPos,
-          icon: _milesBadgeIcon!,
-          anchor: const Offset(-0.3, 0.5),
-          flat: false,
-          zIndexInt: 11,
-        );
-      }
-    } else {
-      _cachedMilesBadge = null;
-    }
-  }
-
-  Future<void> _buildMilesBadge(String text) async {
-    const double scale = 4.0;
-    final recorder = ui.PictureRecorder();
-    final tp = TextPainter(
-      text: TextSpan(
-        text: text,
-        style: const TextStyle(
-          fontSize: 10 * scale,
-          fontWeight: FontWeight.w700,
-          color: Colors.white,
-          letterSpacing: -0.2 * scale,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    final padH = 7.0 * scale;
-    final padV = 3.5 * scale;
-    final w = tp.width + padH * 2;
-    final h = tp.height + padV * 2;
-    final r = h / 2;
-    final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, w, h));
-    // Background
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(Rect.fromLTWH(0, 0, w, h), Radius.circular(r)),
-      Paint()..color = const Color(0xDD1E1E1E),
-    );
-    // Border
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(Rect.fromLTWH(0, 0, w, h), Radius.circular(r)),
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 0.7 * scale
-        ..color = Colors.white.withValues(alpha: 0.15),
-    );
-    tp.paint(canvas, Offset(padH, padV));
-    final pic = recorder.endRecording();
-    final img = await pic.toImage(w.toInt(), h.toInt());
-    final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
-    if (bytes == null || !mounted) return;
-    // ignore: deprecated_member_use
-    _milesBadgeIcon = BitmapDescriptor.fromBytes(bytes.buffer.asUint8List());
-    // Immediately build the cached marker now that icon is ready
-    if (mounted && _phase != _TrackPhase.completed) {
-      _cachedMilesBadge = Marker(
-        markerId: const MarkerId('miles_badge'),
-        position: _animPos,
-        icon: _milesBadgeIcon!,
-        anchor: const Offset(-0.3, 0.5),
-        flat: false,
-        zIndexInt: 11,
-      );
-      setState(() {});
-    }
-  }
-
   Set<Marker> _markers() {
     final m = <Marker>{};
-    if (_cachedCarMarker != null) {
-      m.add(_cachedCarMarker!);
-    }
-    if (_cachedMilesBadge != null) {
-      m.add(_cachedMilesBadge!);
-    }
-    // Pickup pin: visible during arriving/arrived, hidden during onTrip/completed
-    if (_phase == _TrackPhase.arriving || _phase == _TrackPhase.arrived) {
+    final blackPin = _blackPinBytes != null
+        // ignore: deprecated_member_use
+        ? BitmapDescriptor.fromBytes(_blackPinBytes!)
+        : BitmapDescriptor.defaultMarker;
+    if (_carIcon != null) {
       m.add(
         Marker(
-          markerId: const MarkerId('pickup'),
-          position: widget.pickupLatLng,
-          icon: _pickupPersonPin ?? _goldPinIcon ?? BitmapDescriptor.defaultMarkerWithHue(45.0),
-          zIndexInt: 5,
-          infoWindow: const InfoWindow(title: 'Pickup spot'),
+          markerId: const MarkerId('car'),
+          position: _animPos,
+          icon: _carIcon!,
+          rotation: _animBearing,
+          anchor: const Offset(0.5, 0.5),
+          flat: true,
+          zIndex: 10,
         ),
       );
     }
+    m.add(
+      Marker(
+        markerId: const MarkerId('pickup'),
+        position: widget.pickupLatLng,
+        icon: blackPin,
+        zIndex: 5,
+        infoWindow: const InfoWindow(title: 'Pickup spot'),
+      ),
+    );
     // Always show dropoff marker so rider sees full route
     m.add(
       Marker(
         markerId: const MarkerId('drop'),
         position: widget.dropoffLatLng,
-        icon: _dropoffHousePin ?? _goldPinIcon ?? BitmapDescriptor.defaultMarkerWithHue(45.0),
-        zIndexInt: 5,
+        icon: blackPin,
+        zIndex: 5,
       ),
     );
     return m;
+  }
+
+  // ── Apple Maps converters (iOS) ──
+
+  Set<amap.Annotation> _appleAnnotations() {
+    final a = <amap.Annotation>{};
+    final bytes = _carIconBytes;
+    if (bytes != null) {
+      a.add(
+        amap.Annotation(
+          annotationId: amap.AnnotationId('car'),
+          position: amap.LatLng(_animPos.latitude, _animPos.longitude),
+          icon: amap.BitmapDescriptor.fromBytes(bytes),
+          alpha: 1.0,
+        ),
+      );
+    }
+    final pinBytes = _blackPinBytes;
+    final pinIcon = pinBytes != null
+        ? amap.BitmapDescriptor.fromBytes(pinBytes)
+        : amap.BitmapDescriptor.defaultAnnotation;
+    a.add(
+      amap.Annotation(
+        annotationId: amap.AnnotationId('pickup'),
+        position: amap.LatLng(
+          widget.pickupLatLng.latitude,
+          widget.pickupLatLng.longitude,
+        ),
+        icon: pinIcon,
+      ),
+    );
+    a.add(
+      amap.Annotation(
+        annotationId: amap.AnnotationId('drop'),
+        position: amap.LatLng(
+          widget.dropoffLatLng.latitude,
+          widget.dropoffLatLng.longitude,
+        ),
+        icon: pinIcon,
+      ),
+    );
+    return a;
+  }
+
+  Set<amap.Polyline> _applePolylines() {
+    final gPolys = _polylines();
+    return gPolys
+        .map(
+          (p) => amap.Polyline(
+            polylineId: amap.PolylineId(p.polylineId.value),
+            points: p.points
+                .map((ll) => amap.LatLng(ll.latitude, ll.longitude))
+                .toList(),
+            color: p.color,
+            width: p.width,
+          ),
+        )
+        .toSet();
   }
 
   Set<Polyline> _polylines() {
@@ -1080,9 +833,8 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
           polylineId: const PolylineId('full'),
           points: _routePts,
           color: const Color(0xFF3A3A3A),
-          width: 3,
+          width: 4,
           geodesic: true,
-          zIndex: 1,
         ),
       );
     }
@@ -1095,42 +847,12 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
           polylineId: const PolylineId('route'),
           points: remaining,
           color: const Color(0xFF4285F4),
-          width: 3,
+          width: 5,
           geodesic: true,
-          zIndex: 2,
         ),
       );
     }
     return s;
-  }
-
-  Widget _bottomSection(AppColors c, double botPad) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // Buttons row flush at top of card — right-aligned
-        Padding(
-          padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              _circleBtn(
-                _followingDriver
-                    ? Icons.gps_fixed_rounded
-                    : Icons.gps_not_fixed_rounded,
-                _toggleFollowDriver,
-                highlight: _followingDriver,
-              ),
-              if (_userMovedMap) ...[
-                const SizedBox(width: 10),
-                _circleBtn(Icons.fullscreen_rounded, _recenter),
-              ],
-            ],
-          ),
-        ),
-        _bottomCard(c, botPad),
-      ],
-    );
   }
 
   Widget _bottomCard(AppColors c, double botPad) {
@@ -1180,14 +902,14 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
                   const SizedBox(height: 10),
                   // ── Trip address info ──
                   _tripAddressRow(
-                    iconColor: const Color(0xFFE8C547),
+                    iconColor: const Color(0xFFD4A843),
                     label: widget.pickupLabel.isNotEmpty
                         ? widget.pickupLabel
                         : 'Pickup location',
                   ),
                   const SizedBox(height: 6),
                   _tripAddressRow(
-                    iconColor: const Color(0xFFE8C547),
+                    iconColor: const Color(0xFFD4A843),
                     label: widget.dropoffLabel.isNotEmpty
                         ? widget.dropoffLabel
                         : 'Destination',
@@ -1229,19 +951,7 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
                 width: double.infinity,
                 height: 48,
                 child: TextButton(
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => ChatScreen(
-                          recipientName: widget.driverName,
-                          recipientPhone: '555-0100',
-                          avatarInitial: widget.driverName.isNotEmpty
-                              ? widget.driverName[0].toUpperCase()
-                              : 'D',
-                        ),
-                      ),
-                    );
-                  },
+                  onPressed: () {},
                   style: TextButton.styleFrom(
                     backgroundColor: Colors.white.withValues(alpha: 0.08),
                     shape: RoundedRectangleBorder(
@@ -1269,31 +979,28 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
                   ),
                 ),
               ),
-              
-              const SizedBox(height: 10),
-              // Contact Support
-              GestureDetector(
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const ChatScreen(
-                        recipientName: 'Cruise Support',
-                        isSupport: true,
+              if (_phase == _TrackPhase.arriving) ...[
+                const SizedBox(height: 4),
+                SizedBox(
+                  width: double.infinity,
+                  height: 40,
+                  child: TextButton(
+                    onPressed: () {
+                      _simTimer?.cancel();
+                      Navigator.of(context).pop();
+                    },
+                    child: Text(
+                      'Cancel ride',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white.withValues(alpha: 0.35),
                       ),
                     ),
-                  );
-                },
-                child: const Text(
-                  'Contact Support',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFFE53935),
-                    letterSpacing: 0.2,
                   ),
                 ),
-              ),
-              const SizedBox(height: 8),
+              ],
+              const SizedBox(height: 4),
             ],
           ),
         ),
@@ -1452,29 +1159,29 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
   // ── Rating / Tip / Save overlay (shown when trip completes) ──
   Widget _ratingOverlay(double botPad) {
     final first = widget.driverName.split(' ').first;
-    const gold = Color(0xFFE8C547);
+    const gold = Color(0xFFD4A843);
     return Container(
       decoration: BoxDecoration(
         color: const Color(0xFF1E1E1E),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.3),
-            blurRadius: 20,
-            offset: const Offset(0, -4),
+            blurRadius: 24,
+            offset: const Offset(0, -6),
           ),
         ],
       ),
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               // Drag handle
               Container(
-                margin: const EdgeInsets.only(top: 10, bottom: 12),
+                margin: const EdgeInsets.only(top: 12, bottom: 20),
                 width: 36,
                 height: 4,
                 decoration: BoxDecoration(
@@ -1482,60 +1189,50 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              // Title + avatar row
-              Row(
-                children: [
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white.withValues(alpha: 0.1),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.2),
-                        width: 2,
-                      ),
-                    ),
-                    child: Center(
-                      child: Text(
-                        widget.driverName.isNotEmpty
-                            ? widget.driverName[0].toUpperCase()
-                            : 'D',
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'How was your trip?',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Rate your ride with $first',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.white.withValues(alpha: 0.5),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+              const Text(
+                'How was your trip?',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                ),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 20),
+              // Driver avatar
+              Container(
+                width: 72,
+                height: 72,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withValues(alpha: 0.1),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    width: 2,
+                  ),
+                ),
+                child: Center(
+                  child: Text(
+                    widget.driverName.isNotEmpty
+                        ? widget.driverName[0].toUpperCase()
+                        : 'D',
+                    style: const TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                first,
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 16),
               // Stars
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -1543,12 +1240,12 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
                   return GestureDetector(
                     onTap: () => setState(() => _ratingStars = i + 1),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
                       child: Icon(
                         i < _ratingStars
                             ? Icons.star_rounded
                             : Icons.star_outline_rounded,
-                        size: 36,
+                        size: 44,
                         color: i < _ratingStars
                             ? gold
                             : Colors.white.withValues(alpha: 0.2),
@@ -1557,21 +1254,21 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
                   );
                 }),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 24),
               // Tip section
               Text(
                 'Add a tip for $first',
                 style: TextStyle(
-                  fontSize: 14,
+                  fontSize: 15,
                   fontWeight: FontWeight.w600,
                   color: Colors.white.withValues(alpha: 0.6),
                 ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
               Wrap(
                 alignment: WrapAlignment.center,
-                spacing: 8,
-                runSpacing: 8,
+                spacing: 10,
+                runSpacing: 10,
                 children: [
                   ...[1.0, 2.0, 5.0, 10.0].map((amt) {
                     final sel = _tipAmount == amt && !_customTip;
@@ -1581,8 +1278,8 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
                         _tipAmount = sel ? 0 : amt;
                       }),
                       child: Container(
-                        width: 56,
-                        height: 38,
+                        width: 64,
+                        height: 44,
                         decoration: BoxDecoration(
                           color: sel
                               ? gold
@@ -1598,7 +1295,7 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
                           child: Text(
                             '\$${amt.toInt()}',
                             style: TextStyle(
-                              fontSize: 16,
+                              fontSize: 18,
                               fontWeight: FontWeight.w700,
                               color: sel
                                   ? Colors.white
@@ -1615,8 +1312,8 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
                       if (!_customTip) _tipAmount = 0;
                     }),
                     child: Container(
-                      width: 72,
-                      height: 38,
+                      width: 80,
+                      height: 44,
                       decoration: BoxDecoration(
                         color: _customTip
                             ? gold
@@ -1632,7 +1329,7 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
                         child: Text(
                           'Custom',
                           style: TextStyle(
-                            fontSize: 13,
+                            fontSize: 15,
                             fontWeight: FontWeight.w700,
                             color: _customTip
                                 ? Colors.white
@@ -1693,14 +1390,14 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
                   ),
                 ),
               ],
-              const SizedBox(height: 14),
+              const SizedBox(height: 20),
               // Save driver
               GestureDetector(
                 onTap: () => setState(() => _saveDriver = !_saveDriver),
                 child: Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 10,
+                    horizontal: 16,
+                    vertical: 14,
                   ),
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.05),
@@ -1743,11 +1440,11 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
                   ),
                 ),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 20),
               // Submit button
               SizedBox(
                 width: double.infinity,
-                height: 48,
+                height: 54,
                 child: ElevatedButton(
                   onPressed: () {
                     HapticFeedback.mediumImpact();
@@ -1784,13 +1481,12 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        // Avatar with rating badge
-        Stack(
-          clipBehavior: Clip.none,
+        Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 44,
-              height: 44,
+              width: 52,
+              height: 52,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: Colors.white.withValues(alpha: 0.1),
@@ -1805,100 +1501,86 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
                       ? widget.driverName[0].toUpperCase()
                       : 'D',
                   style: const TextStyle(
-                    fontSize: 18,
+                    fontSize: 22,
                     fontWeight: FontWeight.w800,
                     color: Colors.white,
                   ),
                 ),
               ),
             ),
-            // Rating badge
-            Positioned(
-              bottom: -6,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF2A2A2A),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.15),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.star_rounded, size: 10, color: Color(0xFFE8C547)),
-                      const SizedBox(width: 2),
-                      Text(
-                        widget.driverRating.toStringAsFixed(1),
-                        style: const TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
+            const SizedBox(height: 4),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.star, size: 14, color: Colors.white),
+                const SizedBox(width: 2),
+                Text(
+                  widget.driverRating.toStringAsFixed(1),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
                   ),
                 ),
-              ),
+              ],
             ),
           ],
         ),
-        const SizedBox(width: 10),
-        // Car image
+        const SizedBox(width: 8),
         SizedBox(
-          width: 72,
-          height: 44,
+          width: 80,
+          height: 50,
           child: Image.asset(
             _vehicleAsset,
             fit: BoxFit.contain,
-            filterQuality: FilterQuality.high,
-            isAntiAlias: true,
-            cacheWidth: 320,
             errorBuilder: (_, _, _) => Icon(
               Icons.directions_car_rounded,
-              size: 32,
+              size: 36,
               color: Colors.white.withValues(alpha: 0.3),
             ),
           ),
         ),
         const SizedBox(width: 12),
-        // Vehicle + driver info
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                '${widget.vehicleColor} ${widget.vehicleMake} ${widget.vehicleModel}',
+                '${widget.vehicleColor} ${widget.vehicleMake}${widget.vehicleModel.isNotEmpty ? ' ${widget.vehicleModel}' : ''}',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: Colors.white.withValues(alpha: 0.55),
+                  color: Colors.white.withValues(alpha: 0.5),
                 ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 3),
+              const SizedBox(height: 4),
               Row(
                 children: [
-                  const Icon(Icons.person_rounded, size: 14, color: Color(0xFF4CAF50)),
+                  const Icon(
+                    Icons.person_rounded,
+                    size: 16,
+                    color: Color(0xFF4CAF50),
+                  ),
                   const SizedBox(width: 4),
-                  Text(
-                    first,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
+                  Flexible(
+                    child: Text(
+                      first,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
                   Text(
-                    '  ·  ',
+                    '  \u00B7  ',
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: 14,
                       color: Colors.white.withValues(alpha: 0.3),
                     ),
                   ),
@@ -1908,7 +1590,7 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: 13,
                         fontWeight: FontWeight.w500,
                         color: Colors.white54,
                       ),

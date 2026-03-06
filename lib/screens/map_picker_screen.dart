@@ -1,5 +1,7 @@
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:apple_maps_flutter/apple_maps_flutter.dart' as amap;
 import '../config/api_keys.dart';
 import '../config/app_theme.dart';
 import '../config/map_styles.dart';
@@ -21,6 +23,7 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
   final _places = PlacesService(ApiKeys.webServices);
 
   GoogleMapController? _mapCtrl;
+  amap.AppleMapController? _appleMapCtrl;
   String _address = 'Move the map to pick a location';
   bool _loading = false;
   LatLng _center = const LatLng(40.7128, -74.0060);
@@ -56,7 +59,8 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
   }
 
   void _confirm() {
-    if (_address.isEmpty || _address == 'Move the map to pick a location') return;
+    if (_address.isEmpty || _address == 'Move the map to pick a location')
+      return;
     Navigator.of(context).pop({
       'address': _address,
       'lat': _center.latitude,
@@ -72,20 +76,35 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
       body: Stack(
         children: [
           // Map
-          GoogleMap(
-            initialCameraPosition: CameraPosition(
-              target: _center,
-              zoom: 15,
-            ),
-            onMapCreated: (ctrl) => _mapCtrl = ctrl,
-            onCameraMove: _onCameraMove,
-            onCameraIdle: _onCameraIdle,
-            myLocationEnabled: true,
-            myLocationButtonEnabled: false,
-            zoomControlsEnabled: false,
-            mapToolbarEnabled: false,
-            style: c.isDark ? MapStyles.dark : MapStyles.light,
-          ),
+          Platform.isIOS
+              ? amap.AppleMap(
+                  initialCameraPosition: amap.CameraPosition(
+                    target: amap.LatLng(_center.latitude, _center.longitude),
+                    zoom: 15,
+                  ),
+                  onMapCreated: (ctrl) => _appleMapCtrl = ctrl,
+                  onCameraMove: (pos) {
+                    _center = LatLng(pos.target.latitude, pos.target.longitude);
+                  },
+                  onCameraIdle: _onCameraIdle,
+                  myLocationEnabled: true,
+                  myLocationButtonEnabled: false,
+                  mapType: amap.MapType.standard,
+                )
+              : GoogleMap(
+                  initialCameraPosition: CameraPosition(
+                    target: _center,
+                    zoom: 15,
+                  ),
+                  onMapCreated: (ctrl) => _mapCtrl = ctrl,
+                  onCameraMove: _onCameraMove,
+                  onCameraIdle: _onCameraIdle,
+                  myLocationEnabled: true,
+                  myLocationButtonEnabled: false,
+                  zoomControlsEnabled: false,
+                  mapToolbarEnabled: false,
+                  style: c.isDark ? MapStyles.dark : MapStyles.light,
+                ),
 
           // Center pin
           Center(
@@ -94,9 +113,12 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
               child: Icon(
                 Icons.location_on,
                 size: 48,
-                color: _gold,
+                color: Colors.black,
                 shadows: [
-                  Shadow(color: Colors.black.withValues(alpha: 0.4), blurRadius: 8),
+                  Shadow(
+                    color: Colors.black.withValues(alpha: 0.4),
+                    blurRadius: 8,
+                  ),
                 ],
               ),
             ),
@@ -115,7 +137,11 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
                   color: c.bg.withValues(alpha: 0.9),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(Icons.arrow_back_rounded, color: c.textPrimary, size: 22),
+                child: Icon(
+                  Icons.arrow_back_rounded,
+                  color: c.textPrimary,
+                  size: 22,
+                ),
               ),
             ),
           ),
@@ -128,7 +154,9 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
             child: Container(
               decoration: BoxDecoration(
                 color: c.panel,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(24),
+                ),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withValues(alpha: 0.3),
@@ -157,7 +185,11 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
                       // Address
                       Row(
                         children: [
-                          Icon(Icons.location_on_rounded, color: _gold, size: 22),
+                          Icon(
+                            Icons.location_on_rounded,
+                            color: Colors.black,
+                            size: 22,
+                          ),
                           const SizedBox(width: 10),
                           Expanded(
                             child: _loading
