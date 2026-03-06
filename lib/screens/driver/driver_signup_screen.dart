@@ -88,9 +88,11 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
   void _next() {
     if (_step < _totalSteps - 1) {
       setState(() => _step++);
-      _pageCtrl.animateToPage(_step,
-          duration: const Duration(milliseconds: 350),
-          curve: Curves.easeInOut);
+      _pageCtrl.animateToPage(
+        _step,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeInOut,
+      );
     } else {
       _submit();
     }
@@ -99,9 +101,11 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
   void _back() {
     if (_step > 0) {
       setState(() => _step--);
-      _pageCtrl.animateToPage(_step,
-          duration: const Duration(milliseconds: 350),
-          curve: Curves.easeInOut);
+      _pageCtrl.animateToPage(
+        _step,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeInOut,
+      );
     } else {
       Navigator.of(context).pop();
     }
@@ -123,7 +127,9 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
       final result = await ApiService.register(
         firstName: _firstNameCtrl.text.trim(),
         lastName: _lastNameCtrl.text.trim(),
-        email: _emailCtrl.text.trim().isNotEmpty ? _emailCtrl.text.trim() : null,
+        email: _emailCtrl.text.trim().isNotEmpty
+            ? _emailCtrl.text.trim()
+            : null,
         phone: phone.isNotEmpty ? phone : null,
         password: _passwordCtrl.text,
         role: 'driver',
@@ -148,10 +154,14 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: Colors.redAccent,
-          content: Text(e.message,
-              style: const TextStyle(fontWeight: FontWeight.w600)),
+          content: Text(
+            e.message,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
           duration: const Duration(seconds: 5),
         ),
       );
@@ -162,10 +172,14 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: Colors.redAccent,
-          content: Text('Registration failed: $e',
-              style: const TextStyle(fontWeight: FontWeight.w600)),
+          content: Text(
+            'Registration failed: $e',
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
           duration: const Duration(seconds: 5),
         ),
       );
@@ -185,7 +199,9 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
   Future<String?> _pickImage() async {
     final picker = ImagePicker();
     final picked = await picker.pickImage(
-        source: ImageSource.gallery, imageQuality: 85);
+      source: ImageSource.gallery,
+      imageQuality: 85,
+    );
     if (picked != null) return picked.path;
     return null;
   }
@@ -214,9 +230,10 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
                   Text(
                     'Step ${_step + 1} of $_totalSteps',
                     style: const TextStyle(
-                        color: Colors.white54,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600),
+                      color: Colors.white54,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ],
               ),
@@ -253,17 +270,17 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
             // ── Bottom button ──
             SafeArea(
               child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 28,
+                  vertical: 16,
+                ),
                 child: SizedBox(
                   width: double.infinity,
                   height: 54,
                   child: ElevatedButton(
-                    onPressed:
-                        _canProceed && !_submitting ? _next : null,
+                    onPressed: _canProceed && !_submitting ? _next : null,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor:
-                          _canProceed ? _gold : Colors.white12,
+                      backgroundColor: _canProceed ? _gold : Colors.white12,
                       foregroundColor: Colors.black,
                       disabledBackgroundColor: Colors.white12,
                       disabledForegroundColor: Colors.white24,
@@ -278,14 +295,18 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
                             width: 22,
                             height: 22,
                             child: CircularProgressIndicator(
-                                strokeWidth: 2.5, color: Colors.black))
+                              strokeWidth: 2.5,
+                              color: Colors.black,
+                            ),
+                          )
                         : Text(
                             _step == _totalSteps - 1
                                 ? 'Submit application'
                                 : 'Continue',
                             style: const TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w700),
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                   ),
                 ),
@@ -324,22 +345,28 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
           Text(
             'Tell us a bit about yourself',
             style: TextStyle(
-                fontSize: 14, color: Colors.white.withValues(alpha: 0.5)),
+              fontSize: 14,
+              color: Colors.white.withValues(alpha: 0.5),
+            ),
           ),
           const SizedBox(height: 28),
           Row(
             children: [
               Expanded(
-                  child: _field(
-                      ctrl: _firstNameCtrl,
-                      label: 'First name',
-                      icon: Icons.person_outline)),
+                child: _field(
+                  ctrl: _firstNameCtrl,
+                  label: 'First name',
+                  icon: Icons.person_outline,
+                ),
+              ),
               const SizedBox(width: 12),
               Expanded(
-                  child: _field(
-                      ctrl: _lastNameCtrl,
-                      label: 'Last name',
-                      icon: Icons.person_outline)),
+                child: _field(
+                  ctrl: _lastNameCtrl,
+                  label: 'Last name',
+                  icon: Icons.person_outline,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -406,39 +433,50 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
           Text(
             'Add info about your vehicle',
             style: TextStyle(
-                fontSize: 14, color: Colors.white.withValues(alpha: 0.5)),
+              fontSize: 14,
+              color: Colors.white.withValues(alpha: 0.5),
+            ),
           ),
           const SizedBox(height: 28),
           Row(
             children: [
               Expanded(
-                  child:
-                      _field(ctrl: _makeCtrl, label: 'Make', icon: Icons.directions_car_outlined)),
+                child: _field(
+                  ctrl: _makeCtrl,
+                  label: 'Make',
+                  icon: Icons.directions_car_outlined,
+                ),
+              ),
               const SizedBox(width: 12),
               Expanded(
-                  child: _field(
-                      ctrl: _modelCtrl,
-                      label: 'Model',
-                      icon: Icons.directions_car_outlined)),
+                child: _field(
+                  ctrl: _modelCtrl,
+                  label: 'Model',
+                  icon: Icons.directions_car_outlined,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 16),
           Row(
             children: [
               Expanded(
-                  child: _field(
-                ctrl: _yearCtrl,
-                label: 'Year',
-                icon: Icons.calendar_today_outlined,
-                keyboard: TextInputType.number,
-                maxLength: 4,
-              )),
+                child: _field(
+                  ctrl: _yearCtrl,
+                  label: 'Year',
+                  icon: Icons.calendar_today_outlined,
+                  keyboard: TextInputType.number,
+                  maxLength: 4,
+                ),
+              ),
               const SizedBox(width: 12),
               Expanded(
-                  child: _field(
-                      ctrl: _colorCtrl,
-                      label: 'Color',
-                      icon: Icons.palette_outlined)),
+                child: _field(
+                  ctrl: _colorCtrl,
+                  label: 'Color',
+                  icon: Icons.palette_outlined,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -461,16 +499,16 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.info_outline_rounded,
-                    color: _gold, size: 20),
+                const Icon(Icons.info_outline_rounded, color: _gold, size: 20),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     'Vehicle must be 2010 or newer, 4-door, and pass a vehicle inspection.',
                     style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.6),
-                        fontSize: 13,
-                        height: 1.4),
+                      color: Colors.white.withValues(alpha: 0.6),
+                      fontSize: 13,
+                      height: 1.4,
+                    ),
                   ),
                 ),
               ],
@@ -509,7 +547,9 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
           Text(
             'Upload required documents to get verified',
             style: TextStyle(
-                fontSize: 14, color: Colors.white.withValues(alpha: 0.5)),
+              fontSize: 14,
+              color: Colors.white.withValues(alpha: 0.5),
+            ),
           ),
           const SizedBox(height: 28),
 
@@ -603,19 +643,30 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
                               width: 48,
                               height: 48,
                               gaplessPlayback: true,
-                          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-                            if (wasSynchronouslyLoaded) return child;
-                            return AnimatedOpacity(
-                              opacity: frame == null ? 0.0 : 1.0,
-                              duration: const Duration(milliseconds: 250),
-                              curve: Curves.easeOutCubic,
-                              child: child,
-                            );
-                          },
-                        ),
+                              frameBuilder:
+                                  (
+                                    context,
+                                    child,
+                                    frame,
+                                    wasSynchronouslyLoaded,
+                                  ) {
+                                    if (wasSynchronouslyLoaded) return child;
+                                    return AnimatedOpacity(
+                                      opacity: frame == null ? 0.0 : 1.0,
+                                      duration: const Duration(
+                                        milliseconds: 250,
+                                      ),
+                                      curve: Curves.easeOutCubic,
+                                      child: child,
+                                    );
+                                  },
+                            ),
                     )
-                  : Icon(icon,
-                      color: uploaded ? _gold : Colors.white38, size: 24),
+                  : Icon(
+                      icon,
+                      color: uploaded ? _gold : Colors.white38,
+                      size: 24,
+                    ),
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -624,31 +675,38 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
                 children: [
                   Row(
                     children: [
-                      Text(title,
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700)),
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                       if (required_) ...[
                         const SizedBox(width: 6),
                         Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 2),
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.white.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(4),
                           ),
-                          child: const Text('Required',
-                              style: TextStyle(
-                                  color: Colors.white, fontSize: 10)),
+                          child: const Text(
+                            'Required',
+                            style: TextStyle(color: Colors.white, fontSize: 10),
+                          ),
                         ),
                       ],
                     ],
                   ),
                   const SizedBox(height: 4),
-                  Text(subtitle,
-                      style:
-                          TextStyle(color: Colors.white38, fontSize: 12)),
+                  Text(
+                    subtitle,
+                    style: TextStyle(color: Colors.white38, fontSize: 12),
+                  ),
                 ],
               ),
             ),
@@ -692,26 +750,36 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
           Text(
             'Confirm your details before submitting',
             style: TextStyle(
-                fontSize: 14, color: Colors.white.withValues(alpha: 0.5)),
+              fontSize: 14,
+              color: Colors.white.withValues(alpha: 0.5),
+            ),
           ),
           const SizedBox(height: 28),
 
-          _reviewItem('Name',
-              '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}'),
+          _reviewItem(
+            'Name',
+            '${_firstNameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}',
+          ),
           _reviewItem('Email', _emailCtrl.text.trim()),
           _reviewItem('Phone', _phoneCtrl.text.trim()),
           _reviewItem(
-              'Vehicle',
-              '${_yearCtrl.text.trim()} ${_makeCtrl.text.trim()} ${_modelCtrl.text.trim()}'
-                  .trim()),
+            'Vehicle',
+            '${_yearCtrl.text.trim()} ${_makeCtrl.text.trim()} ${_modelCtrl.text.trim()}'
+                .trim(),
+          ),
           _reviewItem('Plate', _plateCtrl.text.trim()),
           _reviewItem(
-              'License', _licensePhoto != null ? 'Uploaded ✓' : 'Missing'),
+            'License',
+            _licensePhoto != null ? 'Uploaded ✓' : 'Missing',
+          ),
           _reviewItem(
-              'Insurance',
-              _insurancePhoto != null ? 'Uploaded ✓' : 'Not uploaded'),
+            'Insurance',
+            _insurancePhoto != null ? 'Uploaded ✓' : 'Not uploaded',
+          ),
           _reviewItem(
-              'Photo', _profilePhoto != null ? 'Uploaded ✓' : 'Missing'),
+            'Photo',
+            _profilePhoto != null ? 'Uploaded ✓' : 'Missing',
+          ),
 
           const SizedBox(height: 24),
 
@@ -743,9 +811,10 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
                   child: Text(
                     'I agree to Cruise\'s Driver Terms of Service and acknowledge the Privacy Policy.',
                     style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.6),
-                        fontSize: 13,
-                        height: 1.45),
+                      color: Colors.white.withValues(alpha: 0.6),
+                      fontSize: 13,
+                      height: 1.45,
+                    ),
                   ),
                 ),
               ],
@@ -765,16 +834,16 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.schedule_rounded,
-                    color: _gold, size: 20),
+                const Icon(Icons.schedule_rounded, color: _gold, size: 20),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     'Your application will be reviewed within 24-48 hours. We\'ll notify you by email once approved.',
                     style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.6),
-                        fontSize: 13,
-                        height: 1.4),
+                      color: Colors.white.withValues(alpha: 0.6),
+                      fontSize: 13,
+                      height: 1.4,
+                    ),
                   ),
                 ),
               ],
@@ -794,16 +863,20 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
         children: [
           SizedBox(
             width: 90,
-            child: Text(label,
-                style: const TextStyle(
-                    color: Colors.white38,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600)),
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white38,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
           Expanded(
-            child: Text(value.isEmpty ? '—' : value,
-                style: const TextStyle(
-                    color: Colors.white, fontSize: 14)),
+            child: Text(
+              value.isEmpty ? '—' : value,
+              style: const TextStyle(color: Colors.white, fontSize: 14),
+            ),
           ),
         ],
       ),
@@ -824,8 +897,9 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
       controller: ctrl,
       obscureText: obscure,
       keyboardType: keyboard,
-      textCapitalization:
-          capitalize ? TextCapitalization.characters : TextCapitalization.none,
+      textCapitalization: capitalize
+          ? TextCapitalization.characters
+          : TextCapitalization.none,
       maxLength: maxLength,
       onChanged: (_) => setState(() {}),
       style: const TextStyle(color: Colors.white, fontSize: 16),
@@ -846,8 +920,10 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
           borderRadius: BorderRadius.circular(16),
           borderSide: BorderSide(color: _gold, width: 1.5),
         ),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 18,
+        ),
       ),
     );
   }
