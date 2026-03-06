@@ -13,7 +13,7 @@ class PromoCodeScreen extends StatefulWidget {
 }
 
 class _PromoCodeScreenState extends State<PromoCodeScreen> {
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
   static const _promoKey = 'promo_codes_v1';
 
   final _controller = TextEditingController();
@@ -140,7 +140,7 @@ class _PromoCodeScreenState extends State<PromoCodeScreen> {
                           child: Container(
                             width: 40, height: 40,
                             decoration: BoxDecoration(
-                              color: c.isDark ? c.surface : Colors.white,
+                              color: c.surface,
                               borderRadius: BorderRadius.circular(12),
                               border: c.isDark ? null : Border.all(color: Colors.black.withValues(alpha: 0.06)),
                             ),
@@ -165,7 +165,7 @@ class _PromoCodeScreenState extends State<PromoCodeScreen> {
                     child: Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: c.isDark ? c.surface : Colors.white,
+                        color: c.surface,
                         borderRadius: BorderRadius.circular(16),
                         border: c.isDark ? null : Border.all(color: Colors.black.withValues(alpha: 0.06)),
                       ),
@@ -261,7 +261,7 @@ class _PromoCodeScreenState extends State<PromoCodeScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: c.isDark ? c.surface : Colors.white,
+        color: c.surface,
         borderRadius: BorderRadius.circular(16),
         border: c.isDark
             ? (isActive ? Border.all(color: _gold.withValues(alpha: 0.3)) : null)

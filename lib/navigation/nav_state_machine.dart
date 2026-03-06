@@ -1,8 +1,7 @@
-import 'dart:math' as math;
-import 'package:flutter/foundation.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'dart:math' as math;
 
-/// Trip lifecycle phases shared by both customer and driver screens.
+/// Phases of a driver's trip lifecycle.
 enum TripPhase {
   idle,
   toPickup,
@@ -12,130 +11,96 @@ enum TripPhase {
   completed,
 }
 
-/// Driver-side navigation state machine.
+/// Simple state machine for driver navigation trip phases.
 ///
-/// Manages the trip lifecycle:
-///   IDLE → TO_PICKUP → ARRIVED_PICKUP → ON_TRIP → ARRIVED_DROPOFF → COMPLETED
-///
-/// Emits phase changes via [phaseNotifier] so the UI can react.
+/// Tracks the current [TripPhase] and fires [onPhaseChanged] when it changes.
+/// Also checks proximity to pickup/dropoff to auto-advance phases.
 class NavStateMachine {
-  NavStateMachine({
-    this.arrivalRadiusMeters = 80,
-    this.onPhaseChanged,
-    this.onBackendUpdate,
-  });
+  NavStateMachine({this.onPhaseChanged});
 
-  /// How close (metres) the driver must be to auto-detect arrival.
-  final double arrivalRadiusMeters;
-
-  /// Optional callback when the phase changes.
   final void Function(TripPhase phase)? onPhaseChanged;
 
-  /// Stub callback for backend status updates.
-  /// Implementations should call their API here.
-  final Future<void> Function(TripPhase phase, String tripId)? onBackendUpdate;
+  TripPhase _phase = TripPhase.idle;
+  TripPhase get phase => _phase;
 
-  // ─── state ───
-  final ValueNotifier<TripPhase> phaseNotifier = ValueNotifier(TripPhase.idle);
+  LatLng? _pickup;
+  LatLng? _dropoff;
+  String _tripId = '';
 
-  TripPhase get phase => phaseNotifier.value;
+  /// Proximity threshold in meters to consider "arrived".
+  static const double arrivalThresholdMeters = 50.0;
 
-  String? _tripId;
-  String? get tripId => _tripId;
-
-  LatLng _pickupLL = const LatLng(0, 0);
-  LatLng _dropoffLL = const LatLng(0, 0);
-
-  LatLng get pickupLL => _pickupLL;
-  LatLng get dropoffLL => _dropoffLL;
-
-  // ─── actions ───
-
-  /// Start a new trip. Moves from IDLE → TO_PICKUP.
+  /// Start a new trip — transitions to [TripPhase.toPickup].
   void startTrip({
     required String tripId,
     required LatLng pickup,
     required LatLng dropoff,
   }) {
     _tripId = tripId;
-    _pickupLL = pickup;
-    _dropoffLL = dropoff;
+    _pickup = pickup;
+    _dropoff = dropoff;
     _setPhase(TripPhase.toPickup);
   }
 
-  /// Driver taps "ARRIVED" at pickup.
+  /// Manually mark arrived at pickup.
   void arriveAtPickup() {
-    if (phase != TripPhase.toPickup) return;
-    _setPhase(TripPhase.arrivedPickup);
+    if (_phase == TripPhase.toPickup) {
+      _setPhase(TripPhase.arrivedPickup);
+    }
   }
 
-  /// Driver taps "START TRIP" after rider boards.
+  /// Begin the trip (rider picked up).
   void beginTrip() {
-    if (phase != TripPhase.arrivedPickup) return;
-    _setPhase(TripPhase.onTrip);
+    if (_phase == TripPhase.arrivedPickup) {
+      _setPhase(TripPhase.onTrip);
+    }
   }
 
-  /// Driver taps "END TRIP" at destination.
+  /// Manually mark arrived at dropoff.
   void arriveAtDropoff() {
-    if (phase != TripPhase.onTrip) return;
-    _setPhase(TripPhase.arrivedDropoff);
+    if (_phase == TripPhase.onTrip) {
+      _setPhase(TripPhase.arrivedDropoff);
+    }
   }
 
-  /// Driver taps "FINISH RIDE" — trip complete.
+  /// Complete the trip.
   void completeTrip() {
-    if (phase != TripPhase.arrivedDropoff) return;
-    _setPhase(TripPhase.completed);
+    if (_phase == TripPhase.arrivedDropoff) {
+      _setPhase(TripPhase.completed);
+    }
   }
 
-  /// Reset to IDLE for a new trip.
-  void reset() {
-    _tripId = null;
-    _setPhase(TripPhase.idle);
-  }
-
-  /// Call on each position update to auto-detect proximity arrival.
+  /// Check if driver is close enough to pickup/dropoff to auto-advance.
   void checkProximity(LatLng driverPos) {
-    if (phase == TripPhase.toPickup) {
-      if (_distM(driverPos, _pickupLL) <= arrivalRadiusMeters) {
+    if (_phase == TripPhase.toPickup && _pickup != null) {
+      if (_haversineM(driverPos, _pickup!) < arrivalThresholdMeters) {
         _setPhase(TripPhase.arrivedPickup);
       }
-    } else if (phase == TripPhase.onTrip) {
-      if (_distM(driverPos, _dropoffLL) <= arrivalRadiusMeters) {
+    } else if (_phase == TripPhase.onTrip && _dropoff != null) {
+      if (_haversineM(driverPos, _dropoff!) < arrivalThresholdMeters) {
         _setPhase(TripPhase.arrivedDropoff);
       }
     }
   }
 
-  /// Forcefully set a phase (for testing / external triggers).
-  void forcePhase(TripPhase p) => _setPhase(p);
-
-  /// Advance phase, notify listeners, call backend stub.
-  void _setPhase(TripPhase p) {
-    phaseNotifier.value = p;
-    onPhaseChanged?.call(p);
-    if (_tripId != null) {
-      _notifyBackend(p, _tripId!);
-    }
+  void reset() {
+    _phase = TripPhase.idle;
+    _pickup = null;
+    _dropoff = null;
+    _tripId = '';
   }
 
-  // ────────────────────────────────────────────────
-  //  BACKEND STUBS – replace with real API calls
-  // ────────────────────────────────────────────────
-
-  Future<void> _notifyBackend(TripPhase phase, String tripId) async {
-    if (onBackendUpdate != null) {
-      await onBackendUpdate!(phase, tripId);
-      return;
-    }
-    // Default stub: just log
-    debugPrint('🔔 NavStateMachine: phase=$phase tripId=$tripId (stub)');
-    // TODO: Replace with real API calls, e.g.:
-    // await ApiService.updateTripStatus(tripId: tripId, status: phase.name);
+  void dispose() {
+    // No resources to release currently.
   }
 
-  // ─── haversine helper ───
+  void _setPhase(TripPhase newPhase) {
+    if (_phase == newPhase) return;
+    _phase = newPhase;
+    onPhaseChanged?.call(newPhase);
+  }
 
-  static double _distM(LatLng a, LatLng b) {
+  static double _haversineM(LatLng a, LatLng b) {
     const R = 6371000.0;
     final dLat = _r(b.latitude - a.latitude);
     final dLng = _r(b.longitude - a.longitude);
@@ -149,8 +114,4 @@ class NavStateMachine {
   }
 
   static double _r(double d) => d * math.pi / 180;
-
-  void dispose() {
-    phaseNotifier.dispose();
-  }
 }

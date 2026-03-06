@@ -86,6 +86,7 @@ class PlacesService {
       final uri = Uri.https('maps.googleapis.com', '/maps/api/geocode/json', {
         'address': clean,
         'key': apiKey,
+        'components': 'country:US',
       });
       final res = await http.get(uri);
       final data = jsonDecode(res.body);
@@ -235,8 +236,9 @@ class PlacesService {
       'input': input,
       'key': apiKey,
       'sessiontoken': _sessionToken,
+      'components': 'country:us',
       // NO 'types' — return everything (addresses, establishments, POIs)
-      // NO 'components' — no country restriction
+      // 'components' — restrict to US addresses only
       // NO 'strictbounds' — location is soft bias only
     };
 
@@ -335,7 +337,7 @@ class PlacesService {
       'format': 'jsonv2',
       'limit': '10',
       'addressdetails': '1',
-      // NO 'countrycodes' restriction — worldwide coverage
+      'countrycodes': 'us',
     });
 
     try {
@@ -382,7 +384,7 @@ class PlacesService {
     double? lat,
     double? lon,
   }) async {
-    final params = <String, String>{'q': input, 'limit': '10', 'lang': 'en'};
+    final params = <String, String>{'q': input, 'limit': '10', 'lang': 'en', 'osm_tag': 'place', 'bbox': '-179.15,-14.55,-64.55,71.39'};
     if (lat != null && lon != null) {
       params['lat'] = '$lat';
       params['lon'] = '$lon';
@@ -483,6 +485,7 @@ class PlacesService {
       'format': 'jsonv2',
       'limit': '1',
       'addressdetails': '1',
+      'countrycodes': 'us',
     });
 
     try {

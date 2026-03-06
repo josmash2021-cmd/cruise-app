@@ -18,7 +18,7 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
   static const _goldLight = Color(0xFFF5D990);
 
   final _inputCtrl = TextEditingController();
@@ -116,9 +116,9 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _sending = false);
 
     if (sent) {
-      _showSnack('Code sent to $email', const Color(0xFFD4A843));
+      _showSnack('Code sent to $email', const Color(0xFFE8C547));
     } else if (!EmailService.isConfigured) {
-      _showSnack('EmailJS not configured — check console for code', const Color(0xFFD4A843));
+      _showSnack('EmailJS not configured — check console for code', const Color(0xFFE8C547));
     }
 
     Navigator.of(context).push(
@@ -155,7 +155,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (result.ok) {
       // Twilio sent the SMS successfully
-      _showSnack('Code sent to $normalizedPhone', const Color(0xFFD4A843));
+      _showSnack('Code sent to $normalizedPhone', const Color(0xFFE8C547));
       Navigator.of(context).push(
         slideFromRightRoute(
           VerifyCodeScreen(
@@ -169,7 +169,7 @@ class _LoginScreenState extends State<LoginScreen> {
       // Trial account can't send to this number — use local code for dev
       final devCode = _generateCode();
       debugPrint('📱 DEV MODE — verification code for $normalizedPhone: $devCode');
-      _showSnack('Dev mode: check console for code', const Color(0xFFD4A843));
+      _showSnack('Dev mode: check console for code', const Color(0xFFE8C547));
       Navigator.of(context).push(
         slideFromRightRoute(
           VerifyCodeScreen(
@@ -180,7 +180,7 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
     } else if (!SmsService.isConfigured) {
-      _showSnack('Twilio not configured', const Color(0xFFD4A843));
+      _showSnack('Twilio not configured', const Color(0xFFE8C547));
     } else {
       _showSnack('Failed to send code. Try again.', Colors.white.withValues(alpha: 0.6));
     }
@@ -196,7 +196,7 @@ class _LoginScreenState extends State<LoginScreen> {
         title: Row(
           children: [
             const Icon(Icons.info_outline_rounded,
-                color: Color(0xFFD4A843), size: 26),
+                color: Color(0xFFE8C547), size: 26),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
@@ -222,7 +222,7 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFD4A843),
+              backgroundColor: const Color(0xFFE8C547),
               foregroundColor: const Color(0xFF1A1400),
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12)),

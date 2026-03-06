@@ -28,7 +28,7 @@ class RideRatingScreen extends StatefulWidget {
 
 class _RideRatingScreenState extends State<RideRatingScreen>
     with SingleTickerProviderStateMixin {
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
 
   int _stars = 0;
   int _selectedTipIndex = -1; // -1 = no tip
@@ -209,7 +209,7 @@ class _RideRatingScreenState extends State<RideRatingScreen>
         margin: const EdgeInsets.symmetric(horizontal: 5),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
-          color: selected ? _gold : (c.isDark ? c.surface : Colors.white),
+          color: selected ? _gold : (c.surface),
           borderRadius: BorderRadius.circular(12),
           border: selected
               ? null

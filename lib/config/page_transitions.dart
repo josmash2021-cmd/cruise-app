@@ -17,16 +17,27 @@ Route<T> slideUpFadeRoute<T>(Widget page, {int durationMs = 450}) {
         curve: Curves.easeOutCubic,
         reverseCurve: Curves.easeInCubic,
       );
-      return SlideTransition(
-        position: Tween<Offset>(
-          begin: const Offset(0, 0.06),
-          end: Offset.zero,
-        ).animate(curved),
+      // Outgoing page: scale down + fade
+      final secondaryCurved = CurvedAnimation(
+        parent: secondaryAnimation,
+        curve: Curves.easeOutCubic,
+      );
+      return ScaleTransition(
+        scale: Tween<double>(begin: 1.0, end: 0.92).animate(secondaryCurved),
         child: FadeTransition(
-          opacity: Tween<double>(begin: 0, end: 1).animate(
-            CurvedAnimation(parent: animation, curve: const Interval(0, 0.7, curve: Curves.easeOut)),
+          opacity: Tween<double>(begin: 1.0, end: 0.6).animate(secondaryCurved),
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 0.06),
+              end: Offset.zero,
+            ).animate(curved),
+            child: FadeTransition(
+              opacity: Tween<double>(begin: 0, end: 1).animate(
+                CurvedAnimation(parent: animation, curve: const Interval(0, 0.7, curve: Curves.easeOut)),
+              ),
+              child: child,
+            ),
           ),
-          child: child,
         ),
       );
     },
@@ -46,13 +57,23 @@ Route<T> scaleExpandRoute<T>(Widget page, {int durationMs = 500}) {
         curve: Curves.easeOutExpo,
         reverseCurve: Curves.easeInExpo,
       );
-      return FadeTransition(
-        opacity: Tween<double>(begin: 0, end: 1).animate(
-          CurvedAnimation(parent: animation, curve: const Interval(0, 0.5, curve: Curves.easeOut)),
-        ),
-        child: ScaleTransition(
-          scale: Tween<double>(begin: 0.94, end: 1.0).animate(curved),
-          child: child,
+      final secondaryCurved = CurvedAnimation(
+        parent: secondaryAnimation,
+        curve: Curves.easeOutCubic,
+      );
+      return ScaleTransition(
+        scale: Tween<double>(begin: 1.0, end: 0.92).animate(secondaryCurved),
+        child: FadeTransition(
+          opacity: Tween<double>(begin: 1.0, end: 0.5).animate(secondaryCurved),
+          child: FadeTransition(
+            opacity: Tween<double>(begin: 0, end: 1).animate(
+              CurvedAnimation(parent: animation, curve: const Interval(0, 0.5, curve: Curves.easeOut)),
+            ),
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 0.94, end: 1.0).animate(curved),
+              child: child,
+            ),
+          ),
         ),
       );
     },
@@ -124,16 +145,30 @@ Route<T> slideFromRightRoute<T>(Widget page, {int durationMs = 400}) {
         curve: Curves.easeOutCubic,
         reverseCurve: Curves.easeInCubic,
       );
+      // Outgoing page slides left slightly + fades
+      final secondaryCurved = CurvedAnimation(
+        parent: secondaryAnimation,
+        curve: Curves.easeOutCubic,
+      );
       return SlideTransition(
         position: Tween<Offset>(
-          begin: const Offset(0.20, 0),
-          end: Offset.zero,
-        ).animate(curved),
+          begin: Offset.zero,
+          end: const Offset(-0.08, 0),
+        ).animate(secondaryCurved),
         child: FadeTransition(
-          opacity: Tween<double>(begin: 0.3, end: 1).animate(
-            CurvedAnimation(parent: animation, curve: const Interval(0, 0.6, curve: Curves.easeOut)),
+          opacity: Tween<double>(begin: 1.0, end: 0.7).animate(secondaryCurved),
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0.20, 0),
+              end: Offset.zero,
+            ).animate(curved),
+            child: FadeTransition(
+              opacity: Tween<double>(begin: 0.3, end: 1).animate(
+                CurvedAnimation(parent: animation, curve: const Interval(0, 0.6, curve: Curves.easeOut)),
+              ),
+              child: child,
+            ),
           ),
-          child: child,
         ),
       );
     },

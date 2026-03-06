@@ -1,5 +1,6 @@
 ﻿import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,7 +8,6 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../config/map_styles.dart';
-import '../navigation/car_sprite_manager.dart';
 import '../navigation/nav_state_machine.dart';
 import '../navigation/route_snapper.dart';
 import '../navigation/route_service.dart';
@@ -55,6 +55,8 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
   int _snapIdx = 0;
   bool _cameraFollowing = true;
   Timer? _reFollowTimer;
+  bool _hasResumedOnce = false;
+  DateTime? _lastCameraUpdate;
 
   List<LatLng> _routePts = [];
   List<LatLng> _displayRoutePts = [];
@@ -67,6 +69,7 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
   Timer? _demoTimer;
   int _demoIdx = 0;
   bool _muted = false;
+  BitmapDescriptor? _arrowIcon;
 
   static const _blue = Color(0xFF4285F4);
   static const _green = Color(0xFF34A853);
@@ -95,11 +98,11 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
     );
     _motion.start(this);
     _motion.teleport(_pos, 0);
+    _buildArrowIcon();
     _routePts =
         widget.routePoints ?? _makeStraightRoute(_pos, widget.pickupLatLng);
     _displayRoutePts = List.of(_routePts);
     _buildRouteOnInit();
-    _loadIcon();
   }
 
   @override
@@ -111,11 +114,6 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
     _sm.dispose();
     _map?.dispose();
     super.dispose();
-  }
-
-  Future<void> _loadIcon() async {
-    await CarSpriteManager.init();
-    if (mounted) setState(() {});
   }
 
   Future<void> _buildRouteOnInit() async {
@@ -153,7 +151,7 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
   void _startDemo() {
     if (_routePts.length < 2) return;
     _demoIdx = 0;
-    _demoTimer = Timer.periodic(const Duration(milliseconds: 600), (_) {
+    _demoTimer = Timer.periodic(const Duration(milliseconds: 1200), (_) {
       if (!mounted) return;
       _demoIdx = (_demoIdx + 1).clamp(0, _routePts.length - 1);
       final pt = _routePts[_demoIdx];
@@ -175,8 +173,9 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
     final snap = RouteSnapper.snap(raw, _routePts, lastIndex: _snapIdx);
     _snapIdx = snap.segmentIndex;
     _motion.pushTarget(snap.snapped, snap.bearingDeg);
-    if (_navService.isNavigating)
+    if (_navService.isNavigating) {
       _navState = _navService.updatePosition(snap.snapped);
+    }
     _sm.checkProximity(snap.snapped);
     _trimRouteBehind(snap.segmentIndex);
     final dest = _sm.phase == TripPhase.onTrip
@@ -200,17 +199,29 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
     _pos = pos;
     _bearing = bearing;
     setState(() {});
-    if (_cameraFollowing && _map != null && _mapReady) {
-      _map!.moveCamera(
+
+    // Throttle camera to ~10 Hz for smooth performance
+    final now = DateTime.now();
+    if (_cameraFollowing &&
+        _map != null &&
+        _mapReady &&
+        (_lastCameraUpdate == null ||
+            now.difference(_lastCameraUpdate!).inMilliseconds > 100)) {
+      _lastCameraUpdate = now;
+      _map!.animateCamera(
         CameraUpdate.newCameraPosition(
-          CameraPosition(target: pos, zoom: 17.8, bearing: bearing, tilt: 65),
+          CameraPosition(target: pos, zoom: 16.5, bearing: bearing, tilt: 0),
         ),
       );
     }
   }
 
   void _onPhaseChanged(TripPhase phase) {
-    if (phase == TripPhase.onTrip) _switchToDropoffRoute();
+    if (phase == TripPhase.onTrip) {
+      _hasResumedOnce = false;
+      _cameraFollowing = true;
+      _switchToDropoffRoute();
+    }
   }
 
   Future<void> _switchToDropoffRoute() async {
@@ -240,6 +251,59 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
     }
   }
 
+  // =========================================================================
+  //  NAVIGATION ARROW ICON — painted on Canvas, rotated via Marker.rotation
+  // =========================================================================
+
+  Future<void> _buildArrowIcon() async {
+    const double w = 64;
+    const double h = 80;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, w, h));
+
+    // Chevron-arrow path: tip = top-center
+    final path = Path()
+      ..moveTo(w / 2, 4) // tip
+      ..lineTo(w - 10, h - 20) // right shoulder
+      ..lineTo(w / 2 + 9, h - 34) // right notch (chevron indent)
+      ..lineTo(w / 2, h - 20) // bottom center
+      ..lineTo(w / 2 - 9, h - 34) // left notch
+      ..lineTo(10, h - 20) // left shoulder
+      ..close();
+
+    // Drop shadow
+    canvas.drawPath(
+      path.shift(const Offset(0, 3)),
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.25)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+    );
+    // White outline
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 6
+        ..strokeJoin = StrokeJoin.round,
+    );
+    // Blue fill
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = const Color(0xFF4285F4)
+        ..style = PaintingStyle.fill,
+    );
+
+    final img = await recorder.endRecording().toImage(w.toInt(), h.toInt());
+    final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
+    if (!mounted) return;
+    setState(() {
+      // ignore: deprecated_member_use
+      _arrowIcon = BitmapDescriptor.fromBytes(bytes!.buffer.asUint8List());
+    });
+  }
+
   void _onCameraMoveStarted() {
     if (!_cameraFollowing) return;
     setState(() => _cameraFollowing = false);
@@ -250,10 +314,13 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
   void _recenter() {
     if (!mounted) return;
     _reFollowTimer?.cancel();
-    setState(() => _cameraFollowing = true);
+    setState(() {
+      _cameraFollowing = true;
+      _hasResumedOnce = true;
+    });
     _map?.animateCamera(
       CameraUpdate.newCameraPosition(
-        CameraPosition(target: _pos, zoom: 17.8, bearing: _bearing, tilt: 65),
+        CameraPosition(target: _pos, zoom: 16.5, bearing: _bearing, tilt: 0),
       ),
     );
   }
@@ -264,10 +331,10 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
       Marker(
         markerId: const MarkerId('driver'),
         position: _pos,
-        icon: CarSpriteManager.iconForBearing(_bearing),
-        rotation: 0,
-        flat: false,
-        anchor: const Offset(0.5, 0.65),
+        icon: _arrowIcon ?? BitmapDescriptor.defaultMarker,
+        rotation: _bearing,
+        flat: true,
+        anchor: const Offset(0.5, 0.5),
         zIndexInt: 100,
       ),
     );
@@ -279,11 +346,7 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
       Marker(
         markerId: const MarkerId('destination'),
         position: dest,
-        icon: BitmapDescriptor.defaultMarkerWithHue(
-          _sm.phase == TripPhase.toPickup
-              ? BitmapDescriptor.hueGreen
-              : BitmapDescriptor.hueRed,
-        ),
+        icon: BitmapDescriptor.defaultMarkerWithHue(45.0),
         zIndexInt: 90,
       ),
     );
@@ -297,16 +360,16 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
         Polyline(
           polylineId: const PolylineId('shadow'),
           points: _displayRoutePts,
-          color: const Color(0x44000000),
-          width: 12,
+          color: const Color(0x33000000),
+          width: 14,
         ),
       );
       s.add(
         Polyline(
           polylineId: const PolylineId('route'),
           points: _displayRoutePts,
-          color: _sm.phase == TripPhase.toPickup ? _green : _blue,
-          width: 7,
+          color: const Color(0xFF4285F4),
+          width: 9,
         ),
       );
     }
@@ -326,29 +389,29 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.light,
+        statusBarIconBrightness: Brightness.dark,
       ),
     );
 
     return Scaffold(
-      backgroundColor: const Color(0xFF1A1A2E),
+      backgroundColor: Colors.white,
       body: Stack(
         children: [
           // ── FULLSCREEN MAP ────────────────────────────────────────────────
           Positioned.fill(
             child: GoogleMap(
-              style: MapStyles.dark,
+              style: MapStyles.light,
               initialCameraPosition: CameraPosition(
                 target: _pos,
-                zoom: 17.8,
-                tilt: 65,
+                zoom: 16.5,
+                tilt: 0,
               ),
               onMapCreated: (c) {
                 _map = c;
                 _mapReady = true;
                 _map!.moveCamera(
                   CameraUpdate.newCameraPosition(
-                    CameraPosition(target: _pos, zoom: 17.8, tilt: 65),
+                    CameraPosition(target: _pos, zoom: 16.5, tilt: 0),
                   ),
                 );
               },
@@ -360,9 +423,9 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
               zoomControlsEnabled: false,
               mapToolbarEnabled: false,
               compassEnabled: false,
-              buildingsEnabled: true,
-              trafficEnabled: true,
-              padding: EdgeInsets.only(top: top + 130, bottom: 200 + bot),
+              buildingsEnabled: false,
+              trafficEnabled: false,
+              padding: EdgeInsets.only(top: top + 140, bottom: 200 + bot),
             ),
           ),
 
@@ -377,7 +440,14 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
 
           // ── RECENTER BUTTON ───────────────────────────────────────────────
           if (!_cameraFollowing)
-            Positioned(bottom: 190 + bot, left: 80, child: _recenterButton()),
+            Positioned(
+              bottom: 190 + bot,
+              left: _hasResumedOnce ? 80 : 0,
+              right: _hasResumedOnce ? null : 0,
+              child: _hasResumedOnce
+                  ? _recenterButton()
+                  : Center(child: _resumePill()),
+            ),
 
           // ── ACTION PILL (ARRIVED / START / END TRIP) ──────────────────────
           if (_showActionPill)
@@ -407,48 +477,53 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
     final streetName = _navState?.currentStep?.streetName ?? '';
     final isOffRoute = _navState?.isOffRoute ?? false;
 
-    final bgColor = isOffRoute
-        ? const Color(0xFFB71C1C)
+    // Strip color: red if off-route, dark-green for pickup leg, blue for trip
+    final stripColor = isOffRoute
+        ? const Color(0xFFD32F2F)
         : (_sm.phase == TripPhase.toPickup
-              ? const Color(0xFF1B5E20)
-              : const Color(0xFF0A2E6E));
+              ? const Color(0xFF2E7D32)
+              : const Color(0xFF1A73E8));
 
     return Container(
       decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(18),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.45),
-            blurRadius: 18,
-            offset: const Offset(0, 5),
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
+      clipBehavior: Clip.hardEdge,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // Colored top accent strip
+          Container(height: 5, color: stripColor),
+          // Main row
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // Maneuver arrow
+                // Maneuver icon with colored background
                 Container(
-                  width: 58,
-                  height: 58,
+                  width: 56,
+                  height: 56,
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.14),
-                    borderRadius: BorderRadius.circular(16),
+                    color: stripColor.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(14),
                   ),
                   child: Icon(
                     IconData(mInfo.iconCodePoint, fontFamily: 'MaterialIcons'),
-                    color: Colors.white,
-                    size: 34,
+                    color: stripColor,
+                    size: 32,
                   ),
                 ),
                 const SizedBox(width: 14),
-                // Distance + instruction
+                // Distance + instruction + off-route badge
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -457,21 +532,21 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
                       if (distText.isNotEmpty)
                         Text(
                           distText,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 30,
+                          style: TextStyle(
+                            color: stripColor,
+                            fontSize: 28,
                             fontWeight: FontWeight.w900,
-                            height: 1,
-                            fontFeatures: [FontFeature.tabularFigures()],
+                            height: 1.0,
+                            fontFeatures: const [FontFeature.tabularFigures()],
                           ),
                         ),
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 3),
                       Text(
                         instruction,
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.88),
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
+                        style: const TextStyle(
+                          color: Color(0xFF202124),
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
                           height: 1.2,
                         ),
                         maxLines: 2,
@@ -484,11 +559,11 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
                   Container(
                     margin: const EdgeInsets.only(left: 8),
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 7,
-                      vertical: 5,
+                      horizontal: 8,
+                      vertical: 6,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.red.withValues(alpha: 0.8),
+                      color: const Color(0xFFD32F2F),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: const Text(
@@ -506,15 +581,15 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
               ],
             ),
           ),
-          // Street name
+          // Street name sub-row
           if (streetName.isNotEmpty)
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.28),
-                borderRadius: const BorderRadius.vertical(
-                  bottom: Radius.circular(18),
+                color: const Color(0xFFF8F9FA),
+                border: const Border(
+                  top: BorderSide(color: Color(0xFFE8EAED), width: 1),
                 ),
               ),
               child: Row(
@@ -522,17 +597,17 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
                   Icon(
                     Icons.turn_slight_right_rounded,
                     size: 14,
-                    color: Colors.white.withValues(alpha: 0.5),
+                    color: Colors.grey.shade500,
                   ),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
                       streetName,
                       style: const TextStyle(
-                        color: Colors.white70,
+                        color: Color(0xFF5F6368),
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
-                        letterSpacing: 0.3,
+                        letterSpacing: 0.2,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -624,27 +699,14 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
         _circleFab(
           icon: Icons.home_rounded,
           tooltip: 'Go Home',
+          iconColor: Colors.grey.shade700,
           onTap: () => Navigator.of(context).pop(),
-        ),
-        const SizedBox(height: 10),
-        _circleFab(
-          icon: Icons.share_rounded,
-          tooltip: 'Share ETA',
-          onTap: () {
-            HapticFeedback.lightImpact();
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('ETA shared'),
-                duration: Duration(seconds: 1),
-              ),
-            );
-          },
         ),
         const SizedBox(height: 10),
         _circleFab(
           icon: _muted ? Icons.volume_off_rounded : Icons.volume_up_rounded,
           tooltip: _muted ? 'Unmute' : 'Mute',
-          active: _muted,
+          iconColor: _muted ? _blue : Colors.grey.shade700,
           onTap: () {
             HapticFeedback.lightImpact();
             setState(() => _muted = !_muted);
@@ -654,6 +716,7 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
         _circleFab(
           icon: Icons.report_problem_rounded,
           tooltip: 'Report incident',
+          iconColor: Colors.grey.shade700,
           onTap: () {
             HapticFeedback.mediumImpact();
             ScaffoldMessenger.of(context).showSnackBar(
@@ -672,6 +735,7 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
     required IconData icon,
     required String tooltip,
     required VoidCallback onTap,
+    Color? iconColor,
     bool active = false,
   }) {
     return Tooltip(
@@ -682,22 +746,19 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
           width: 46,
           height: 46,
           decoration: BoxDecoration(
-            color: active
-                ? _blue
-                : const Color(0xFF1E1E2A).withValues(alpha: 0.92),
+            color: Colors.white,
             shape: BoxShape.circle,
-            border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.3),
+                color: Colors.black.withValues(alpha: 0.18),
                 blurRadius: 8,
-                offset: const Offset(0, 3),
+                offset: const Offset(0, 2),
               ),
             ],
           ),
           child: Icon(
             icon,
-            color: active ? Colors.white : Colors.white.withValues(alpha: 0.85),
+            color: iconColor ?? (active ? _blue : Colors.grey.shade700),
             size: 22,
           ),
         ),
@@ -716,18 +777,53 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
         width: 48,
         height: 48,
         decoration: BoxDecoration(
-          color: const Color(0xFF1E1E2A).withValues(alpha: 0.92),
+          color: Colors.white,
           shape: BoxShape.circle,
-          border: Border.all(color: _blue.withValues(alpha: 0.6), width: 1.5),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.35),
+              color: Colors.black.withValues(alpha: 0.2),
               blurRadius: 10,
-              offset: const Offset(0, 3),
+              offset: const Offset(0, 2),
             ),
           ],
         ),
-        child: const Icon(Icons.navigation_rounded, color: _blue, size: 24),
+        child: Icon(Icons.navigation_rounded, color: _blue, size: 24),
+      ),
+    );
+  }
+
+  Widget _resumePill() {
+    return GestureDetector(
+      onTap: _recenter,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.2),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.navigation_rounded, color: _blue, size: 20),
+            const SizedBox(width: 8),
+            Text(
+              'Resume',
+              style: TextStyle(
+                color: _blue,
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.2,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -749,13 +845,13 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
     return Container(
       padding: EdgeInsets.only(top: 14, bottom: botPad + 14),
       decoration: const BoxDecoration(
-        color: Color(0xFF111116),
+        color: Colors.white,
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         boxShadow: [
           BoxShadow(
-            color: Color(0x55000000),
-            blurRadius: 24,
-            offset: Offset(0, -6),
+            color: Color(0x22000000),
+            blurRadius: 16,
+            offset: Offset(0, -4),
           ),
         ],
       ),
@@ -788,7 +884,7 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
           primary,
           textAlign: TextAlign.center,
           style: const TextStyle(
-            color: Colors.white,
+            color: Color(0xFF202124),
             fontSize: 17,
             fontWeight: FontWeight.w800,
             fontFeatures: [FontFeature.tabularFigures()],
@@ -799,8 +895,8 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
         Text(
           secondary,
           textAlign: TextAlign.center,
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.45),
+          style: const TextStyle(
+            color: Color(0xFF5F6368),
             fontSize: 11,
             fontWeight: FontWeight.w500,
           ),
@@ -809,11 +905,8 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
     );
   }
 
-  Widget _etaDivider() => Container(
-    width: 1,
-    height: 28,
-    color: Colors.white.withValues(alpha: 0.1),
-  );
+  Widget _etaDivider() =>
+      Container(width: 1, height: 28, color: const Color(0xFFE8EAED));
 
   // =========================================================================
   //  ACTION PILL  — floating above bottom bar, only when action needed

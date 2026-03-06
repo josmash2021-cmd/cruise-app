@@ -13,7 +13,7 @@ import '../../services/navigation_service.dart';
 import '../../services/trip_firestore_service.dart';
 import '../../config/api_keys.dart';
 import '../../config/map_styles.dart';
-import '../../navigation/car_renderer.dart';
+import '../../navigation/car_icon_loader.dart';
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  CRUISE DRIVER â€” ONLINE SCREEN
@@ -269,16 +269,8 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
 
   // â”€â”€ Build Uber-style 3D car marker sprites at runtime â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   Future<void> _buildVehicleIcons() async {
-    _suvIcon = await CarRenderer.load(
-      preset: CarPreset.blackSUV,
-      displayWidth: 44,
-      displayHeight: 66,
-    );
-    _sedanIcon = await CarRenderer.load(
-      preset: CarPreset.whiteSedan,
-      displayWidth: 40,
-      displayHeight: 60,
-    );
+    _suvIcon = await CarIconLoader.loadForRide('Suburban');
+    _sedanIcon = await CarIconLoader.loadForRide('Camry');
     _arrowIcon = _suvIcon;
     if (mounted) setState(() {});
   }
@@ -1367,9 +1359,9 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
         await ApiService.updateTripStatus(tripId: _tripId!, status: 'in_trip');
       } catch (_) {}
     }
-    // Go directly to navigation â€” skip route summary
+    // Show route summary with Start Navigation button
     setState(() {
-      _phase = _Phase.inTrip;
+      _phase = _Phase.routeSummary;
       _cameraFollowing = true;
       _reFollowTimer?.cancel();
       _navDist = _hav(_pos, _dropoffLL);

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -7,11 +8,14 @@ import 'package:geolocator/geolocator.dart';
 import 'dart:io' if (dart.library.html) 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'map_screen.dart';
+import 'ride_request_screen.dart';
 import 'trip_receipt_screen.dart';
 import 'account_screen.dart';
 import '../config/api_keys.dart';
 import '../config/app_theme.dart';
+import '../config/map_styles.dart';
 import '../config/page_transitions.dart';
+import '../services/api_service.dart';
 import '../services/local_data_service.dart';
 import '../services/places_service.dart';
 import '../services/user_session.dart';
@@ -24,13 +28,18 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen>
-    with SingleTickerProviderStateMixin {
-  // Brand colors (same in both themes)
-  static const _gold = Color(0xFFD4A843);
-  static const _goldLight = Color(0xFFF5D990);
+    with TickerProviderStateMixin {
+  // Brand colors — premium shiny gold
+  static const _gold = Color(0xFFE8C547);
+  static const _goldLight = Color(0xFFFBE47A);
 
   late AnimationController _shimmerController;
-  String _selectedRider = 'You';
+  late AnimationController _boltFlashCtrl;
+  late AnimationController _clockRotateCtrl;
+  late AnimationController _promoShimmerCtrl;
+  bool _promoUsed = false;
+  bool _rideNow = true;
+  bool _driversOnline = false;
   List<FavoritePlace> _favorites = [];
   List<TripHistoryItem> _recentTrips = [];
   List<FrequentDestination> _topDestinations = [];
@@ -38,6 +47,7 @@ class _HomeScreenState extends State<HomeScreen>
   bool _loadingSavedData = true;
   bool _hasActivePromo = false;
   int _dockIndex = 0; // 0=Ride, 1=Schedule, 2=Account
+  bool _fleetExpanded = true;
 
   // User profile data
   String _firstName = '';
@@ -56,10 +66,34 @@ class _HomeScreenState extends State<HomeScreen>
     super.initState();
     _shimmerController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 3),
+      duration: const Duration(milliseconds: 3000),
     )..repeat();
+    _boltFlashCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    );
+    _clockRotateCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat();
+    _promoShimmerCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat();
+    // Flash bolt every 2 seconds
+    Future.doWhile(() async {
+      await Future.delayed(const Duration(seconds: 2));
+      if (!mounted) return false;
+      _boltFlashCtrl.forward().then((_) {
+        if (mounted) _boltFlashCtrl.reverse();
+      });
+      return mounted;
+    });
     _loadSavedData();
+    _loadPromoUsed();
     _fetchCurrentLocation();
+    _checkDriversOnline();
+    _driverCheckTimer = Timer.periodic(const Duration(seconds: 30), (_) => _checkDriversOnline());
   }
 
   @override
@@ -77,6 +111,10 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void dispose() {
     _shimmerController.dispose();
+    _boltFlashCtrl.dispose();
+    _clockRotateCtrl.dispose();
+    _promoShimmerCtrl.dispose();
+    _driverCheckTimer?.cancel();
     _locationSub?.cancel();
     super.dispose();
   }
@@ -158,6 +196,99 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  Timer? _driverCheckTimer;
+
+  Future<void> _loadPromoUsed() async {
+    final used = await LocalDataService.getPromoUsed();
+    if (mounted) setState(() => _promoUsed = used);
+  }
+
+  Future<void> _checkDriversOnline() async {
+    try {
+      final lat = _currentLatLng?.latitude ?? 25.7617;
+      final lng = _currentLatLng?.longitude ?? -80.1918;
+      final count = await ApiService.getNearbyDriversCount(lat: lat, lng: lng);
+      if (mounted) setState(() => _driversOnline = count > 0);
+    } catch (_) {
+      if (mounted) setState(() => _driversOnline = false);
+    }
+  }
+
+  Future<void> _showPromoWelcomeDialog() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        final c = AppColors.of(ctx);
+        return AlertDialog(
+          backgroundColor: c.panel,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          contentPadding: const EdgeInsets.fromLTRB(28, 28, 28, 12),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 64, height: 64,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(colors: [Color(0xFFE8C547), Color(0xFFFBE47A)]),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.card_giftcard_rounded, color: Colors.black, size: 32),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Welcome Gift!',
+                style: TextStyle(
+                  color: c.textPrimary,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'As a welcome to Cruise, enjoy 10% off your first ride! '
+                'This exclusive offer can only be used once and will be '
+                'applied automatically to your next trip.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: c.textSecondary,
+                  fontSize: 14,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFE8C547),
+                    foregroundColor: Colors.black,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    elevation: 0,
+                  ),
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                  child: const Text('Apply & Ride', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: Text('Cancel', style: TextStyle(color: c.textTertiary, fontSize: 14)),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (confirmed == true && mounted) {
+      Navigator.of(context).push(slideUpFadeRoute(
+        const RideRequestScreen(applyPromo: true),
+      ));
+    }
+  }
+
   Future<void> _loadSavedData() async {
     // Check if a new monthly promo needs to be generated
     final newPromoGenerated =
@@ -204,49 +335,31 @@ class _HomeScreenState extends State<HomeScreen>
     final topPad = MediaQuery.of(context).padding.top;
     final bottomPad = MediaQuery.of(context).padding.bottom;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final scaffoldBg = isDark
-        ? const Color(0xFF07080D)
-        : const Color(0xFFF2F2F7);
+    final scaffoldBg = const Color(0xFF07080D);
 
-    // Theme color helpers — available for sub-build methods
+    // Theme color helpers — dark cards everywhere
     // ignore: unused_local_variable
-    final textMain = isDark ? Colors.white : const Color(0xFF1C1C1E);
+    final textMain = Colors.white;
     // ignore: unused_local_variable
-    final textSub = isDark
-        ? Colors.white.withValues(alpha: 0.45)
-        : Colors.black.withValues(alpha: 0.45);
+    final textSub = Colors.white.withValues(alpha: 0.45);
     // ignore: unused_local_variable
-    final textMuted = isDark
-        ? Colors.white.withValues(alpha: 0.35)
-        : Colors.black.withValues(alpha: 0.40);
+    final textMuted = Colors.white.withValues(alpha: 0.35);
     // ignore: unused_local_variable
-    final textFaint = isDark
-        ? Colors.white.withValues(alpha: 0.4)
-        : Colors.black.withValues(alpha: 0.35);
+    final textFaint = Colors.white.withValues(alpha: 0.4);
     // ignore: unused_local_variable
-    final surface = isDark ? const Color(0xFF161820) : Colors.white;
+    final surface = const Color(0xFF161820);
     // ignore: unused_local_variable
-    final cardBg = isDark ? Colors.white.withValues(alpha: 0.04) : Colors.white;
+    final cardBg = Colors.white.withValues(alpha: 0.04);
     // ignore: unused_local_variable
-    final cardBorder = isDark
-        ? Colors.white.withValues(alpha: 0.06)
-        : Colors.black.withValues(alpha: 0.06);
+    final cardBorder = Colors.white.withValues(alpha: 0.06);
     // ignore: unused_local_variable
-    final iconMuted = isDark
-        ? Colors.white.withValues(alpha: 0.4)
-        : Colors.black.withValues(alpha: 0.4);
+    final iconMuted = Colors.white.withValues(alpha: 0.4);
     // ignore: unused_local_variable
-    final iconFaint = isDark
-        ? Colors.white.withValues(alpha: 0.7)
-        : Colors.black.withValues(alpha: 0.55);
+    final iconFaint = Colors.white.withValues(alpha: 0.7);
     // ignore: unused_local_variable
-    final glassColor = isDark
-        ? Colors.white.withValues(alpha: 0.06)
-        : Colors.white;
+    final glassColor = Colors.white.withValues(alpha: 0.06);
     // ignore: unused_local_variable
-    final glassBorder = isDark
-        ? Colors.white.withValues(alpha: 0.08)
-        : Colors.black.withValues(alpha: 0.08);
+    final glassBorder = Colors.white.withValues(alpha: 0.08);
 
     return Scaffold(
       backgroundColor: scaffoldBg,
@@ -310,16 +423,20 @@ class _HomeScreenState extends State<HomeScreen>
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: _buildSectionHeader('Your Fleet', 'View all', () {
-                    Navigator.of(context).push(
-                      slideUpFadeRoute(const MapScreen(openPlanOnStart: true)),
-                    );
-                  }),
+                  child: _buildFleetHeader(),
                 ),
               ),
               SliverToBoxAdapter(child: const SizedBox(height: 16)),
               SliverToBoxAdapter(
-                child: RepaintBoundary(child: _buildFleetStack(screenW)),
+                child: AnimatedCrossFade(
+                  firstChild: RepaintBoundary(child: _buildFleetStack(screenW)),
+                  secondChild: const SizedBox.shrink(),
+                  crossFadeState: _fleetExpanded
+                      ? CrossFadeState.showFirst
+                      : CrossFadeState.showSecond,
+                  duration: const Duration(milliseconds: 300),
+                  sizeCurve: Curves.easeInOut,
+                ),
               ),
 
               SliverToBoxAdapter(child: const SizedBox(height: 36)),
@@ -577,11 +694,7 @@ class _HomeScreenState extends State<HomeScreen>
                   ? Colors.white.withValues(alpha: 0.06)
                   : Colors.white,
               shape: BoxShape.circle,
-              border: Border.all(
-                color: isDark
-                    ? Colors.white.withValues(alpha: 0.08)
-                    : Colors.black.withValues(alpha: 0.08),
-              ),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
               boxShadow: isDark
                   ? null
                   : [
@@ -593,9 +706,7 @@ class _HomeScreenState extends State<HomeScreen>
             ),
             child: Icon(
               icon,
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.7)
-                  : Colors.black.withValues(alpha: 0.6),
+              color: Colors.white.withValues(alpha: 0.4),
               size: 22,
             ),
           ),
@@ -637,7 +748,7 @@ class _HomeScreenState extends State<HomeScreen>
     return GestureDetector(
       onTap: () => Navigator.of(
         context,
-      ).push(scaleExpandRoute(const MapScreen(openPlanOnStart: true))),
+      ).push(scaleExpandRoute(const RideRequestScreen())),
       child: ListenableBuilder(
         listenable: _shimmerController,
         builder: (context, child) {
@@ -664,7 +775,10 @@ class _HomeScreenState extends State<HomeScreen>
                           end: Alignment.bottomRight,
                         )
                       : LinearGradient(
-                          colors: [Colors.white, Colors.grey.shade50],
+                          colors: [
+                            const Color(0xFF161820),
+                            const Color(0xFF1C1E24),
+                          ],
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
@@ -697,15 +811,30 @@ class _HomeScreenState extends State<HomeScreen>
                               letterSpacing: -1,
                             ),
                           ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Search destination or tap to ride',
-                            style: TextStyle(
-                              color: isDark
-                                  ? Colors.white.withValues(alpha: 0.45)
-                                  : Colors.black.withValues(alpha: 0.45),
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
+                          const SizedBox(height: 12),
+                          // ── Now / Later toggle ──
+                          GestureDetector(
+                            onTap: () {},  // absorb tap so parent doesn't fire
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.06),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              padding: const EdgeInsets.all(3),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  _nowLaterPill('Now', Icons.bolt_rounded, _rideNow, () {
+                                    if (!_rideNow) setState(() => _rideNow = true);
+                                  }),
+                                  _nowLaterPill('Later', Icons.schedule_rounded, !_rideNow, () {
+                                    if (_rideNow) {
+                                      setState(() => _rideNow = false);
+                                      _showScheduleSheet();
+                                    }
+                                  }),
+                                ],
+                              ),
                             ),
                           ),
                         ],
@@ -745,97 +874,199 @@ class _HomeScreenState extends State<HomeScreen>
 
   // ─── Circular action buttons ───
   Widget _buildCircularActions() {
-    final isDark =
-        Theme.of(context).brightness ==
-        Brightness.dark; // ignore: unused_local_variable
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
-        _circleAction(Icons.bolt_rounded, 'Ride', [_gold, _goldLight], () {
-          Navigator.of(
-            context,
-          ).push(slideUpFadeRoute(const MapScreen(openPlanOnStart: true)));
-        }),
-        _circleAction(Icons.schedule_rounded, 'Schedule', [
-          Colors.white,
-          Colors.white70,
-        ], _openScheduleFlow),
-        _circleAction(Icons.people_alt_rounded, _selectedRider, [
-          Colors.white,
-          Colors.white54,
-        ], _openRiderPicker),
-        if (_hasActivePromo)
-          _circleAction(
-            Icons.local_offer_rounded,
-            '10% off',
-            [_goldLight, _gold],
-            () {
-              Navigator.of(context).push(
-                slideUpFadeRoute(
-                  const MapScreen(
-                    openPlanOnStart: true,
-                    applyPromoDiscount: true,
+        // Bolt — flashes every 2s
+        _animatedCircleAction(
+          child: AnimatedBuilder(
+            animation: _boltFlashCtrl,
+            builder: (context, child) {
+              final glow = _boltFlashCtrl.value;
+              return ShaderMask(
+                shaderCallback: (bounds) => LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Color.lerp(const Color(0xFFFBE47A), Colors.white, glow * 0.7)!,
+                    Color.lerp(const Color(0xFFE8C547), const Color(0xFFFBE47A), glow)!,
+                  ],
+                ).createShader(bounds),
+                child: Icon(Icons.bolt_rounded, color: Colors.white, size: 26),
+              );
+            },
+          ),
+          label: 'Fast ride',
+          disabled: !_driversOnline,
+          onTap: () {
+            if (!_driversOnline) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  backgroundColor: const Color(0xFF2A2A2A),
+                  content: const Text(
+                    'No drivers available right now. Please try again later.',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
                   ),
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              );
+              return;
+            }
+            Navigator.of(context).push(slideUpFadeRoute(
+              const RideRequestScreen(fastRide: true),
+            ));
+          },
+        ),
+        // Clock — rotates continuously
+        _animatedCircleAction(
+          child: AnimatedBuilder(
+            animation: _clockRotateCtrl,
+            builder: (context, child) {
+              return Transform.rotate(
+                angle: _clockRotateCtrl.value * 2 * 3.14159265,
+                child: ShaderMask(
+                  shaderCallback: (bounds) => const LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Color(0xFFFBE47A), Color(0xFFE8C547)],
+                  ).createShader(bounds),
+                  child: const Icon(Icons.schedule_rounded, color: Colors.white, size: 26),
                 ),
               );
             },
-          )
-        else
-          _circleAction(Icons.star_rounded, 'Rewards', [
-            _goldLight,
-            _gold,
-          ], () {}),
+          ),
+          label: 'Schedule',
+          onTap: _openScheduleFlow,
+        ),
+        // 10% off — shimmer animation, disabled after use
+        _animatedCircleAction(
+          child: _promoUsed
+              ? ShaderMask(
+                  shaderCallback: (bounds) => LinearGradient(
+                    colors: [Colors.grey.shade600, Colors.grey.shade500],
+                  ).createShader(bounds),
+                  child: const Icon(Icons.local_offer_rounded, color: Colors.white, size: 26),
+                )
+              : AnimatedBuilder(
+                  animation: _promoShimmerCtrl,
+                  builder: (context, child) {
+                    final v = _promoShimmerCtrl.value;
+                    return ShaderMask(
+                      shaderCallback: (bounds) => LinearGradient(
+                        begin: Alignment(-1.0 + 2.0 * v, 0),
+                        end: Alignment(1.0 + 2.0 * v, 0),
+                        colors: const [
+                          Color(0xFFE8C547),
+                          Color(0xFFFBE47A),
+                          Colors.white,
+                          Color(0xFFFBE47A),
+                          Color(0xFFE8C547),
+                        ],
+                        stops: const [0.0, 0.3, 0.5, 0.7, 1.0],
+                      ).createShader(bounds),
+                      child: const Icon(Icons.local_offer_rounded, color: Colors.white, size: 26),
+                    );
+                  },
+                ),
+          label: _promoUsed ? 'Used' : '10% off',
+          disabled: _promoUsed,
+          onTap: _promoUsed ? () {} : _showPromoWelcomeDialog,
+        ),
       ],
     );
   }
 
-  Widget _circleAction(
-    IconData icon,
-    String label,
-    List<Color> gradient,
-    VoidCallback onTap,
-  ) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
+  Widget _nowLaterPill(String label, IconData icon, bool active, VoidCallback onTap) {
     return GestureDetector(
       onTap: onTap,
-      child: Column(
-        children: [
-          Container(
-            width: 60,
-            height: 60,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                colors: [
-                  gradient[0].withValues(alpha: isDark ? 0.15 : 0.35),
-                  gradient[1].withValues(alpha: isDark ? 0.06 : 0.18),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: active ? _gold : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: active ? Colors.black : Colors.white.withValues(alpha: 0.45)),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: active ? Colors.black : Colors.white.withValues(alpha: 0.45),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _animatedCircleAction({
+    required Widget child,
+    required String label,
+    required VoidCallback onTap,
+    bool disabled = false,
+  }) {
+    return GestureDetector(
+      onTap: disabled ? null : onTap,
+      child: Opacity(
+        opacity: disabled ? 0.4 : 1.0,
+        child: Column(
+          children: [
+            Container(
+              width: 60,
+              height: 60,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color(0xFF4A4A4A),
+                    Color(0xFF3A3A3A),
+                    Color(0xFF2E2E2E),
+                    Color(0xFF3A3A3A),
+                  ],
+                  stops: [0.0, 0.3, 0.7, 1.0],
+                ),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.18),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.white.withValues(alpha: 0.06),
+                    blurRadius: 4,
+                    offset: const Offset(0, -1),
+                  ),
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.4),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
                 ],
               ),
-              border: Border.all(
-                color: gradient[0].withValues(alpha: isDark ? 0.20 : 0.25),
+              child: child,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: TextStyle(
+                color: disabled
+                    ? Colors.white.withValues(alpha: 0.25)
+                    : Colors.white.withValues(alpha: 0.55),
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
               ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
-            child: Icon(
-              icon,
-              color: isDark ? gradient[0] : gradient[0].withValues(alpha: 0.85),
-              size: 26,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            label,
-            style: TextStyle(
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.7)
-                  : Colors.black.withValues(alpha: 0.7),
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -885,7 +1116,7 @@ class _HomeScreenState extends State<HomeScreen>
               child: Text(
                 action,
                 style: const TextStyle(
-                  color: _gold,
+                  color: Colors.white,
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
                 ),
@@ -893,6 +1124,52 @@ class _HomeScreenState extends State<HomeScreen>
             ),
           ),
       ],
+    );
+  }
+
+  // ─── Fleet header with collapse/expand toggle ───
+  Widget _buildFleetHeader() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return GestureDetector(
+      onTap: () => setState(() => _fleetExpanded = !_fleetExpanded),
+      behavior: HitTestBehavior.opaque,
+      child: Row(
+        children: [
+          Container(
+            width: 4,
+            height: 20,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [_gold, _goldLight],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+              ),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            'Choose a ride',
+            style: TextStyle(
+              color: isDark ? Colors.white : const Color(0xFF1C1C1E),
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.3,
+            ),
+          ),
+          const Spacer(),
+          AnimatedRotation(
+            turns: _fleetExpanded ? 0.0 : -0.25,
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeInOut,
+            child: Icon(
+              Icons.keyboard_arrow_down_rounded,
+              color: Colors.white.withValues(alpha: 0.5),
+              size: 24,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -941,38 +1218,39 @@ class _HomeScreenState extends State<HomeScreen>
             right: 24,
           ),
           child: GestureDetector(
-            onTap: () => Navigator.of(context).push(
-              slideFromRightRoute(
-                MapScreen(openPlanOnStart: true, preSelectedRideIndex: idx),
-              ),
-            ),
+            onTap: () => Navigator.of(
+              context,
+            ).push(slideFromRightRoute(const RideRequestScreen())),
             child: Container(
               height: 120,
-              clipBehavior: Clip.none,
+              clipBehavior: Clip.hardEdge,
               padding: const EdgeInsets.fromLTRB(20, 14, 0, 14),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    accent.withValues(alpha: isDark ? 0.08 : 0.06),
-                    isDark ? const Color(0xFF0D0E14) : Colors.white,
+                    const Color(0xFF1A1D24),
+                    const Color(0xFF141820),
                   ],
-                  begin: Alignment.centerLeft,
-                  end: Alignment.centerRight,
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
-                borderRadius: BorderRadius.circular(22),
+                borderRadius: BorderRadius.circular(20),
                 border: Border.all(
-                  color: isDark
-                      ? accent.withValues(alpha: 0.12)
-                      : Colors.black.withValues(alpha: 0.06),
+                  color: Colors.white.withValues(alpha: 0.06),
+                  width: 1,
                 ),
-                boxShadow: isDark
-                    ? null
-                    : [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.04),
-                          blurRadius: 12,
-                        ),
-                      ],
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.3),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                  BoxShadow(
+                    color: accent.withValues(alpha: 0.05),
+                    blurRadius: 30,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
               ),
               child: Row(
                 children: [
@@ -1020,16 +1298,14 @@ class _HomeScreenState extends State<HomeScreen>
                         Text(
                           v['desc'] as String,
                           style: TextStyle(
-                            color: isDark
-                                ? Colors.white.withValues(alpha: 0.4)
-                                : Colors.black.withValues(alpha: 0.45),
+                            color: Colors.white.withValues(alpha: 0.45),
                             fontSize: 12,
                           ),
                         ),
                       ],
                     ),
                   ),
-                  // Car image — large with overflow, decoded at scaled resolution
+                  // Car image — large with overflow
                   SizedBox(
                     width: screenW * 0.38,
                     child: Transform.scale(
@@ -1039,6 +1315,7 @@ class _HomeScreenState extends State<HomeScreen>
                         'assets/images/${(v['name'] as String).toLowerCase()}.png',
                         fit: BoxFit.contain,
                         filterQuality: FilterQuality.high,
+                        isAntiAlias: true,
                         cacheWidth:
                             (screenW *
                                     0.38 *
@@ -1134,9 +1411,7 @@ class _HomeScreenState extends State<HomeScreen>
                         : Colors.white,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
-                      color: isDark
-                          ? Colors.white.withValues(alpha: 0.06)
-                          : Colors.black.withValues(alpha: 0.06),
+                      color: Colors.white.withValues(alpha: 0.1),
                     ),
                     boxShadow: isDark
                         ? null
@@ -1180,9 +1455,7 @@ class _HomeScreenState extends State<HomeScreen>
                             Text(
                               '${d.count} trips',
                               style: TextStyle(
-                                color: isDark
-                                    ? Colors.white.withValues(alpha: 0.4)
-                                    : Colors.black.withValues(alpha: 0.4),
+                                color: Colors.white.withValues(alpha: 0.45),
                                 fontSize: 11,
                               ),
                             ),
@@ -1191,9 +1464,7 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                       Icon(
                         Icons.chevron_right_rounded,
-                        color: isDark
-                            ? Colors.white.withValues(alpha: 0.2)
-                            : Colors.black.withValues(alpha: 0.15),
+                        color: Colors.white.withValues(alpha: 0.4),
                         size: 20,
                       ),
                     ],
@@ -1214,38 +1485,34 @@ class _HomeScreenState extends State<HomeScreen>
     Color accent,
     VoidCallback onTap,
   ) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final hasAddress = subtitle != 'Add' && subtitle.trim().isNotEmpty;
     return GestureDetector(
-      onTap: onTap,
+      onTap: () {
+        if (!hasAddress) {
+          onTap();
+          return;
+        }
+        _showPlaceOptions(title, subtitle, onTap);
+      },
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: isDark ? accent.withValues(alpha: 0.06) : Colors.white,
+          color: _gold.withValues(alpha: 0.10),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: isDark
-                ? accent.withValues(alpha: 0.10)
-                : Colors.black.withValues(alpha: 0.06),
+            color: _gold.withValues(alpha: 0.18),
           ),
-          boxShadow: isDark
-              ? null
-              : [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.03),
-                    blurRadius: 8,
-                  ),
-                ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: accent, size: 22),
+            Icon(icon, color: _gold, size: 22),
             const SizedBox(height: 6),
             Text(
               title,
-              style: TextStyle(
-                color: isDark ? Colors.white : const Color(0xFF1C1C1E),
+              style: const TextStyle(
+                color: Colors.white,
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
               ),
@@ -1253,9 +1520,7 @@ class _HomeScreenState extends State<HomeScreen>
             Text(
               subtitle,
               style: TextStyle(
-                color: isDark
-                    ? Colors.white.withValues(alpha: 0.35)
-                    : Colors.black.withValues(alpha: 0.40),
+                color: Colors.white.withValues(alpha: 0.55),
                 fontSize: 11,
               ),
               maxLines: 1,
@@ -1264,6 +1529,119 @@ class _HomeScreenState extends State<HomeScreen>
           ],
         ),
       ),
+    );
+  }
+
+  void _showPlaceOptions(String label, String address, VoidCallback editTap) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        margin: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E1E1E),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 36, height: 4,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              address,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.5),
+                fontSize: 13,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            // Edit Address
+            _placeOptionBtn(
+              Icons.edit_rounded,
+              'Edit Address',
+              () {
+                Navigator.pop(ctx);
+                editTap();
+              },
+            ),
+            const SizedBox(height: 8),
+            // Request a Ride
+            _placeOptionBtn(
+              Icons.directions_car_rounded,
+              'Request a Ride',
+              () {
+                Navigator.pop(ctx);
+                _requestRideToAddress(address);
+              },
+              highlight: true,
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _placeOptionBtn(IconData icon, String label, VoidCallback onTap, {bool highlight = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          decoration: BoxDecoration(
+            color: highlight
+                ? _gold.withValues(alpha: 0.15)
+                : Colors.white.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: highlight
+                  ? _gold.withValues(alpha: 0.30)
+                  : Colors.white.withValues(alpha: 0.08),
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: highlight ? _gold : Colors.white, size: 20),
+              const SizedBox(width: 10),
+              Text(
+                label,
+                style: TextStyle(
+                  color: highlight ? _gold : Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _requestRideToAddress(String address) {
+    LocalDataService.incrementDestinationUsage(address);
+    Navigator.of(context).push(
+      slideUpFadeRoute(const RideRequestScreen()),
     );
   }
 
@@ -1311,9 +1689,7 @@ class _HomeScreenState extends State<HomeScreen>
                           child: Container(
                             width: 1.5,
                             margin: const EdgeInsets.symmetric(vertical: 4),
-                            color: isDark
-                                ? Colors.white.withValues(alpha: 0.08)
-                                : Colors.black.withValues(alpha: 0.08),
+                            color: Colors.white.withValues(alpha: 0.1),
                           ),
                         ),
                     ],
@@ -1331,9 +1707,7 @@ class _HomeScreenState extends State<HomeScreen>
                           : Colors.white,
                       borderRadius: BorderRadius.circular(18),
                       border: Border.all(
-                        color: isDark
-                            ? Colors.white.withValues(alpha: 0.06)
-                            : Colors.black.withValues(alpha: 0.06),
+                        color: Colors.white.withValues(alpha: 0.1),
                       ),
                       boxShadow: isDark
                           ? null
@@ -1364,9 +1738,7 @@ class _HomeScreenState extends State<HomeScreen>
                               Text(
                                 trip.rideName,
                                 style: TextStyle(
-                                  color: isDark
-                                      ? Colors.white.withValues(alpha: 0.4)
-                                      : Colors.black.withValues(alpha: 0.4),
+                                  color: Colors.white.withValues(alpha: 0.45),
                                   fontSize: 12,
                                 ),
                               ),
@@ -1412,19 +1784,13 @@ class _HomeScreenState extends State<HomeScreen>
         height: 180,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(22),
-          border: Border.all(
-            color: isDark
-                ? Colors.white.withValues(alpha: 0.06)
-                : Colors.black.withValues(alpha: 0.06),
-          ),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
         ),
         child: Stack(
           children: [
             if (_currentLatLng == null)
               Container(
-                color: isDark
-                    ? const Color(0xFF0D0E14)
-                    : const Color(0xFFF0F0F0),
+                color: const Color(0xFF0D0E14),
                 child: Center(
                   child: _locationError != null
                       ? Column(
@@ -1432,18 +1798,14 @@ class _HomeScreenState extends State<HomeScreen>
                           children: [
                             Icon(
                               Icons.location_off_rounded,
-                              color: isDark
-                                  ? Colors.white.withValues(alpha: 0.3)
-                                  : Colors.black.withValues(alpha: 0.3),
+                              color: Colors.white.withValues(alpha: 0.5),
                               size: 28,
                             ),
                             const SizedBox(height: 8),
                             Text(
                               _locationError!,
                               style: TextStyle(
-                                color: isDark
-                                    ? Colors.white.withValues(alpha: 0.4)
-                                    : Colors.black.withValues(alpha: 0.5),
+                                color: Colors.white.withValues(alpha: 0.5),
                                 fontSize: 13,
                               ),
                             ),
@@ -1489,13 +1851,8 @@ class _HomeScreenState extends State<HomeScreen>
                 onMapCreated: (controller) {
                   _miniMapController = controller;
                   try {
-                    final sysBright =
-                        ui.PlatformDispatcher.instance.platformBrightness;
-                    final style = sysBright == Brightness.dark
-                        ? _darkMapStyle
-                        : _lightMapStyle;
                     // ignore: deprecated_member_use
-                    controller.setMapStyle(style);
+                    controller.setMapStyle(MapStyles.dark);
                   } catch (_) {}
                 },
                 markers: {
@@ -1531,9 +1888,7 @@ class _HomeScreenState extends State<HomeScreen>
                       : Colors.white.withValues(alpha: 0.92),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: isDark
-                        ? Colors.white.withValues(alpha: 0.08)
-                        : Colors.black.withValues(alpha: 0.08),
+                    color: Colors.white.withValues(alpha: 0.1),
                   ),
                   boxShadow: isDark
                       ? null
@@ -1593,13 +1948,9 @@ class _HomeScreenState extends State<HomeScreen>
       margin: EdgeInsets.fromLTRB(40, 0, 40, bottomPad + 16),
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF161820) : Colors.white,
+        color: const Color(0xFF161820),
         borderRadius: BorderRadius.circular(28),
-        border: Border.all(
-          color: isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.06),
-        ),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: isDark ? 0.5 : 0.12),
@@ -1647,9 +1998,7 @@ class _HomeScreenState extends State<HomeScreen>
                       key: ValueKey('dock_icon_${i}_$active'),
                       color: active
                           ? Colors.black87
-                          : (isDark
-                                ? Colors.white.withValues(alpha: 0.4)
-                                : Colors.black.withValues(alpha: 0.35)),
+                          : Colors.white.withValues(alpha: 0.5),
                       size: 20,
                     ),
                   ),
@@ -1697,7 +2046,7 @@ class _HomeScreenState extends State<HomeScreen>
       case 0:
         await Navigator.of(
           context,
-        ).push(slideUpFadeRoute(const MapScreen(openPlanOnStart: true)));
+        ).push(slideUpFadeRoute(const RideRequestScreen()));
         if (mounted) setState(() => _dockIndex = 0);
         break;
       case 1:
@@ -1715,48 +2064,14 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  static const _darkMapStyle = '''
-[
-  {"elementType":"geometry","stylers":[{"color":"#1d2c4d"}]},
-  {"elementType":"labels.text.fill","stylers":[{"color":"#8ec3b9"}]},
-  {"elementType":"labels.text.stroke","stylers":[{"color":"#1a3646"}]},
-  {"featureType":"administrative.country","elementType":"geometry.stroke","stylers":[{"color":"#4b6878"}]},
-  {"featureType":"poi","elementType":"geometry","stylers":[{"color":"#283d6a"}]},
-  {"featureType":"poi","elementType":"labels.text.fill","stylers":[{"color":"#6f9ba5"}]},
-  {"featureType":"poi.park","elementType":"geometry.fill","stylers":[{"color":"#023e58"}]},
-  {"featureType":"road","elementType":"geometry","stylers":[{"color":"#304a7d"}]},
-  {"featureType":"road","elementType":"labels.text.fill","stylers":[{"color":"#98a5be"}]},
-  {"featureType":"road.highway","elementType":"geometry","stylers":[{"color":"#2c6675"}]},
-  {"featureType":"transit","elementType":"labels.text.fill","stylers":[{"color":"#98a5be"}]},
-  {"featureType":"water","elementType":"geometry","stylers":[{"color":"#0e1626"}]},
-  {"featureType":"water","elementType":"labels.text.fill","stylers":[{"color":"#4e6d70"}]}
-]
-''';
-
-  static const _lightMapStyle = '''
-[
-  {"elementType":"geometry","stylers":[{"color":"#f5f5f5"}]},
-  {"elementType":"labels.text.fill","stylers":[{"color":"#616161"}]},
-  {"elementType":"labels.text.stroke","stylers":[{"color":"#f5f5f5"}]},
-  {"featureType":"administrative.land_parcel","elementType":"labels.text.fill","stylers":[{"color":"#bdbdbd"}]},
-  {"featureType":"poi","elementType":"geometry","stylers":[{"color":"#eeeeee"}]},
-  {"featureType":"poi","elementType":"labels.text.fill","stylers":[{"color":"#757575"}]},
-  {"featureType":"poi.park","elementType":"geometry","stylers":[{"color":"#e5e5e5"}]},
-  {"featureType":"road","elementType":"geometry","stylers":[{"color":"#ffffff"}]},
-  {"featureType":"road","elementType":"labels.text.fill","stylers":[{"color":"#9e9e9e"}]},
-  {"featureType":"road.highway","elementType":"geometry","stylers":[{"color":"#dadada"}]},
-  {"featureType":"transit","elementType":"labels.text.fill","stylers":[{"color":"#757575"}]},
-  {"featureType":"water","elementType":"geometry","stylers":[{"color":"#c9c9c9"}]},
-  {"featureType":"water","elementType":"labels.text.fill","stylers":[{"color":"#9e9e9e"}]}
-]
-''';
+  // Map styles now use shared MapStyles.dark from config/map_styles.dart
 
   void _openScheduleFlow() => _showScheduleSheet();
 
   Future<void> _openScheduleSheet() => _showScheduleSheet();
 
   Future<void> _showScheduleSheet() async {
-    final result = await showModalBottomSheet<DateTime>(
+    final result = await showModalBottomSheet<(DateTime, bool)>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -1765,14 +2080,16 @@ class _HomeScreenState extends State<HomeScreen>
     );
     if (result == null || !mounted) return;
 
-    final formattedDate = '${result.month}/${result.day}/${result.year}';
-    final formattedTime = TimeOfDay.fromDateTime(result).format(context);
+    final (scheduledAt, isAirport) = result;
+    final formattedDate = '${scheduledAt.month}/${scheduledAt.day}/${scheduledAt.year}';
+    final formattedTime = TimeOfDay.fromDateTime(scheduledAt).format(context);
 
+    final airportLabel = isAirport ? ' ✈ Airport' : '';
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         backgroundColor: _gold,
         content: Text(
-          'Ride scheduled for $formattedDate at $formattedTime',
+          'Ride scheduled for $formattedDate at $formattedTime$airportLabel',
           style: const TextStyle(
             color: Colors.black,
             fontWeight: FontWeight.w600,
@@ -1782,20 +2099,12 @@ class _HomeScreenState extends State<HomeScreen>
       ),
     );
 
-    Navigator.of(context).push(
-      slideUpFadeRoute(
-        MapScreen(openPlanOnStart: true, scheduledDateTime: result),
-      ),
-    );
+    Navigator.of(context).push(slideUpFadeRoute(const RideRequestScreen()));
   }
 
   void _openMapWithDropoff(String query) {
     LocalDataService.incrementDestinationUsage(query);
-    Navigator.of(context).push(
-      slideFromRightRoute(
-        MapScreen(openPlanOnStart: true, initialDropoffQuery: query),
-      ),
-    );
+    Navigator.of(context).push(slideFromRightRoute(const RideRequestScreen()));
   }
 
   FavoritePlace? get _homeFavorite {
@@ -1817,12 +2126,11 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _openOrSaveHomeShortcut() async {
-    final existingHome = _homeFavorite;
-    if (existingHome != null && existingHome.address.trim().isNotEmpty) {
-      _openMapWithDropoff(existingHome.address);
+    if (_homeFavorite != null) {
+      // Address saved — go to ride request
+      _openMapWithDropoff(_homeFavorite!.address);
       return;
     }
-
     final address = await _showAddressAutocomplete(
       title: 'Set Home address',
       hint: 'Search your home address',
@@ -1836,12 +2144,11 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _openOrSaveWorkShortcut() async {
-    final existingWork = _workFavorite;
-    if (existingWork != null && existingWork.address.trim().isNotEmpty) {
-      _openMapWithDropoff(existingWork.address);
+    if (_workFavorite != null) {
+      // Address saved — go to ride request
+      _openMapWithDropoff(_workFavorite!.address);
       return;
     }
-
     final address = await _showAddressAutocomplete(
       title: 'Set Work address',
       hint: 'Search your work address',
@@ -1871,61 +2178,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Future<void> _openRiderPicker() async {
-    final c = AppColors.of(context);
-    final selected = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: c.panel,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      enableDrag: true,
-      useSafeArea: true,
-      builder: (context) {
-        final riders = ['You', 'Family', 'Guest'];
-        return SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Choose rider',
-                  style: TextStyle(
-                    color: c.textPrimary,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                ...riders.map((rider) {
-                  final isSelected = rider == _selectedRider;
-                  return ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(rider, style: TextStyle(color: c.textPrimary)),
-                    trailing: isSelected
-                        ? const Icon(Icons.check_circle, color: _gold)
-                        : Icon(
-                            Icons.radio_button_unchecked,
-                            color: c.textTertiary,
-                          ),
-                    onTap: () => Navigator.of(context).pop(rider),
-                  );
-                }),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-
-    if (!mounted || selected == null) return;
-    setState(() {
-      _selectedRider = selected;
-    });
-  }
 
   void _openTripReceipt(TripHistoryItem trip) {
     Navigator.of(
@@ -1963,9 +2215,7 @@ class _HomeScreenState extends State<HomeScreen>
                     height: 4.5,
                     margin: const EdgeInsets.only(bottom: 12),
                     decoration: BoxDecoration(
-                      color: c.isDark
-                          ? Colors.white.withValues(alpha: 0.15)
-                          : Colors.black.withValues(alpha: 0.12),
+                      color: Colors.white.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(40),
                     ),
                   ),
@@ -2067,65 +2317,141 @@ class _GlowBorderPainter extends CustomPainter {
     required this.isDark,
   });
 
+  // Sample N points along a rounded rect perimeter (clockwise from top-center)
+  static List<Offset> _sampleRRect(RRect rr, int n) {
+    final pts = <Offset>[];
+    final w = rr.width, h = rr.height;
+    final r = rr.tlRadiusX.clamp(0, w / 2);
+    // Perimeter segments: top, tr-corner, right, br-corner, bottom, bl-corner, left, tl-corner
+    final straight = (w - 2 * r) * 2 + (h - 2 * r) * 2;
+    final corners = 2 * 3.14159265 * r; // total corner arc length
+    final total = straight + corners;
+    for (int i = 0; i < n; i++) {
+      var d = (i / n) * total;
+      double x, y;
+      final topW = w - 2 * r;
+      // Top edge (left to right)
+      if (d < topW) {
+        x = rr.left + r + d;
+        y = rr.top;
+        pts.add(Offset(x, y));
+        continue;
+      }
+      d -= topW;
+      // Top-right corner
+      final qArc = 3.14159265 * r / 2;
+      if (d < qArc) {
+        final a = -3.14159265 / 2 + (d / qArc) * (3.14159265 / 2);
+        x = rr.right - r + r * _cos(a);
+        y = rr.top + r + r * _sin(a);
+        pts.add(Offset(x, y));
+        continue;
+      }
+      d -= qArc;
+      // Right edge
+      final rightH = h - 2 * r;
+      if (d < rightH) {
+        x = rr.right;
+        y = rr.top + r + d;
+        pts.add(Offset(x, y));
+        continue;
+      }
+      d -= rightH;
+      // Bottom-right corner
+      if (d < qArc) {
+        final a = 0.0 + (d / qArc) * (3.14159265 / 2);
+        x = rr.right - r + r * _cos(a);
+        y = rr.bottom - r + r * _sin(a);
+        pts.add(Offset(x, y));
+        continue;
+      }
+      d -= qArc;
+      // Bottom edge (right to left)
+      if (d < topW) {
+        x = rr.right - r - d;
+        y = rr.bottom;
+        pts.add(Offset(x, y));
+        continue;
+      }
+      d -= topW;
+      // Bottom-left corner
+      if (d < qArc) {
+        final a = 3.14159265 / 2 + (d / qArc) * (3.14159265 / 2);
+        x = rr.left + r + r * _cos(a);
+        y = rr.bottom - r + r * _sin(a);
+        pts.add(Offset(x, y));
+        continue;
+      }
+      d -= qArc;
+      // Left edge (bottom to top)
+      if (d < rightH) {
+        x = rr.left;
+        y = rr.bottom - r - d;
+        pts.add(Offset(x, y));
+        continue;
+      }
+      d -= rightH;
+      // Top-left corner
+      if (d < qArc) {
+        final a = 3.14159265 + (d / qArc) * (3.14159265 / 2);
+        x = rr.left + r + r * _cos(a);
+        y = rr.top + r + r * _sin(a);
+        pts.add(Offset(x, y));
+        continue;
+      }
+      pts.add(Offset(rr.left + r, rr.top));
+    }
+    return pts;
+  }
+
+  static double _cos(double a) => math.cos(a);
+  static double _sin(double a) => math.sin(a);
+
   @override
   void paint(Canvas canvas, Size size) {
     final rect = Offset.zero & size;
     final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(28));
 
-    // Base subtle border
+    // Base subtle border — always visible
     final basePaint = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5
-      ..color = isDark
-          ? gold.withValues(alpha: 0.15)
-          : gold.withValues(alpha: 0.25);
+      ..strokeWidth = 1.2
+      ..color = gold.withValues(alpha: isDark ? 0.12 : 0.20);
     canvas.drawRRect(rrect, basePaint);
 
-    // Traveling glow — sweep gradient rotated by progress
-    final center = Offset(
-      size.width / 2,
-      size.height / 2,
-    ); // ignore: unused_local_variable
-    final sweepAngle = progress * 2 * 3.14159265;
+    // ── Seamless traveling glow: draw segments along perimeter ──
+    const segments = 200;
+    const glowLen = 0.18; // fraction of perimeter that glows
+    final pts = _sampleRRect(rrect, segments);
 
-    final glowPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.5
-      ..shader = SweepGradient(
-        center: Alignment.center,
-        startAngle: sweepAngle,
-        endAngle: sweepAngle + 2 * 3.14159265,
-        colors: [
-          gold.withValues(alpha: 0.0),
-          gold.withValues(alpha: 0.0),
-          goldLight.withValues(alpha: isDark ? 0.8 : 0.9),
-          gold.withValues(alpha: isDark ? 0.6 : 0.7),
-          gold.withValues(alpha: 0.0),
-          gold.withValues(alpha: 0.0),
-        ],
-        stops: const [0.0, 0.3, 0.45, 0.55, 0.7, 1.0],
-      ).createShader(rect);
-    canvas.drawRRect(rrect, glowPaint);
+    final headIdx = (progress * segments).round() % segments;
 
-    // Outer soft glow shadow behind the bright spot
-    final glowShadow = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 8
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6)
-      ..shader = SweepGradient(
-        center: Alignment.center,
-        startAngle: sweepAngle,
-        endAngle: sweepAngle + 2 * 3.14159265,
-        colors: [
-          gold.withValues(alpha: 0.0),
-          gold.withValues(alpha: 0.0),
-          goldLight.withValues(alpha: isDark ? 0.3 : 0.25),
-          gold.withValues(alpha: 0.0),
-          gold.withValues(alpha: 0.0),
-        ],
-        stops: const [0.0, 0.35, 0.5, 0.65, 1.0],
-      ).createShader(rect);
-    canvas.drawRRect(rrect, glowShadow);
+    for (int k = 0; k < (segments * glowLen).round(); k++) {
+      final idx = (headIdx - k + segments) % segments;
+      final nextIdx = (idx + 1) % segments;
+      // Fade: 0 at tail → 1 at head
+      final t = 1.0 - (k / (segments * glowLen));
+      // Bell-curve fade: strong in middle, fades both ends
+      final alpha = t * t * (3 - 2 * t); // smoothstep
+
+      // Bright line
+      canvas.drawLine(
+        pts[idx], pts[nextIdx],
+        Paint()
+          ..strokeWidth = 2.5
+          ..color = Color.lerp(gold, goldLight, t)!.withValues(alpha: alpha * 0.95)
+          ..strokeCap = StrokeCap.round,
+      );
+      // Outer glow halo
+      canvas.drawLine(
+        pts[idx], pts[nextIdx],
+        Paint()
+          ..strokeWidth = 10
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8)
+          ..color = goldLight.withValues(alpha: alpha * 0.35)
+          ..strokeCap = StrokeCap.round,
+      );
+    }
   }
 
   @override
@@ -2145,7 +2471,7 @@ class _ScheduleBottomSheet extends StatefulWidget {
 
 class _ScheduleBottomSheetState extends State<_ScheduleBottomSheet>
     with SingleTickerProviderStateMixin {
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
   static const _goldLight = Color(0xFFF5D990);
 
   late final AnimationController _animCtrl;
@@ -2155,6 +2481,7 @@ class _ScheduleBottomSheetState extends State<_ScheduleBottomSheet>
   late final Animation<Offset> _slideIn;
 
   bool _showingClock = false;
+  bool _isAirport = false;
   DateTime _selectedDate = DateTime.now();
   int _selectedHour = TimeOfDay.now().hour;
   int _selectedMinute = (TimeOfDay.now().minute ~/ 5) * 5; // rounded to 5
@@ -2218,17 +2545,14 @@ class _ScheduleBottomSheetState extends State<_ScheduleBottomSheet>
       _selectedHour,
       _selectedMinute,
     );
-    Navigator.of(context).pop(scheduled);
+    Navigator.of(context).pop((scheduled, _isAirport));
   }
 
-  Color get _bg => widget.isDark ? const Color(0xFF14161E) : Colors.white;
-  Color get _surface =>
-      widget.isDark ? const Color(0xFF1A1D24) : const Color(0xFFF5F6FA);
-  Color get _textPrimary =>
-      widget.isDark ? Colors.white : const Color(0xFF1A1D24);
-  Color get _textSecondary =>
-      widget.isDark ? Colors.white54 : const Color(0xFF6B7280);
-  Color get _border => widget.isDark ? Colors.white10 : const Color(0xFFE5E7EB);
+  Color get _bg => const Color(0xFF161820);
+  Color get _surface => const Color(0xFF1A1D24);
+  Color get _textPrimary => Colors.white;
+  Color get _textSecondary => Colors.white54;
+  Color get _border => Colors.white10;
 
   @override
   Widget build(BuildContext context) {
@@ -2345,6 +2669,68 @@ class _ScheduleBottomSheetState extends State<_ScheduleBottomSheet>
                     ),
                   );
                 },
+              ),
+              const SizedBox(height: 16),
+
+              // Airport toggle
+              GestureDetector(
+                onTap: () => setState(() => _isAirport = !_isAirport),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 250),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: _isAirport
+                        ? const Color(0xFF4285F4).withValues(alpha: 0.12)
+                        : _surface,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: _isAirport
+                          ? const Color(0xFF4285F4).withValues(alpha: 0.4)
+                          : _border,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.flight_rounded,
+                        size: 20,
+                        color: _isAirport ? const Color(0xFF4285F4) : _textSecondary,
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        'Airport trip',
+                        style: TextStyle(
+                          color: _isAirport ? const Color(0xFF4285F4) : _textPrimary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const Spacer(),
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        width: 42,
+                        height: 24,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          color: _isAirport ? const Color(0xFF4285F4) : Colors.white12,
+                        ),
+                        child: AnimatedAlign(
+                          duration: const Duration(milliseconds: 200),
+                          alignment: _isAirport ? Alignment.centerRight : Alignment.centerLeft,
+                          child: Container(
+                            width: 20,
+                            height: 20,
+                            margin: const EdgeInsets.symmetric(horizontal: 2),
+                            decoration: const BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
               const SizedBox(height: 16),
 
@@ -2841,7 +3227,7 @@ class _AddressAutocompleteSheetState extends State<_AddressAutocompleteSheet> {
                 height: 24,
                 child: CircularProgressIndicator(
                   strokeWidth: 2.5,
-                  color: const Color(0xFFD4A843),
+                  color: const Color(0xFFE8C547),
                 ),
               ),
             ),

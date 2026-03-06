@@ -13,7 +13,7 @@ class PrivacyScreen extends StatefulWidget {
 }
 
 class _PrivacyScreenState extends State<PrivacyScreen> {
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
 
   bool _locationSharing = true;
   bool _analyticsEnabled = true;
@@ -53,7 +53,7 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: c.isDark ? c.surface : Colors.white,
+        backgroundColor: c.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text('Clear Trip History',
             style: TextStyle(color: c.textPrimary, fontWeight: FontWeight.w700)),
@@ -68,7 +68,7 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Delete',
-                style: TextStyle(color: Color(0xFFD4A843), fontWeight: FontWeight.w700)),
+                style: TextStyle(color: Color(0xFFE8C547), fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -102,7 +102,7 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Request Export',
-                style: TextStyle(color: Color(0xFFD4A843), fontWeight: FontWeight.w700)),
+                style: TextStyle(color: Color(0xFFE8C547), fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -116,7 +116,7 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: c.isDark ? c.surface : Colors.white,
+        backgroundColor: c.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text('Delete Account',
             style: TextStyle(color: c.textPrimary, fontWeight: FontWeight.w700)),
@@ -131,7 +131,7 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Delete Account',
-                style: TextStyle(color: Color(0xFFD4A843), fontWeight: FontWeight.w700)),
+                style: TextStyle(color: Color(0xFFE8C547), fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -170,7 +170,7 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
                     child: Container(
                       width: 40, height: 40,
                       decoration: BoxDecoration(
-                        color: c.isDark ? c.surface : Colors.white,
+                        color: c.surface,
                         borderRadius: BorderRadius.circular(12),
                         border: c.isDark ? null : Border.all(color: Colors.black.withValues(alpha: 0.06)),
                       ),
@@ -254,14 +254,14 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                         decoration: BoxDecoration(
-                        color: const Color(0xFFD4A843).withValues(alpha: 0.08),
+                        color: const Color(0xFFE8C547).withValues(alpha: 0.08),
                           borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: const Color(0xFFD4A843).withValues(alpha: 0.2)),
+                          border: Border.all(color: const Color(0xFFE8C547).withValues(alpha: 0.2)),
                         ),
                         child: Row(
                           children: [
                             const Icon(Icons.delete_forever_rounded,
-                                color: Color(0xFFD4A843), size: 22),
+                                color: Color(0xFFE8C547), size: 22),
                             const SizedBox(width: 14),
                             Expanded(
                               child: Column(
@@ -271,7 +271,7 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
                                       style: TextStyle(
                                           fontSize: 15,
                                           fontWeight: FontWeight.w600,
-                                          color: Color(0xFFD4A843))),
+                                          color: Color(0xFFE8C547))),
                                   const SizedBox(height: 3),
                                   Text(
                                       'Permanently remove your account and all associated data.',
@@ -282,7 +282,7 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
                               ),
                             ),
                             const Icon(Icons.chevron_right_rounded,
-                                color: Color(0xFFD4A843), size: 20),
+                                color: Color(0xFFE8C547), size: 20),
                           ],
                         ),
                       ),
@@ -303,7 +303,7 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: c.isDark ? c.surface : Colors.white,
+        color: c.surface,
         borderRadius: BorderRadius.circular(14),
         border: c.isDark
             ? null
@@ -345,7 +345,7 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         decoration: BoxDecoration(
-          color: c.isDark ? c.surface : Colors.white,
+          color: c.surface,
           borderRadius: BorderRadius.circular(14),
           border: c.isDark
               ? null

@@ -21,7 +21,7 @@ class CreatePasswordScreen extends StatefulWidget {
 }
 
 class _CreatePasswordScreenState extends State<CreatePasswordScreen> {
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
   static const _goldLight = Color(0xFFF5D990);
 
   final _passCtrl = TextEditingController();
@@ -298,14 +298,14 @@ class _CreatePasswordScreenState extends State<CreatePasswordScreen> {
         Icon(
           met ? Icons.check_circle_rounded : Icons.circle_outlined,
           size: 16,
-          color: met ? const Color(0xFFD4A843) : c.textTertiary,
+          color: met ? const Color(0xFFE8C547) : c.textTertiary,
         ),
         const SizedBox(width: 8),
         Text(
           label,
           style: TextStyle(
             fontSize: 13,
-            color: met ? const Color(0xFFD4A843) : c.textTertiary,
+            color: met ? const Color(0xFFE8C547) : c.textTertiary,
             fontWeight: met ? FontWeight.w600 : FontWeight.w400,
           ),
         ),

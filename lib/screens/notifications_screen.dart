@@ -5,7 +5,7 @@ import '../config/page_transitions.dart';
 import 'payment_method_screen.dart';
 
 class NotificationsScreen extends StatelessWidget {
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
   static const _goldLight = Color(0xFFF5D990);
 
   final String firstName;
@@ -61,7 +61,7 @@ class NotificationsScreen extends StatelessWidget {
                 width: 200,
                 height: 200,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFD4A843).withValues(alpha: 0.15),
+                  color: const Color(0xFFE8C547).withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(30),
                 ),
                 child: Stack(
@@ -74,7 +74,7 @@ class NotificationsScreen extends StatelessWidget {
                         width: 120,
                         height: 100,
                         decoration: BoxDecoration(
-                          color: const Color(0xFFD4A843).withValues(alpha: 0.3),
+                          color: const Color(0xFFE8C547).withValues(alpha: 0.3),
                           borderRadius: BorderRadius.circular(20),
                         ),
                       ),

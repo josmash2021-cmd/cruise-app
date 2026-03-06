@@ -26,7 +26,7 @@ class DriverMenuScreen extends StatefulWidget {
 
 class _DriverMenuScreenState extends State<DriverMenuScreen>
     with SingleTickerProviderStateMixin {
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
   static const _goldLight = Color(0xFFF5D990);
   static const _bg = Color(0xFF0A0A0A);
   static const _surface = Color(0xFF111111);
@@ -754,7 +754,7 @@ class _DriverMenuScreenState extends State<DriverMenuScreen>
               await UserSession.logout();
               if (!context.mounted) return;
               Navigator.of(context).pushAndRemoveUntil(
-                MaterialPageRoute(builder: (_) => const SplashScreen()),
+                smoothFadeRoute(const SplashScreen()),
                 (_) => false,
               );
             },

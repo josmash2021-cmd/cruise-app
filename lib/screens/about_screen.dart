@@ -12,7 +12,7 @@ class AboutScreen extends StatefulWidget {
 }
 
 class _AboutScreenState extends State<AboutScreen> {
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
 
   String _version = '';
   String _buildNumber = '';
@@ -59,7 +59,7 @@ class _AboutScreenState extends State<AboutScreen> {
                 child: Container(
                   width: 40, height: 40,
                   decoration: BoxDecoration(
-                    color: c.isDark ? c.surface : Colors.white,
+                    color: c.surface,
                     borderRadius: BorderRadius.circular(12),
                     border: c.isDark ? null : Border.all(color: Colors.black.withValues(alpha: 0.06)),
                   ),
@@ -153,7 +153,7 @@ class _AboutScreenState extends State<AboutScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
         decoration: BoxDecoration(
-          color: c.isDark ? c.surface : Colors.white,
+          color: c.surface,
           borderRadius: BorderRadius.circular(14),
           border: c.isDark
               ? null

@@ -5,7 +5,7 @@ import '../config/app_theme.dart';
 class SafetyScreen extends StatelessWidget {
   const SafetyScreen({super.key});
 
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
 
   @override
   Widget build(BuildContext context) {
@@ -28,7 +28,7 @@ class SafetyScreen extends StatelessWidget {
                   width: 40,
                   height: 40,
                   decoration: BoxDecoration(
-                    color: c.isDark ? c.surface : Colors.white,
+                    color: c.surface,
                     borderRadius: BorderRadius.circular(12),
                     border: c.isDark
                         ? null
@@ -217,7 +217,7 @@ class SafetyScreen extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         decoration: BoxDecoration(
-          color: c.isDark ? c.surface : Colors.white,
+          color: c.surface,
           borderRadius: BorderRadius.circular(14),
           border: c.isDark
               ? null
@@ -262,7 +262,7 @@ class SafetyScreen extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: c.isDark ? c.surface : Colors.white,
+        color: c.surface,
         borderRadius: BorderRadius.circular(14),
         border: c.isDark
             ? null

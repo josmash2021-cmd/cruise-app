@@ -17,7 +17,7 @@ class TripReceiptScreen extends StatefulWidget {
 
 class _TripReceiptScreenState extends State<TripReceiptScreen>
     with SingleTickerProviderStateMixin {
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
   static const _goldLight = Color(0xFFF5D990);
 
   late AnimationController _entryController;

@@ -11,7 +11,7 @@ class CruiseLevelScreen extends StatefulWidget {
 }
 
 class _CruiseLevelScreenState extends State<CruiseLevelScreen> {
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
   static const _card = Color(0xFF1C1C1E);
 
   bool _loading = true;
@@ -45,7 +45,7 @@ class _CruiseLevelScreenState extends State<CruiseLevelScreen> {
     ),
     _Tier(
       name: 'Gold',
-      color: Color(0xFFD4A843),
+      color: Color(0xFFE8C547),
       icon: Icons.workspace_premium_rounded,
       minAcceptance: 30,
       maxCancellation: 8,

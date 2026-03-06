@@ -1,43 +1,28 @@
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+
 import '../config/api_keys.dart';
 import '../services/directions_service.dart';
 import '../services/navigation_service.dart';
 
-/// Fetches route polylines from the Directions API and wraps them
-/// in [NavRoute] for turn-by-turn details.
-///
-/// Uses the existing [DirectionsService] under the hood.
+/// Convenience wrapper that fetches a [NavRoute] (with turn-by-turn steps)
+/// from the Google Directions API, suitable for the driver navigation page.
 class RouteService {
-  RouteService._();
-
-  static final _dirs = DirectionsService(ApiKeys.webServices);
-
-  /// Fetch a full [NavRoute] with turn-by-turn steps.
-  /// Returns `null` on network failure or bad status.
+  /// Fetch a navigation-grade route between [origin] and [destination].
+  ///
+  /// Returns a [NavRoute] with overview polyline and step-by-step instructions,
+  /// or `null` if the request fails.
   static Future<NavRoute?> fetchNavRoute({
     required LatLng origin,
     required LatLng destination,
   }) async {
     try {
-      final raw = await _dirs.getRawDirectionsResponse(
+      final directions = DirectionsService(ApiKeys.webServices);
+      final data = await directions.getRawDirectionsResponse(
         origin: origin,
         destination: destination,
       );
-      if (raw == null) return null;
-      return NavigationService.fromDirectionsResponse(raw);
-    } catch (e) {
-      // ignore – caller should handle null
-      return null;
-    }
-  }
-
-  /// Fetch a simple polyline + metadata (lighter weight than NavRoute).
-  static Future<RouteResult?> fetchPolyline({
-    required LatLng origin,
-    required LatLng destination,
-  }) async {
-    try {
-      return await _dirs.getRoute(origin: origin, destination: destination);
+      if (data == null) return null;
+      return NavigationService.fromDirectionsResponse(data);
     } catch (_) {
       return null;
     }

@@ -16,7 +16,7 @@ class SplashScreen extends StatefulWidget {
 class _SplashScreenState extends State<SplashScreen>
     with TickerProviderStateMixin {
   static const _bg = Color(0xFF000000);
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
   static const _goldBright = Color(0xFFFFF1C1);
 
   static const _letters = ['C', 'r', 'u', 'i', 's', 'e'];

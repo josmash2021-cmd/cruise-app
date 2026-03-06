@@ -20,10 +20,10 @@ import 'credit_card_screen.dart';
 import 'payment_accounts_screen.dart';
 import 'ride_rating_screen.dart';
 import 'trip_receipt_screen.dart';
+import '../navigation/car_icon_loader.dart';
 import '../services/api_service.dart';
 import '../services/trip_firestore_service.dart';
 import '../services/user_session.dart';
-import '../pages/rider_tracking_page.dart';
 
 enum RideStage {
   pin,
@@ -89,7 +89,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     ];
   }
 
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
   static const _birminghamDefault = LatLng(33.5186, -86.8104);
 
   /// Picks the right JSON map style based on the system theme (light phone = light map).
@@ -106,6 +106,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   static const double _goldPinHue = 42.0;
 
   BitmapDescriptor? _goldPinIcon;
+  BitmapDescriptor? _dropoffPinIcon;
 
   GoogleMapController? _mapController;
   LatLng? _currentPosition;
@@ -176,6 +177,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   LatLng? _prevDriverPosition; // for smooth interpolation
   double _driverBearing = 0; // bearing toward destination
   BitmapDescriptor? _driverCarIcon; // canvas-painted car icon
+  DateTime? _lastDriverMarkerRebuild;
   AnimationController? _riderDriverAnim; // 60fps smooth driver animation
   LatLng _riderAnimFrom = _birminghamDefault;
   LatLng _riderAnimTo = _birminghamDefault;
@@ -224,62 +226,88 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     ),
   ];
 
-  Future<BitmapDescriptor> _buildGoldPin() async {
+  Future<BitmapDescriptor> _buildGoldPin({bool withHouse = false, bool isPickup = true}) async {
     const double size = 120;
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, size, size));
 
+    const cx = size / 2;
+    const cy = size / 2;
+    const r = size * 0.38;
+
     // Drop shadow
-    final shadowPaint = Paint()
-      ..color = Colors.black.withValues(alpha: 0.35)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
     canvas.drawCircle(
-      const Offset(size / 2, size * 0.40 + 3),
-      size * 0.24,
-      shadowPaint,
+      const Offset(cx, cy + 2), r + 2,
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.35)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
     );
 
-    // Gold pin body (teardrop shape)
-    final bodyPaint = Paint()..color = _gold;
-    final path = Path()
-      ..moveTo(size / 2, size * 0.88)
-      ..quadraticBezierTo(size * 0.12, size * 0.52, size * 0.12, size * 0.36)
-      ..arcToPoint(
-        Offset(size * 0.88, size * 0.36),
-        radius: const Radius.circular(size * 0.38),
-        clockwise: true,
-      )
-      ..quadraticBezierTo(size * 0.88, size * 0.52, size / 2, size * 0.88)
-      ..close();
-    canvas.drawPath(path, bodyPaint);
+    if (isPickup) {
+      // ── Circle shape for pickup ──
+      canvas.drawCircle(const Offset(cx, cy), r, Paint()..color = _gold);
+      canvas.drawCircle(const Offset(cx, cy), r,
+        Paint()..style = PaintingStyle.stroke..strokeWidth = 2.5
+          ..color = Colors.white.withValues(alpha: 0.25));
+    } else {
+      // ── Rounded square shape for dropoff ──
+      final rect = RRect.fromRectAndRadius(
+        Rect.fromCenter(center: const Offset(cx, cy), width: r * 2, height: r * 2),
+        Radius.circular(r * 0.28),
+      );
+      canvas.drawRRect(rect, Paint()..color = _gold);
+      canvas.drawRRect(rect,
+        Paint()..style = PaintingStyle.stroke..strokeWidth = 2.5
+          ..color = Colors.white.withValues(alpha: 0.25));
+    }
 
-    // Bright highlight ring
-    final ringPaint = Paint()
-      ..color = const Color(0xFFF0D080)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.5;
+    // Inner highlight
     canvas.drawCircle(
-      const Offset(size / 2, size * 0.36),
-      size * 0.16,
-      ringPaint,
+      Offset(cx - r * 0.2, cy - r * 0.2), r * 0.5,
+      Paint()..color = Colors.white.withValues(alpha: 0.15)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
     );
 
-    // Transparent hole in center (clear the pixels)
-    final holePaint = Paint()..blendMode = BlendMode.clear;
-    canvas.drawCircle(
-      const Offset(size / 2, size * 0.36),
-      size * 0.09,
-      holePaint,
-    );
+    // White icon
+    final iconPaint = Paint()..color = Colors.white..isAntiAlias = true;
+
+    if (withHouse) {
+      // House icon
+      final hs = size * 0.10;
+      final roof = Path()
+        ..moveTo(cx, cy - hs * 1.1)
+        ..lineTo(cx - hs * 1.0, cy - hs * 0.1)
+        ..lineTo(cx + hs * 1.0, cy - hs * 0.1)
+        ..close();
+      canvas.drawPath(roof, iconPaint);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTRB(cx - hs * 0.7, cy - hs * 0.1, cx + hs * 0.7, cy + hs * 0.8),
+          Radius.circular(hs * 0.08),
+        ),
+        iconPaint,
+      );
+    } else {
+      // Person icon (for pickup)
+      final s = size * 0.10;
+      canvas.drawCircle(Offset(cx, cy - s * 0.6), s * 0.5, iconPaint);
+      canvas.drawRRect(
+        RRect.fromRectAndCorners(
+          Rect.fromLTRB(cx - s * 0.8, cy + s * 0.1, cx + s * 0.8, cy + s * 0.9),
+          topLeft: Radius.circular(s * 0.8),
+          topRight: Radius.circular(s * 0.8),
+          bottomLeft: Radius.circular(s * 0.15),
+          bottomRight: Radius.circular(s * 0.15),
+        ),
+        iconPaint,
+      );
+    }
 
     final picture = recorder.endRecording();
     final img = await picture.toImage(size.toInt(), size.toInt());
     final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
-    return BitmapDescriptor.bytes(
-      byteData!.buffer.asUint8List(),
-      width: 44,
-      height: 44,
-    );
+    // ignore: deprecated_member_use
+    return BitmapDescriptor.fromBytes(byteData!.buffer.asUint8List());
   }
 
   Marker _pickupMapMarker(LatLng position, {String? snippet}) {
@@ -299,7 +327,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     return Marker(
       markerId: const MarkerId('dropoff'),
       position: position,
-      icon: _goldPinIcon ?? BitmapDescriptor.defaultMarkerWithHue(_goldPinHue),
+      icon: _dropoffPinIcon ?? _goldPinIcon ?? BitmapDescriptor.defaultMarkerWithHue(_goldPinHue),
       infoWindow: InfoWindow(title: 'Dropoff', snippet: snippet),
     );
   }
@@ -316,11 +344,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     _dropoffFocus.addListener(_handleAddressFocusChange);
     _glowController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 4500),
+      duration: const Duration(milliseconds: 2000),
     )..addListener(_onGlowTick);
     _riderDriverAnim = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 700),
+      duration: const Duration(milliseconds: 400),
     )..addListener(_onRiderDriverAnimTick);
     _loadPinIcons();
     _buildDriverCarIcon();
@@ -361,7 +389,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _loadPinIcons() async {
-    _goldPinIcon = await _buildGoldPin();
+    _goldPinIcon = await _buildGoldPin(isPickup: true);
+    _dropoffPinIcon = await _buildGoldPin(withHouse: true, isPickup: false);
     if (!mounted) return;
     setState(() {
       _pickupMarker = _pickupMapMarker(
@@ -1474,7 +1503,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
     _setStage(RideStage.loading);
 
-    await Future.delayed(const Duration(milliseconds: 400));
+    await Future.delayed(const Duration(milliseconds: 250));
     if (!mounted) return;
     _setStage(RideStage.options);
   }
@@ -1683,14 +1712,14 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                   Theme(
                     data: Theme.of(context).copyWith(
                       colorScheme: ColorScheme.dark(
-                        primary: const Color(0xFFD4A843),
+                        primary: const Color(0xFFE8C547),
                         onPrimary: Colors.black,
                         surface: _c.mapPanel,
                         onSurface: _c.textPrimary,
                       ),
                       textButtonTheme: TextButtonThemeData(
                         style: TextButton.styleFrom(
-                          foregroundColor: const Color(0xFFD4A843),
+                          foregroundColor: const Color(0xFFE8C547),
                         ),
                       ),
                     ),
@@ -1742,7 +1771,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     child: CupertinoTheme(
                       data: CupertinoThemeData(
                         brightness: Brightness.dark,
-                        primaryColor: const Color(0xFFD4A843),
+                        primaryColor: const Color(0xFFE8C547),
                         textTheme: CupertinoTextThemeData(
                           dateTimePickerTextStyle: TextStyle(
                             color: _c.textPrimary,
@@ -2095,7 +2124,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   // Route line color: always gold for brand consistency
-  Color get _routeColor => _gold;
+  Color get _routeColor => const Color(0xFF4285F4);
 
   Set<Polyline> _buildRoutePolylines(List<LatLng> points) {
     final baseColor = _routeColor;
@@ -2202,14 +2231,16 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
               zoomGesturesEnabled: true,
               rotateGesturesEnabled: true,
               scrollGesturesEnabled: true,
-              tiltGesturesEnabled: true,
+              tiltGesturesEnabled: false,
               compassEnabled: true,
               mapToolbarEnabled: false,
-              buildingsEnabled: true,
+              buildingsEnabled: false,
               markers: {
-                ...?_pickupMarker == null ? null : {_pickupMarker!},
-                ...?_dropoffMarker == null ? null : {_dropoffMarker!},
-                ...?_driverMarker == null ? null : {_driverMarker!},
+                // Hide pickup pin once the driver starts the trip
+                if (_pickupMarker != null && _tripStatus != 'in_trip')
+                  _pickupMarker!,
+                ?_dropoffMarker,
+                ?_driverMarker,
               },
               polylines: _polylines,
             ),
@@ -3156,10 +3187,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   Widget _backButton() {
     return Material(
-      color: _panelBlack.withValues(alpha: 0.88),
-      shape: const CircleBorder(),
+      color: Colors.transparent,
       child: InkWell(
-        customBorder: const CircleBorder(),
+        borderRadius: BorderRadius.circular(20),
         onTap: () async {
           if (_stage == RideStage.riding || _stage == RideStage.matching) {
             final confirm = await showDialog<bool>(
@@ -3644,7 +3674,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     target: _driverPosition!,
                     zoom: 18.5,
                     bearing: tripBearing,
-                    tilt: 67.5,
+                    tilt: 0,
                   ),
                 ),
               );
@@ -3720,7 +3750,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     target: _driverPosition!,
                     zoom: 18.5,
                     bearing: pickupBearing,
-                    tilt: 67.5,
+                    tilt: 0,
                   ),
                 ),
               );
@@ -3782,7 +3812,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     }
     // Rebuild polylines with trimmed points
     final isInTrip = _lastDriverRoutePhase == 'in_trip';
-    final color = isInTrip ? const Color(0xFFD4A843) : Colors.greenAccent;
+    final color = isInTrip ? const Color(0xFFE8C547) : Colors.greenAccent;
     final id = isInTrip ? 'driver_to_dropoff' : 'driver_to_pickup';
     setState(() {
       // Keep existing pickupâ†’dropoff polyline if en_route, just update driver polyline
@@ -3877,7 +3907,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           Polyline(
             polylineId: const PolylineId('pickup_to_dropoff_glow'),
             points: pickupToDropoff,
-            color: const Color(0xFFD4A843).withValues(alpha: 0.15),
+            color: const Color(0xFFE8C547).withValues(alpha: 0.15),
             width: 12,
             startCap: Cap.roundCap,
             endCap: Cap.roundCap,
@@ -3885,7 +3915,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           Polyline(
             polylineId: const PolylineId('pickup_to_dropoff'),
             points: pickupToDropoff,
-            color: const Color(0xFFD4A843),
+            color: const Color(0xFFE8C547),
             width: 4,
             startCap: Cap.roundCap,
             endCap: Cap.roundCap,
@@ -3911,7 +3941,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             Polyline(
               polylineId: const PolylineId('driver_to_dropoff_glow'),
               points: driverToDropoff,
-              color: const Color(0xFFD4A843).withValues(alpha: 0.15),
+              color: const Color(0xFFE8C547).withValues(alpha: 0.15),
               width: 12,
               startCap: Cap.roundCap,
               endCap: Cap.roundCap,
@@ -3919,7 +3949,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             Polyline(
               polylineId: const PolylineId('driver_to_dropoff'),
               points: driverToDropoff,
-              color: const Color(0xFFD4A843),
+              color: const Color(0xFFE8C547),
               width: 4,
               startCap: Cap.roundCap,
               endCap: Cap.roundCap,
@@ -4103,7 +4133,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     ).push(sharedAxisVerticalRoute(TripReceiptScreen(trip: completedTrip)));
   }
 
-  void _updateDriverMarkerFromPosition() {
+  void _updateDriverMarkerFromPosition({bool force = false}) {
     if (!mounted || _driverPosition == null) return;
 
     // Calculate bearing from previous position
@@ -4111,20 +4141,28 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       _driverBearing = _calcBearing(_prevDriverPosition!, _driverPosition!);
     }
 
-    setState(() {
-      _driverMarker = Marker(
-        markerId: const MarkerId('driver'),
-        position: _driverPosition!,
-        icon:
-            _driverCarIcon ??
-            BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
-        rotation: _driverBearing,
-        anchor: const Offset(0.5, 0.5),
-        flat: true, // flat top-down car rotates with map
-        zIndexInt: 100,
-        infoWindow: InfoWindow(title: _driverName, snippet: _driverCar),
-      );
-    });
+    // Throttle marker rebuild to ~10 Hz — balances smooth motion vs flicker.
+    final now = DateTime.now();
+    if (!force &&
+        _lastDriverMarkerRebuild != null &&
+        now.difference(_lastDriverMarkerRebuild!).inMilliseconds < 100) {
+      return;
+    }
+    _lastDriverMarkerRebuild = now;
+
+    _driverMarker = Marker(
+      markerId: const MarkerId('driver'),
+      position: _driverPosition!,
+      icon:
+          _driverCarIcon ??
+          BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+      rotation: _driverBearing,
+      anchor: const Offset(0.5, 0.5),
+      flat: true,
+      zIndexInt: 100,
+      infoWindow: InfoWindow(title: _driverName, snippet: _driverCar),
+    );
+    setState(() {});
   }
 
   double _calcBearing(LatLng a, LatLng b) {
@@ -4192,7 +4230,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             target: _driverPosition!,
             zoom: 18.5,
             bearing: _driverBearing,
-            tilt: 67.5, // max 3D perspective
+            tilt: 0, // max 3D perspective
           ),
         ),
       );
@@ -4204,211 +4242,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     }
   }
 
-  /// Black Ford Fusion (ultra-detailed 3D, large for game-like feel)
+  /// Uber-style driver car icon (delegates to CarIconLoader).
   Future<void> _buildDriverCarIcon() async {
-    // ── Uber-style clean white top-down car icon ──
-    const double cW = 200, cH = 300;
-    final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, cW, cH));
-
-    const cx = cW / 2;
-    const cy = cH / 2;
-    const bW = 76.0;
-    const bH = 108.0;
-
-    // Shadow
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: const Offset(cx + 2, cy + 6),
-        width: (bW + 18) * 2,
-        height: (bH + 12) * 2,
-      ),
-      Paint()
-        ..color = const Color(0x44000000)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 20),
-    );
-
-    // Wheels
-    const wW = 32.0, wH = 40.0;
-    final wheelPositions = [
-      const Offset(cx - bW * 0.90, cy - bH * 0.62),
-      const Offset(cx + bW * 0.90, cy - bH * 0.62),
-      const Offset(cx - bW * 0.90, cy + bH * 0.60),
-      const Offset(cx + bW * 0.90, cy + bH * 0.60),
-    ];
-    for (final wp in wheelPositions) {
-      canvas.drawOval(
-        Rect.fromCenter(center: wp, width: wW, height: wH),
-        Paint()..color = const Color(0xFF1A1A1A),
-      );
-      canvas.drawOval(
-        Rect.fromCenter(center: wp, width: wW * 0.46, height: wH * 0.46),
-        Paint()..color = const Color(0xFF8A8A8A),
-      );
-      canvas.drawOval(
-        Rect.fromCenter(center: wp, width: wW * 0.18, height: wH * 0.18),
-        Paint()..color = const Color(0xFF444444),
-      );
-    }
-
-    // White body
-    final bodyRect = Rect.fromCenter(
-      center: const Offset(cx, cy),
-      width: bW * 2,
-      height: bH * 2,
-    );
-    final bodyRRect = RRect.fromRectAndCorners(
-      bodyRect,
-      topLeft: const Radius.circular(bW * 0.70),
-      topRight: const Radius.circular(bW * 0.70),
-      bottomLeft: const Radius.circular(bW * 0.38),
-      bottomRight: const Radius.circular(bW * 0.38),
-    );
-    canvas.drawRRect(bodyRRect, Paint()..color = const Color(0xFFF5F5F5));
-    canvas.drawRRect(
-      bodyRRect,
-      Paint()
-        ..shader = const LinearGradient(
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-          colors: [Color(0x22000000), Color(0x00000000), Color(0x14000000)],
-          stops: [0.0, 0.5, 1.0],
-        ).createShader(bodyRect),
-    );
-    canvas.drawRRect(
-      bodyRRect,
-      Paint()
-        ..shader = const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0x28FFFFFF), Color(0x00000000), Color(0x18000000)],
-          stops: [0.0, 0.45, 1.0],
-        ).createShader(bodyRect),
-    );
-    canvas.drawRRect(
-      bodyRRect,
-      Paint()
-        ..color = const Color(0xCC444444)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.0,
-    );
-
-    // Dark cabin
-    const cabinH = bH * 1.02;
-    const cabinCy = cy - bH * 0.04;
-    final cabinRect = Rect.fromCenter(
-      center: const Offset(cx, cabinCy),
-      width: bW * 1.26,
-      height: cabinH,
-    );
-    final cabinRRect = RRect.fromRectAndCorners(
-      cabinRect,
-      topLeft: const Radius.circular(bW * 0.46),
-      topRight: const Radius.circular(bW * 0.46),
-      bottomLeft: const Radius.circular(bW * 0.20),
-      bottomRight: const Radius.circular(bW * 0.20),
-    );
-    canvas.drawRRect(cabinRRect, Paint()..color = const Color(0xFF2C2C2C));
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(
-          cx - bW * 0.55,
-          cabinCy - cabinH / 2 + 8,
-          bW * 0.20,
-          cabinH * 0.46,
-        ),
-        const Radius.circular(6),
-      ),
-      Paint()..color = const Color(0x1EFFFFFF),
-    );
-    canvas.drawLine(
-      Offset(cx - bW * 0.20, cabinCy - cabinH * 0.36),
-      Offset(cx + bW * 0.08, cabinCy - cabinH * 0.26),
-      Paint()
-        ..color = const Color(0x2AFFFFFF)
-        ..strokeWidth = 5
-        ..strokeCap = StrokeCap.round,
-    );
-
-    // LED headlights
-    const hlY = cy - bH * 0.87;
-    for (final s in [-1.0, 1.0]) {
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromCenter(
-            center: Offset(cx + s * bW * 0.44, hlY),
-            width: bW * 0.40,
-            height: 9,
-          ),
-          const Radius.circular(4),
-        ),
-        Paint()..color = const Color(0xFFF8F8F8),
-      );
-      canvas.drawCircle(
-        Offset(cx + s * bW * 0.44, hlY),
-        3.0,
-        Paint()
-          ..color = const Color(0xFFFFFFFF)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2),
-      );
-    }
-    canvas.drawLine(
-      Offset(cx - bW * 0.24, hlY + 1),
-      Offset(cx + bW * 0.24, hlY + 1),
-      Paint()
-        ..color = const Color(0xAADDDDDD)
-        ..strokeWidth = 2
-        ..strokeCap = StrokeCap.round,
-    );
-
-    // Red taillights
-    const tlY = cy + bH * 0.87;
-    for (final s in [-1.0, 1.0]) {
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromCenter(
-            center: Offset(cx + s * bW * 0.43, tlY),
-            width: bW * 0.38,
-            height: 7,
-          ),
-          const Radius.circular(3),
-        ),
-        Paint()..color = const Color(0xFFEF3030),
-      );
-    }
-    canvas.drawLine(
-      Offset(cx - bW * 0.24, tlY - 1),
-      Offset(cx + bW * 0.24, tlY - 1),
-      Paint()
-        ..color = const Color(0x88EF3030)
-        ..strokeWidth = 2
-        ..strokeCap = StrokeCap.round,
-    );
-
-    // Side mirrors
-    for (final s in [-1.0, 1.0]) {
-      canvas.drawOval(
-        Rect.fromCenter(
-          center: Offset(cx + s * (bW + 9), cy - bH * 0.38),
-          width: 10,
-          height: 7,
-        ),
-        Paint()..color = const Color(0xFFCCCCCC),
-      );
-    }
-
-    final picture = recorder.endRecording();
-    final image = await picture.toImage(cW.toInt(), cH.toInt());
-    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-    if (byteData != null && mounted) {
-      setState(
-        () => _driverCarIcon = BitmapDescriptor.bytes(
-          byteData.buffer.asUint8List(),
-          width: 50,
-          height: 75,
-        ),
-      );
-    }
+    final icon = await CarIconLoader.loadUber();
+    if (mounted) setState(() => _driverCarIcon = icon);
   }
 
   // Keep legacy method for compatibility
@@ -5754,7 +5591,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
             // â”€â”€ Subtitle: vehicle + ETA â”€â”€
             AnimatedSwitcher(
-              duration: const Duration(milliseconds: 400),
+              duration: const Duration(milliseconds: 250),
               child: Text(
                 isSearching
                     ? 'Finding the best ${ride.name} nearby'
@@ -5789,7 +5626,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
             // â”€â”€ Driver info card â”€â”€
             AnimatedSwitcher(
-              duration: const Duration(milliseconds: 500),
+              duration: const Duration(milliseconds: 300),
               switchInCurve: Curves.easeOutCubic,
               child: isSearching
                   ? _matchingSkeletonCard()
@@ -5802,9 +5639,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               decoration: BoxDecoration(
-                color: _c.isDark
-                    ? Colors.white.withValues(alpha: 0.03)
-                    : Colors.black.withValues(alpha: 0.03),
+                color: Colors.white.withValues(alpha: 0.06),
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: _c.border),
               ),
@@ -5936,9 +5771,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       key: const ValueKey('skeleton'),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: _c.isDark
-            ? Colors.white.withValues(alpha: 0.03)
-            : Colors.black.withValues(alpha: 0.03),
+        color: Colors.white.withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: _c.border),
       ),
@@ -5950,9 +5783,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             height: 48,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: _c.isDark
-                  ? Colors.white.withValues(alpha: 0.06)
-                  : Colors.black.withValues(alpha: 0.06),
+              color: Colors.white.withValues(alpha: 0.06),
             ),
           ),
           const SizedBox(width: 14),
@@ -6071,9 +5902,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: _c.isDark
-                    ? Colors.white.withValues(alpha: 0.06)
-                    : Colors.black.withValues(alpha: 0.06),
+                color: Colors.white.withValues(alpha: 0.06),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
@@ -6351,7 +6180,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                       decoration: BoxDecoration(
                         color: _c.isDark
                             ? const Color(0xFF2A2A2A)
-                            : const Color(0xFFF0F0F0),
+                            : const Color(0xFF1C1E24),
                         shape: BoxShape.circle,
                       ),
                       child: Icon(
@@ -6389,8 +6218,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     GestureDetector(
                       onTap: () {
                         Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => RideRatingScreen(
+                          sharedAxisVerticalRoute(
+                            RideRatingScreen(
                               driverName: _driverName,
                               rideName: rideName,
                               price: price.isNotEmpty ? price : r'$0.00',
@@ -6632,7 +6461,7 @@ class _MatchingRadarState extends State<_MatchingRadar>
     if (!widget.isSearching) {
       return TweenAnimationBuilder<double>(
         tween: Tween(begin: 0.8, end: 1.0),
-        duration: const Duration(milliseconds: 500),
+        duration: const Duration(milliseconds: 300),
         curve: Curves.elasticOut,
         builder: (_, scale, child) =>
             Transform.scale(scale: scale, child: child),

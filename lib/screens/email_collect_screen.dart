@@ -22,7 +22,7 @@ class EmailCollectScreen extends StatefulWidget {
 }
 
 class _EmailCollectScreenState extends State<EmailCollectScreen> {
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
   static const _goldLight = Color(0xFFF5D990);
 
   final _inputCtrl = TextEditingController();

@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'dart:io' if (dart.library.html) 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import '../config/api_keys.dart';
 import '../config/app_theme.dart';
 import '../config/page_transitions.dart';
 import '../services/local_data_service.dart';
+import '../services/places_service.dart';
 import '../services/user_session.dart';
 import 'splash_screen.dart';
 import 'help_screen.dart';
@@ -26,9 +29,10 @@ class AccountScreen extends StatefulWidget {
 }
 
 class _AccountScreenState extends State<AccountScreen> {
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
 
   Map<String, String>? _user;
+  List<FavoritePlace> _favorites = [];
   bool _loading = true;
 
   @override
@@ -39,11 +43,20 @@ class _AccountScreenState extends State<AccountScreen> {
 
   Future<void> _loadUser() async {
     final user = await UserSession.getUser();
+    final favs = await LocalDataService.getFavorites();
     if (!mounted) return;
     setState(() {
       _user = user;
+      _favorites = favs;
       _loading = false;
     });
+  }
+
+  String? _savedAddress(String label) {
+    for (final f in _favorites) {
+      if (f.label.toLowerCase() == label.toLowerCase()) return f.address;
+    }
+    return null;
   }
 
   void _openSettings() async {
@@ -82,18 +95,10 @@ class _AccountScreenState extends State<AccountScreen> {
               // ── Back button ──
               GestureDetector(
                 onTap: () => Navigator.of(context).pop(),
-                child: Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: c.isDark ? c.surface : Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: c.isDark
-                        ? null
-                        : Border.all(color: Colors.black.withValues(alpha: 0.06)),
-                  ),
-                  child: Icon(Icons.arrow_back_ios_new_rounded,
-                      color: c.textPrimary, size: 18),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Icon(Icons.arrow_back_rounded,
+                      color: c.textPrimary, size: 24),
                 ),
               ),
               const SizedBox(height: 28),
@@ -180,11 +185,13 @@ class _AccountScreenState extends State<AccountScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-              _buildFavoriteItem(c, Icons.home_rounded, 'Add Home'),
+              _buildFavoriteItem(c, Icons.home_rounded, 'Home',
+                  _savedAddress('Home')),
               const SizedBox(height: 10),
-              _buildFavoriteItem(c, Icons.work_rounded, 'Add Work'),
+              _buildFavoriteItem(c, Icons.work_rounded, 'Work',
+                  _savedAddress('Work')),
               const SizedBox(height: 10),
-              _buildFavoriteItem(c, Icons.star_rounded, 'Add Place'),
+              _buildFavoriteItem(c, Icons.star_rounded, 'Place', null),
             ],
           ),
         ),
@@ -249,7 +256,7 @@ class _AccountScreenState extends State<AccountScreen> {
             decoration: BoxDecoration(
               color: item.label == 'Drive'
                   ? _gold.withValues(alpha: 0.10)
-                  : (c.isDark ? c.surface : Colors.white),
+                  : (c.surface),
               borderRadius: BorderRadius.circular(16),
               border: item.label == 'Drive'
                   ? Border.all(color: _gold.withValues(alpha: 0.30))
@@ -291,23 +298,28 @@ class _AccountScreenState extends State<AccountScreen> {
 
     if (address == null || address.isEmpty) return;
 
-    final favLabel = label.replaceAll('Add ', '');
-    await LocalDataService.saveFavorite(FavoritePlace(label: favLabel, address: address));
+    await LocalDataService.saveFavorite(FavoritePlace(label: label, address: address));
 
     if (!mounted) return;
+    // Reload favorites
+    final favs = await LocalDataService.getFavorites();
+    if (!mounted) return;
+    setState(() => _favorites = favs);
+
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text('$favLabel address saved'),
+      content: Text('$label address saved'),
       backgroundColor: c.surface,
     ));
   }
 
-  Widget _buildFavoriteItem(AppColors c, IconData icon, String label) {
+  Widget _buildFavoriteItem(AppColors c, IconData icon, String label, String? savedAddr) {
+    final hasSaved = savedAddr != null && savedAddr.isNotEmpty;
     return GestureDetector(
       onTap: () => _onFavoriteTap(label),
       child: Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       decoration: BoxDecoration(
-        color: c.isDark ? c.surface : Colors.white,
+        color: c.surface,
         borderRadius: BorderRadius.circular(14),
         border: c.isDark
             ? null
@@ -326,13 +338,29 @@ class _AccountScreenState extends State<AccountScreen> {
           ),
           const SizedBox(width: 14),
           Expanded(
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w500,
-                color: c.textSecondary,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  hasSaved ? label : 'Add $label',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: c.textPrimary,
+                  ),
+                ),
+                if (hasSaved) ...[                  const SizedBox(height: 2),
+                  Text(
+                    savedAddr,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: c.textSecondary,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ],
             ),
           ),
           Icon(Icons.chevron_right_rounded, color: c.textTertiary, size: 20),
@@ -370,18 +398,10 @@ class _SettingsScreen extends StatelessWidget {
               // ── Back button ──
               GestureDetector(
                 onTap: () => Navigator.of(context).pop(),
-                child: Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: c.isDark ? c.surface : Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: c.isDark
-                        ? null
-                        : Border.all(color: Colors.black.withValues(alpha: 0.06)),
-                  ),
-                  child: Icon(Icons.arrow_back_ios_new_rounded,
-                      color: c.textPrimary, size: 18),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Icon(Icons.arrow_back_rounded,
+                      color: c.textPrimary, size: 24),
                 ),
               ),
               const SizedBox(height: 28),
@@ -453,8 +473,8 @@ class _SettingsScreen extends StatelessWidget {
                   height: 56,
                   child: OutlinedButton.icon(
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFFD4A843),
-                      side: const BorderSide(color: Color(0xFFD4A843), width: 1.5),
+                      foregroundColor: const Color(0xFFE8C547),
+                      side: const BorderSide(color: Color(0xFFE8C547), width: 1.5),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(28),
                       ),
@@ -489,7 +509,7 @@ class _SettingsScreen extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
         decoration: BoxDecoration(
-          color: c.isDark ? c.surface : Colors.white,
+          color: c.surface,
           borderRadius: BorderRadius.circular(14),
           border: c.isDark
               ? null
@@ -546,7 +566,7 @@ class _SettingsScreen extends StatelessWidget {
             child: const Text(
               'Sign Out',
               style: TextStyle(
-                color: Color(0xFFD4A843),
+                color: Color(0xFFE8C547),
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -567,7 +587,7 @@ class _SettingsScreen extends StatelessWidget {
   }
 }
 
-// ---- Dedicated widget to avoid MediaQuery InheritedWidget dependency crash ----
+// ─── Google Places Autocomplete for Favorites ───────────────────────
 class _FavoriteAddressSheet extends StatefulWidget {
   final AppColors c;
   final String label;
@@ -577,101 +597,176 @@ class _FavoriteAddressSheet extends StatefulWidget {
   State<_FavoriteAddressSheet> createState() => _FavoriteAddressSheetState();
 }
 
-class _FavoriteAddressSheetState extends State<_FavoriteAddressSheet>
-    with WidgetsBindingObserver {
+class _FavoriteAddressSheetState extends State<_FavoriteAddressSheet> {
   final _controller = TextEditingController();
-  double _bottomInset = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    _updateInsets();
-  }
+  final _places = PlacesService(ApiKeys.webServices);
+  Timer? _debounce;
+  List<PlaceSuggestion> _suggestions = [];
+  bool _loading = false;
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
+    _debounce?.cancel();
     _controller.dispose();
     super.dispose();
   }
 
-  @override
-  void didChangeMetrics() {
-    _updateInsets();
-  }
-
-  void _updateInsets() {
-    final view = WidgetsBinding.instance.platformDispatcher.views.first;
-    final newInset = view.viewInsets.bottom / view.devicePixelRatio;
-    if (mounted && newInset != _bottomInset) {
-      setState(() => _bottomInset = newInset);
+  void _onSearchChanged(String query) {
+    _debounce?.cancel();
+    if (query.trim().length < 2) {
+      setState(() { _suggestions = []; _loading = false; });
+      return;
     }
+    setState(() => _loading = true);
+    _debounce = Timer(const Duration(milliseconds: 400), () async {
+      try {
+        final results = await _places.autocomplete(query);
+        if (mounted) setState(() { _suggestions = results; _loading = false; });
+      } catch (_) {
+        if (mounted) setState(() => _loading = false);
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final c = widget.c;
-    return AnimatedPadding(
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOutCubic,
-      padding: EdgeInsets.only(bottom: _bottomInset),
-      child: Container(
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          color: c.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Set ${widget.label} address',
-                style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    color: c.textPrimary)),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _controller,
-              autofocus: true,
-              style: TextStyle(fontSize: 16, color: c.textPrimary),
-              decoration: InputDecoration(
-                hintText: 'Enter address...',
-                hintStyle: TextStyle(color: c.textTertiary),
-                filled: true,
-                fillColor: c.bg,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.85,
+      decoration: BoxDecoration(
+        color: c.panel,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        children: [
+          const SizedBox(height: 10),
+          Container(
+            width: 40, height: 4,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 14),
+          // Title
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              children: [
+                GestureDetector(
+                  onTap: () => Navigator.of(context).pop(),
+                  child: Icon(Icons.arrow_back_rounded, color: c.textPrimary, size: 24),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Text(
+                    'Set ${widget.label} address',
+                    style: TextStyle(
+                      color: c.textPrimary,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          // Search field
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Container(
+              decoration: BoxDecoration(
+                color: c.surface,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: c.border),
+              ),
+              child: TextField(
+                controller: _controller,
+                autofocus: true,
+                style: TextStyle(color: c.textPrimary, fontSize: 15),
+                decoration: InputDecoration(
+                  hintText: 'Search address...',
+                  hintStyle: TextStyle(color: c.textTertiary, fontSize: 15),
+                  prefixIcon: Icon(Icons.search_rounded, color: c.textTertiary, size: 22),
+                  suffixIcon: _controller.text.isNotEmpty
+                      ? GestureDetector(
+                          onTap: () {
+                            _controller.clear();
+                            setState(() { _suggestions = []; _loading = false; });
+                          },
+                          child: Icon(Icons.close_rounded, color: c.textTertiary, size: 20),
+                        )
+                      : null,
+                  border: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                ),
+                onChanged: _onSearchChanged,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (_loading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: SizedBox(
+                width: 24, height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  color: Color(0xFFE8C547),
                 ),
               ),
             ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              height: 52,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFD4A843),
-                  foregroundColor: Colors.black,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14)),
-                ),
-                onPressed: () {
-                  final text = _controller.text.trim();
-                  if (text.isNotEmpty) Navigator.of(context).pop(text);
-                },
-                child: const Text('Save',
-                    style:
-                        TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-              ),
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
+          // Suggestions
+          Expanded(
+            child: _suggestions.isEmpty && !_loading
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.place_outlined, color: c.textTertiary, size: 48),
+                        const SizedBox(height: 12),
+                        Text(
+                          _controller.text.isEmpty
+                              ? 'Type to search for an address'
+                              : 'No results found',
+                          style: TextStyle(color: c.textTertiary, fontSize: 14),
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.separated(
+                    padding: EdgeInsets.fromLTRB(12, 4, 12, bottomInset + 20),
+                    itemCount: _suggestions.length,
+                    separatorBuilder: (_, i) => Divider(color: c.divider, height: 1, indent: 52),
+                    itemBuilder: (context, index) {
+                      final s = _suggestions[index];
+                      return ListTile(
+                        leading: Container(
+                          width: 40, height: 40,
+                          decoration: BoxDecoration(
+                            color: c.surface,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: c.border),
+                          ),
+                          child: Icon(Icons.location_on_rounded, color: c.textSecondary, size: 20),
+                        ),
+                        title: Text(
+                          s.description,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: c.textPrimary, fontSize: 14, fontWeight: FontWeight.w500),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        onTap: () => Navigator.of(context).pop(s.description),
+                      );
+                    },
+                  ),
+          ),
+        ],
       ),
     );
   }

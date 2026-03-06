@@ -1,12 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter_stripe/flutter_stripe.dart';
 import 'firebase_options.dart';
+import 'config/api_keys.dart';
 import 'config/app_theme.dart';
 import 'screens/splash_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // ── Stripe (not supported on web) ──
+  if (!kIsWeb) {
+    try {
+      Stripe.publishableKey = ApiKeys.stripePublishableKey;
+      Stripe.merchantIdentifier = ApiKeys.stripeMerchantId;
+      await Stripe.instance.applySettings();
+    } catch (e) {
+      debugPrint('Stripe init failed: $e');
+    }
+  }
+
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
@@ -14,12 +29,10 @@ void main() async {
   } catch (_) {
     // Already initialized on hot restart
   }
-  SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-  ]);
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-  ));
+  SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(statusBarColor: Colors.transparent),
+  );
   runApp(const UberCloneApp());
 }
 
@@ -33,7 +46,10 @@ class SmoothScrollBehavior extends ScrollBehavior {
 
   @override
   Widget buildOverscrollIndicator(
-      BuildContext context, Widget child, ScrollableDetails details) {
+    BuildContext context,
+    Widget child,
+    ScrollableDetails details,
+  ) {
     // Remove the Android glow — we already have bounce
     return child;
   }

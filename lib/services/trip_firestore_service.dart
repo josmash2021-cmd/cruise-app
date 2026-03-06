@@ -23,6 +23,8 @@ class TripFirestoreService {
     required int durationMin,
     required String vehicleType,
     String paymentMethod = 'Cash',
+    DateTime? scheduledAt,
+    bool isAirportTrip = false,
   }) async {
     final now = DateTime.now();
     final docRef = await _trips.add({
@@ -39,12 +41,14 @@ class TripFirestoreService {
       'dropoffAddress': dropoffAddress,
       'dropoffLat': dropoffLat,
       'dropoffLng': dropoffLng,
-      'status': 'requested',
+      'status': scheduledAt != null ? 'scheduled' : 'requested',
       'fare': fare,
       'distance': distanceKm,
       'duration': durationMin,
       'paymentMethod': paymentMethod,
       'vehicleType': vehicleType,
+      'isAirportTrip': isAirportTrip,
+      'scheduledAt': scheduledAt != null ? Timestamp.fromDate(scheduledAt) : null,
       'rating': null,
       'cancelReason': null,
       'createdAt': Timestamp.fromDate(now),

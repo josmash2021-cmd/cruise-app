@@ -10,7 +10,7 @@ class DriverVehicleScreen extends StatefulWidget {
 }
 
 class _DriverVehicleScreenState extends State<DriverVehicleScreen> {
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
   static const _card = Color(0xFF1C1C1E);
   static const _surface = Color(0xFF141414);
 
@@ -194,12 +194,12 @@ class _DriverVehicleScreenState extends State<DriverVehicleScreen> {
                     padding: const EdgeInsets.all(18),
                     decoration: BoxDecoration(
                       color: _inspectionValid
-                          ? const Color(0xFFD4A843).withValues(alpha: 0.08)
+                          ? const Color(0xFFE8C547).withValues(alpha: 0.08)
                           : Colors.white.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(18),
                       border: Border.all(
                         color: _inspectionValid
-                            ? const Color(0xFFD4A843).withValues(alpha: 0.2)
+                            ? const Color(0xFFE8C547).withValues(alpha: 0.2)
                             : Colors.white.withValues(alpha: 0.2),
                       ),
                     ),
@@ -210,7 +210,7 @@ class _DriverVehicleScreenState extends State<DriverVehicleScreen> {
                               ? Icons.verified_rounded
                               : Icons.warning_rounded,
                           color: _inspectionValid
-                              ? const Color(0xFFD4A843)
+                              ? const Color(0xFFE8C547)
                               : Colors.white.withValues(alpha: 0.5),
                           size: 24,
                         ),
@@ -225,7 +225,7 @@ class _DriverVehicleScreenState extends State<DriverVehicleScreen> {
                                     : 'Inspection expired',
                                 style: TextStyle(
                                   color: _inspectionValid
-                                      ? const Color(0xFFD4A843)
+                                      ? const Color(0xFFE8C547)
                                       : Colors.white.withValues(alpha: 0.5),
                                   fontSize: 15, fontWeight: FontWeight.w700,
                                 ),

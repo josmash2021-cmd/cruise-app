@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_stripe/flutter_stripe.dart';
 import '../config/app_theme.dart';
 import '../services/local_data_service.dart';
 
@@ -20,53 +21,101 @@ class CreditCardScreen extends StatefulWidget {
 }
 
 class _CreditCardScreenState extends State<CreditCardScreen> {
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
   static const _goldLight = Color(0xFFF5D990);
 
-  final _cardNumberCtrl = TextEditingController();
-  final _expiryCtrl = TextEditingController();
-  final _cvvCtrl = TextEditingController();
   final _nameCtrl = TextEditingController();
   final _zipCtrl = TextEditingController();
 
-  bool _canContinue = false;
+  bool _cardComplete = false;
+  bool _isLoading = false;
+  CardFieldInputDetails? _cardDetails;
 
   @override
   void initState() {
     super.initState();
-    for (final ctrl in [_cardNumberCtrl, _expiryCtrl, _cvvCtrl, _nameCtrl, _zipCtrl]) {
-      ctrl.addListener(_checkFields);
-    }
+    _nameCtrl.addListener(_refresh);
+    _zipCtrl.addListener(_refresh);
   }
 
   @override
   void dispose() {
-    _cardNumberCtrl.dispose();
-    _expiryCtrl.dispose();
-    _cvvCtrl.dispose();
     _nameCtrl.dispose();
     _zipCtrl.dispose();
     super.dispose();
   }
 
-  void _checkFields() {
-    final ok = _cardNumberCtrl.text.replaceAll(' ', '').length >= 15 &&
-        _expiryCtrl.text.length >= 5 &&
-        _cvvCtrl.text.length >= 3 &&
-        _nameCtrl.text.trim().isNotEmpty &&
-        _zipCtrl.text.trim().isNotEmpty;
-    if (ok != _canContinue) setState(() => _canContinue = ok);
-  }
+  void _refresh() => setState(() {});
 
-  void _submit() {
+  bool get _canContinue =>
+      _cardComplete &&
+      _nameCtrl.text.trim().isNotEmpty &&
+      _zipCtrl.text.trim().isNotEmpty &&
+      !_isLoading;
+
+  Future<void> _submit() async {
     if (!_canContinue) return;
+    setState(() => _isLoading = true);
 
-    final digits = _cardNumberCtrl.text.replaceAll(' ', '');
-    final last4 = digits.length >= 4 ? digits.substring(digits.length - 4) : digits;
-    final brand = LocalDataService.detectCardBrand(digits);
+    try {
+      // Create a PaymentMethod via Stripe SDK (tokenizes the card securely)
+      final paymentMethod = await Stripe.instance.createPaymentMethod(
+        params: PaymentMethodParams.card(
+          paymentMethodData: PaymentMethodData(
+            billingDetails: BillingDetails(
+              name: _nameCtrl.text.trim(),
+              email: widget.email,
+            ),
+          ),
+        ),
+      );
 
-    // Return brand:last4 so caller can persist both
-    Navigator.of(context).pop('$brand:$last4');
+      if (!mounted) return;
+
+      // Extract card brand and last4 from Stripe's response
+      final card = paymentMethod.card;
+      final brand = card.brand ?? 'card';
+      final last4 = card.last4 ?? '????';
+
+      // Persist the Stripe payment method ID for future charges
+      await LocalDataService.saveStripePaymentMethodId(paymentMethod.id);
+
+      if (!mounted) return;
+      // Return brand:last4 so caller can persist both
+      Navigator.of(context).pop('$brand:$last4');
+    } on StripeException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.red.shade700,
+          content: Text(
+            e.error.localizedMessage ?? 'Card could not be processed.',
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.red.shade700,
+          content: const Text(
+            'Something went wrong. Please try again.',
+            style: TextStyle(fontWeight: FontWeight.w600),
+          ),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   @override
@@ -93,8 +142,11 @@ class _CreditCardScreenState extends State<CreditCardScreen> {
                     color: c.surface,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(Icons.arrow_back_ios_new_rounded,
-                      color: c.textPrimary, size: 18),
+                  child: Icon(
+                    Icons.arrow_back_ios_new_rounded,
+                    color: c.textPrimary,
+                    size: 18,
+                  ),
                 ),
               ),
               const SizedBox(height: 28),
@@ -122,54 +174,34 @@ class _CreditCardScreenState extends State<CreditCardScreen> {
                 child: SingleChildScrollView(
                   child: Column(
                     children: [
-                      // Card number
-                      _buildField(
-                        c,
-                        controller: _cardNumberCtrl,
-                        hint: 'Card number',
-                        icon: Icons.credit_card_rounded,
-                        keyboardType: TextInputType.number,
-                        formatters: [
-                          FilteringTextInputFormatter.digitsOnly,
-                          _CardNumberFormatter(),
-                          LengthLimitingTextInputFormatter(19),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Expiry + CVV row
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _buildField(
-                              c,
-                              controller: _expiryCtrl,
-                              hint: 'MM/YY',
-                              icon: Icons.calendar_today_rounded,
-                              keyboardType: TextInputType.number,
-                              formatters: [
-                                FilteringTextInputFormatter.digitsOnly,
-                                _ExpiryFormatter(),
-                                LengthLimitingTextInputFormatter(5),
-                              ],
+                      // ── Stripe secure card field ──
+                      Container(
+                        decoration: BoxDecoration(
+                          color: c.surface,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: c.border),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 4,
+                        ),
+                        child: CardField(
+                          enablePostalCode: false,
+                          style: TextStyle(color: c.textPrimary, fontSize: 16),
+                          decoration: InputDecoration(
+                            border: InputBorder.none,
+                            hintStyle: TextStyle(
+                              color: c.textTertiary,
+                              fontSize: 16,
                             ),
                           ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: _buildField(
-                              c,
-                              controller: _cvvCtrl,
-                              hint: 'CVV',
-                              icon: Icons.lock_outline_rounded,
-                              keyboardType: TextInputType.number,
-                              obscure: true,
-                              formatters: [
-                                FilteringTextInputFormatter.digitsOnly,
-                                LengthLimitingTextInputFormatter(4),
-                              ],
-                            ),
-                          ),
-                        ],
+                          onCardChanged: (details) {
+                            setState(() {
+                              _cardDetails = details;
+                              _cardComplete = details?.complete ?? false;
+                            });
+                          },
+                        ),
                       ),
                       const SizedBox(height: 16),
 
@@ -191,21 +223,22 @@ class _CreditCardScreenState extends State<CreditCardScreen> {
                         hint: 'ZIP / Postal code',
                         icon: Icons.location_on_outlined,
                         keyboardType: TextInputType.number,
-                        formatters: [
-                          LengthLimitingTextInputFormatter(10),
-                        ],
+                        formatters: [LengthLimitingTextInputFormatter(10)],
                       ),
                       const SizedBox(height: 16),
 
                       // Security note
                       Row(
                         children: [
-                          Icon(Icons.shield_outlined,
-                              size: 16, color: c.textTertiary),
+                          const Icon(
+                            Icons.shield_outlined,
+                            size: 16,
+                            color: Colors.green,
+                          ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              'Your card info is encrypted and stored securely.',
+                              'Secured by Stripe. Your card info never touches our servers.',
                               style: TextStyle(
                                 fontSize: 13,
                                 color: c.textTertiary,
@@ -246,13 +279,22 @@ class _CreditCardScreenState extends State<CreditCardScreen> {
                         ),
                       ),
                       onPressed: _canContinue ? _submit : null,
-                      child: const Text(
-                        'Add Card',
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
+                      child: _isLoading
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                color: Color(0xFF1A1400),
+                              ),
+                            )
+                          : const Text(
+                              'Add Card',
+                              style: TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                     ),
                   ),
                 ),
@@ -293,48 +335,12 @@ class _CreditCardScreenState extends State<CreditCardScreen> {
           hintText: hint,
           hintStyle: TextStyle(color: c.textTertiary, fontSize: 16),
           prefixIcon: Icon(icon, color: c.textTertiary, size: 20),
-          prefixIconConstraints:
-              const BoxConstraints(minWidth: 36, minHeight: 0),
+          prefixIconConstraints: const BoxConstraints(
+            minWidth: 36,
+            minHeight: 0,
+          ),
         ),
       ),
-    );
-  }
-}
-
-/// Formats card number as: 1234 5678 9012 3456
-class _CardNumberFormatter extends TextInputFormatter {
-  @override
-  TextEditingValue formatEditUpdate(
-      TextEditingValue oldValue, TextEditingValue newValue) {
-    final digits = newValue.text.replaceAll(' ', '');
-    final buffer = StringBuffer();
-    for (var i = 0; i < digits.length; i++) {
-      if (i > 0 && i % 4 == 0) buffer.write(' ');
-      buffer.write(digits[i]);
-    }
-    final formatted = buffer.toString();
-    return TextEditingValue(
-      text: formatted,
-      selection: TextSelection.collapsed(offset: formatted.length),
-    );
-  }
-}
-
-/// Formats expiry as: MM/YY
-class _ExpiryFormatter extends TextInputFormatter {
-  @override
-  TextEditingValue formatEditUpdate(
-      TextEditingValue oldValue, TextEditingValue newValue) {
-    final digits = newValue.text.replaceAll('/', '');
-    final buffer = StringBuffer();
-    for (var i = 0; i < digits.length; i++) {
-      if (i == 2) buffer.write('/');
-      buffer.write(digits[i]);
-    }
-    final formatted = buffer.toString();
-    return TextEditingValue(
-      text: formatted,
-      selection: TextSelection.collapsed(offset: formatted.length),
     );
   }
 }

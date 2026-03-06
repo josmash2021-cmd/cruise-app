@@ -13,7 +13,7 @@ class RideHistoryScreen extends StatefulWidget {
 }
 
 class _RideHistoryScreenState extends State<RideHistoryScreen> {
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
   List<TripHistoryItem> _trips = [];
   bool _loading = true;
 
@@ -53,7 +53,7 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
                     child: Container(
                       width: 40, height: 40,
                       decoration: BoxDecoration(
-                        color: c.isDark ? c.surface : Colors.white,
+                        color: c.surface,
                         borderRadius: BorderRadius.circular(12),
                         border: c.isDark ? null : Border.all(color: Colors.black.withValues(alpha: 0.06)),
                       ),
@@ -130,7 +130,7 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: c.isDark ? c.surface : Colors.white,
+          color: c.surface,
           borderRadius: BorderRadius.circular(16),
           border: c.isDark ? null : Border.all(color: Colors.black.withValues(alpha: 0.06)),
         ),
@@ -168,7 +168,7 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
                   width: 10, height: 10,
                   margin: const EdgeInsets.only(top: 4),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFD4A843),
+                    color: const Color(0xFFE8C547),
                     borderRadius: BorderRadius.circular(5),
                   ),
                 ),

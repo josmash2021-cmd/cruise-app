@@ -8,10 +8,7 @@ class FavoritePlace {
 
   const FavoritePlace({required this.label, required this.address});
 
-  Map<String, dynamic> toJson() => {
-        'label': label,
-        'address': address,
-      };
+  Map<String, dynamic> toJson() => {'label': label, 'address': address};
 
   static FavoritePlace fromJson(Map<String, dynamic> json) {
     return FavoritePlace(
@@ -41,14 +38,14 @@ class TripHistoryItem {
   });
 
   Map<String, dynamic> toJson() => {
-        'pickup': pickup,
-        'dropoff': dropoff,
-        'rideName': rideName,
-        'price': price,
-        'miles': miles,
-        'duration': duration,
-        'createdAt': createdAt.toIso8601String(),
-      };
+    'pickup': pickup,
+    'dropoff': dropoff,
+    'rideName': rideName,
+    'price': price,
+    'miles': miles,
+    'duration': duration,
+    'createdAt': createdAt.toIso8601String(),
+  };
 
   static TripHistoryItem fromJson(Map<String, dynamic> json) {
     return TripHistoryItem(
@@ -58,7 +55,9 @@ class TripHistoryItem {
       price: json['price']?.toString() ?? '',
       miles: json['miles']?.toString() ?? '',
       duration: json['duration']?.toString() ?? '',
-      createdAt: DateTime.tryParse(json['createdAt']?.toString() ?? '') ?? DateTime.now(),
+      createdAt:
+          DateTime.tryParse(json['createdAt']?.toString() ?? '') ??
+          DateTime.now(),
     );
   }
 }
@@ -99,22 +98,26 @@ class AppNotificationItem {
   }
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'title': title,
-        'message': message,
-        'type': type,
-        'read': read,
-        'createdAt': createdAt.toIso8601String(),
-      };
+    'id': id,
+    'title': title,
+    'message': message,
+    'type': type,
+    'read': read,
+    'createdAt': createdAt.toIso8601String(),
+  };
 
   static AppNotificationItem fromJson(Map<String, dynamic> json) {
     return AppNotificationItem(
-      id: json['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),
+      id:
+          json['id']?.toString() ??
+          DateTime.now().millisecondsSinceEpoch.toString(),
       title: json['title']?.toString() ?? '',
       message: json['message']?.toString() ?? '',
       type: json['type']?.toString() ?? 'general',
       read: json['read'] == true,
-      createdAt: DateTime.tryParse(json['createdAt']?.toString() ?? '') ?? DateTime.now(),
+      createdAt:
+          DateTime.tryParse(json['createdAt']?.toString() ?? '') ??
+          DateTime.now(),
     );
   }
 }
@@ -135,7 +138,10 @@ class LocalDataService {
     try {
       final list = jsonDecode(raw) as List;
       return list
-          .map((item) => FavoritePlace.fromJson(Map<String, dynamic>.from(item as Map)))
+          .map(
+            (item) =>
+                FavoritePlace.fromJson(Map<String, dynamic>.from(item as Map)),
+          )
           .where((place) => place.address.trim().isNotEmpty)
           .toList();
     } catch (_) {
@@ -146,7 +152,11 @@ class LocalDataService {
   static Future<void> saveFavorite(FavoritePlace favorite) async {
     final existing = await getFavorites();
     final filtered = existing
-        .where((item) => item.label.toLowerCase().trim() != favorite.label.toLowerCase().trim())
+        .where(
+          (item) =>
+              item.label.toLowerCase().trim() !=
+              favorite.label.toLowerCase().trim(),
+        )
         .toList();
     filtered.insert(0, favorite);
 
@@ -165,7 +175,11 @@ class LocalDataService {
     try {
       final list = jsonDecode(raw) as List;
       final parsed = list
-          .map((item) => TripHistoryItem.fromJson(Map<String, dynamic>.from(item as Map)))
+          .map(
+            (item) => TripHistoryItem.fromJson(
+              Map<String, dynamic>.from(item as Map),
+            ),
+          )
           .toList();
       parsed.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       return parsed;
@@ -209,7 +223,9 @@ class LocalDataService {
     await prefs.setString(_usageKey, jsonEncode(usage));
   }
 
-  static Future<List<FrequentDestination>> getTopDestinations({int limit = 5}) async {
+  static Future<List<FrequentDestination>> getTopDestinations({
+    int limit = 5,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_usageKey);
     if (raw == null || raw.isEmpty) return [];
@@ -241,7 +257,11 @@ class LocalDataService {
     try {
       final list = jsonDecode(raw) as List;
       final notifications = list
-          .map((item) => AppNotificationItem.fromJson(Map<String, dynamic>.from(item as Map)))
+          .map(
+            (item) => AppNotificationItem.fromJson(
+              Map<String, dynamic>.from(item as Map),
+            ),
+          )
           .toList();
       notifications.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       return notifications;
@@ -277,7 +297,9 @@ class LocalDataService {
     final notifications = await getNotifications();
     if (notifications.isEmpty) return;
 
-    final updated = notifications.map((item) => item.copyWith(read: true)).toList();
+    final updated = notifications
+        .map((item) => item.copyWith(read: true))
+        .toList();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
       _notificationsKey,
@@ -318,6 +340,19 @@ class LocalDataService {
 
   static const _cardLast4Key = 'credit_card_last4';
   static const _cardBrandKey = 'credit_card_brand';
+  static const _stripePaymentMethodIdKey = 'stripe_pm_id';
+
+  /// Save the Stripe PaymentMethod ID for charging later.
+  static Future<void> saveStripePaymentMethodId(String pmId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_stripePaymentMethodIdKey, pmId);
+  }
+
+  /// Get the stored Stripe PaymentMethod ID (null if none).
+  static Future<String?> getStripePaymentMethodId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_stripePaymentMethodIdKey);
+  }
 
   /// Save the last 4 digits of a linked credit card.
   static Future<void> saveCreditCardLast4(String last4) async {
@@ -439,6 +474,18 @@ class LocalDataService {
       data['usedAt'] = DateTime.now().toIso8601String();
       await prefs.setString(_promoKey, jsonEncode(data));
     } catch (_) {}
+  }
+
+  /// Check if first-ride 10% promo has been used.
+  static Future<bool> getPromoUsed() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('first_ride_promo_used') ?? false;
+  }
+
+  /// Mark first-ride 10% promo as used.
+  static Future<void> setPromoUsed() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('first_ride_promo_used', true);
   }
 
   /// Generate a monthly promo if none exists for the current month.

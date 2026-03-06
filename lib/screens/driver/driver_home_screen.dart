@@ -24,7 +24,7 @@ class DriverHomeScreen extends StatefulWidget {
 
 class _DriverHomeScreenState extends State<DriverHomeScreen>
     with TickerProviderStateMixin {
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
   static const _goldLight = Color(0xFFF5D990);
   // ignore: unused_field
   static const _surface = Color(0xFF111111);
@@ -549,7 +549,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
                     const Color(0xFFFFEBB4),
                     p,
                   )!,
-                  const Color(0xFFD4A843),
+                  const Color(0xFFE8C547),
                   Color.lerp(
                     const Color(0xFFA3823A),
                     const Color(0xFFBF9B3E),

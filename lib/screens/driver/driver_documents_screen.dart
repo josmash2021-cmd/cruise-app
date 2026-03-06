@@ -10,7 +10,7 @@ class DriverDocumentsScreen extends StatefulWidget {
 }
 
 class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
   static const _card = Color(0xFF1C1C1E);
   static const _surface = Color(0xFF141414);
 
@@ -210,7 +210,7 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
     String statusText;
     IconData statusIcon;
     if (isApproved) {
-      statusColor = const Color(0xFFD4A843);
+      statusColor = const Color(0xFFE8C547);
       statusText = 'Approved';
       statusIcon = Icons.check_circle_rounded;
     } else if (isPending) {

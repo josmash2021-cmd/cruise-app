@@ -16,7 +16,7 @@ class HelpScreen extends StatefulWidget {
 }
 
 class _HelpScreenState extends State<HelpScreen> {
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
 
   final _searchCtrl = TextEditingController();
   String _query = '';
@@ -537,7 +537,7 @@ class _HelpTopicDetailScreen extends StatefulWidget {
 }
 
 class _HelpTopicDetailScreenState extends State<_HelpTopicDetailScreen> {
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
   bool _helpful = false;
   bool _voted = false;
 
@@ -601,7 +601,7 @@ class _HelpTopicDetailScreenState extends State<_HelpTopicDetailScreen> {
                               ],
                             )
                           else
-                            Icon(_helpful ? Icons.check_circle_rounded : Icons.support_agent_rounded, color: _helpful ? const Color(0xFFD4A843) : _gold, size: 32),
+                            Icon(_helpful ? Icons.check_circle_rounded : Icons.support_agent_rounded, color: _helpful ? const Color(0xFFE8C547) : _gold, size: 32),
                           if (_voted && !_helpful) ...[
                             const SizedBox(height: 12),
                             Text('We\'ll connect you with our team.', style: TextStyle(fontSize: 13, color: c.textSecondary)),
@@ -662,7 +662,7 @@ class CruiseSupportChatScreen extends StatefulWidget {
 }
 
 class _CruiseSupportChatScreenState extends State<CruiseSupportChatScreen> {
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
   static const _agentResponseDelay = Duration(seconds: 60);
 
   // ── Random human agent names ──
@@ -882,7 +882,7 @@ class _CruiseSupportChatScreenState extends State<CruiseSupportChatScreen> {
                         const SizedBox(height: 2),
                         Row(children: [
                           Container(width: 8, height: 8, decoration: BoxDecoration(
-                            color: _isAgentTyping ? const Color(0xFFD4A843) : const Color(0xFFD4A843),
+                            color: _isAgentTyping ? const Color(0xFFE8C547) : const Color(0xFFE8C547),
                             shape: BoxShape.circle,
                           )),
                           const SizedBox(width: 6),
@@ -1050,7 +1050,7 @@ class _CruiseSupportChatScreenState extends State<CruiseSupportChatScreen> {
           children: [
             Container(
               width: 8, height: 8,
-              decoration: const BoxDecoration(color: Color(0xFFD4A843), shape: BoxShape.circle),
+              decoration: const BoxDecoration(color: Color(0xFFE8C547), shape: BoxShape.circle),
             ),
             const SizedBox(width: 8),
             Flexible(
@@ -1949,7 +1949,7 @@ class _ContactHumanAgentScreen extends StatefulWidget {
 }
 
 class _ContactHumanAgentScreenState extends State<_ContactHumanAgentScreen> {
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
 
   final _nameCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
@@ -2176,8 +2176,8 @@ class _ContactHumanAgentScreenState extends State<_ContactHumanAgentScreen> {
               children: [
                 Container(
                   width: 80, height: 80,
-                  decoration: BoxDecoration(color: const Color(0xFFD4A843).withValues(alpha: 0.12), borderRadius: BorderRadius.circular(24)),
-                  child: const Icon(Icons.check_circle_rounded, color: Color(0xFFD4A843), size: 48),
+                  decoration: BoxDecoration(color: const Color(0xFFE8C547).withValues(alpha: 0.12), borderRadius: BorderRadius.circular(24)),
+                  child: const Icon(Icons.check_circle_rounded, color: Color(0xFFE8C547), size: 48),
                 ),
                 const SizedBox(height: 24),
                 Text('Request Submitted!', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: c.textPrimary)),

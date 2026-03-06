@@ -25,7 +25,7 @@ class PaymentMethodScreen extends StatefulWidget {
 }
 
 class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
 
   String? _selectedMethod;
 
@@ -40,7 +40,7 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
       id: 'cruise_cash',
       label: 'Cruise Cash',
       icon: Icons.monetization_on_rounded,
-      iconColor: Color(0xFFD4A843),
+      iconColor: Color(0xFFE8C547),
     ),
     _PaymentOption(
       id: 'google_pay',
@@ -144,7 +144,7 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
   void _showSetupSnack(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        backgroundColor: const Color(0xFFD4A843),
+        backgroundColor: const Color(0xFFE8C547),
         content: Text(message,
             style: const TextStyle(fontWeight: FontWeight.w600)),
         behavior: SnackBarBehavior.floating,

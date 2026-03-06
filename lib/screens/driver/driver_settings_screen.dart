@@ -10,7 +10,7 @@ class DriverSettingsScreen extends StatefulWidget {
 }
 
 class _DriverSettingsScreenState extends State<DriverSettingsScreen> {
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
   static const _bg = Color(0xFF0A0A0A);
   static const _surface = Color(0xFF111111);
   // ignore: unused_field

@@ -139,7 +139,7 @@ class _NotificationsTab extends StatefulWidget {
 }
 
 class _NotificationsTabState extends State<_NotificationsTab> {
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
 
   List<AppNotificationItem> _notifications = [];
   bool _loading = true;

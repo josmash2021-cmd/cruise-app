@@ -11,7 +11,7 @@ class DriverInboxScreen extends StatefulWidget {
 
 class _DriverInboxScreenState extends State<DriverInboxScreen>
     with SingleTickerProviderStateMixin {
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
   static const _card = Color(0xFF1C1C1E);
 
   late final TabController _tabCtrl;
@@ -60,7 +60,7 @@ class _DriverInboxScreenState extends State<DriverInboxScreen>
       body: 'You completed 23 trips and earned \$487.50 this week. Great job!',
       time: 'Mon',
       icon: Icons.bar_chart_rounded,
-      iconColor: Color(0xFFD4A843),
+      iconColor: Color(0xFFE8C547),
       unread: false,
     ),
     _InboxItem(
@@ -78,7 +78,7 @@ class _DriverInboxScreenState extends State<DriverInboxScreen>
       body: 'Earn points on every trip and unlock exclusive rewards. Tap to learn more.',
       time: 'Last week',
       icon: Icons.workspace_premium_rounded,
-      iconColor: Color(0xFFD4A843),
+      iconColor: Color(0xFFE8C547),
       unread: false,
     ),
     _InboxItem(

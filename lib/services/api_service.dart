@@ -736,6 +736,30 @@ class ApiService {
 
     return null;
   }
+  /// Check if any drivers are online near a given location.
+  /// Returns the count of online drivers. Falls back to 0 on error.
+  static Future<int> getNearbyDriversCount({
+    required double lat,
+    required double lng,
+    double radiusKm = 15.0,
+  }) async {
+    try {
+      final h = await _authHeaders();
+      final res = await http
+          .get(
+            Uri.parse('$_baseUrl/drivers/nearby?lat=$lat&lng=$lng&radius_km=$radiusKm'),
+            headers: h,
+          )
+          .timeout(const Duration(seconds: 5));
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        final body = jsonDecode(res.body);
+        if (body is List) return body.length;
+        if (body is Map && body.containsKey('count')) return body['count'] as int;
+        return 0;
+      }
+    } catch (_) {}
+    return 0;
+  }
 }
 
 /// Simple exception with HTTP status code.

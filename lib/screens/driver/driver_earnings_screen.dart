@@ -13,7 +13,7 @@ class DriverEarningsScreen extends StatefulWidget {
 
 class _DriverEarningsScreenState extends State<DriverEarningsScreen>
     with TickerProviderStateMixin {
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
   static const _card = Color(0xFF1C1C1E);
   static const _surface = Color(0xFF141414);
 
@@ -314,7 +314,7 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen>
         break;
       case 'tip':
         icon = Icons.volunteer_activism_rounded;
-        iconColor = const Color(0xFFD4A843);
+        iconColor = const Color(0xFFE8C547);
         break;
       default:
         icon = Icons.directions_car_rounded;
@@ -356,7 +356,7 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen>
           ),
           Text(
             '+\$${(t['amount'] as num).toStringAsFixed(2)}',
-            style: const TextStyle(color: Color(0xFFD4A843), fontSize: 16,
+            style: const TextStyle(color: Color(0xFFE8C547), fontSize: 16,
                 fontWeight: FontWeight.w800),
           ),
         ],

@@ -10,7 +10,7 @@ class DriverTripHistoryScreen extends StatefulWidget {
 }
 
 class _DriverTripHistoryScreenState extends State<DriverTripHistoryScreen> {
-  static const _gold = Color(0xFFD4A843);
+  static const _gold = Color(0xFFE8C547);
   static const _card = Color(0xFF1C1C1E);
   static const _surface = Color(0xFF141414);
 
@@ -152,7 +152,7 @@ class _DriverTripHistoryScreenState extends State<DriverTripHistoryScreen> {
                 ),
                 child: Row(
                   children: [
-                    _summStat('${_trips.where((t) => t['status'] == 'completed').length}', 'Completed', const Color(0xFFD4A843)),
+                    _summStat('${_trips.where((t) => t['status'] == 'completed').length}', 'Completed', const Color(0xFFE8C547)),
                     _dividerVert(),
                     _summStat('${_trips.where((t) => t['status'] == 'cancelled').length}', 'Cancelled', Colors.white.withValues(alpha: 0.5)),
                     _dividerVert(),
@@ -326,7 +326,7 @@ class _DriverTripHistoryScreenState extends State<DriverTripHistoryScreen> {
                           const SizedBox(height: 3),
                           Text('+\$${(trip['tip'] as num).toStringAsFixed(2)} tip',
                               style: const TextStyle(
-                                  color: Color(0xFFD4A843), fontSize: 12,
+                                  color: Color(0xFFE8C547), fontSize: 12,
                                   fontWeight: FontWeight.w600)),
                         ],
                       ],
@@ -441,7 +441,7 @@ class _DriverTripHistoryScreenState extends State<DriverTripHistoryScreen> {
                 ),
                 child: Column(
                   children: [
-                    _detailRoute(Icons.circle, 8, const Color(0xFFD4A843),
+                    _detailRoute(Icons.circle, 8, const Color(0xFFE8C547),
                         'PICKUP', trip['pickup'] as String),
                     Padding(
                       padding: const EdgeInsets.only(left: 3.5),
