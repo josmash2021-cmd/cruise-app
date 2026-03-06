@@ -23,6 +23,7 @@ import 'payment_accounts_screen.dart';
 import 'pickup_dropoff_search_screen.dart';
 import 'ride_options_sheet.dart';
 import 'rider_tracking_screen.dart';
+import 'airport_terminal_sheet.dart';
 import 'scheduled_rides_screen.dart';
 
 /// Main Uber-like ride request screen.
@@ -40,12 +41,14 @@ class RideRequestScreen extends StatefulWidget {
   final bool applyPromo;
   final bool isAirportTrip;
   final DateTime? scheduledAt;
+  final AirportSelection? airportSelection;
   const RideRequestScreen({
     super.key,
     this.fastRide = false,
     this.applyPromo = false,
     this.isAirportTrip = false,
     this.scheduledAt,
+    this.airportSelection,
   });
 
   @override
@@ -141,6 +144,10 @@ class _RideRequestScreenState extends State<RideRequestScreen>
       _ctrl.setSchedule(widget.scheduledAt);
     }
     _initLocation();
+    // Auto-geocode airport and set as pickup when airport selection provided
+    if (widget.airportSelection != null) {
+      _autoSetAirportPickup(widget.airportSelection!);
+    }
     _loadLinkedPayments();
     _loadPinIcon();
   }
@@ -148,6 +155,65 @@ class _RideRequestScreenState extends State<RideRequestScreen>
   Future<void> _loadPinIcon() async {
     _goldPinIcon = await _buildGoldPin();
     if (mounted) setState(() {});
+  }
+
+  /// Geocode the airport name + terminal + zone into real coordinates,
+  /// then auto-fill the pickup field so the rider sees the exact address.
+  Future<void> _autoSetAirportPickup(AirportSelection sel) async {
+    final places = PlacesService(ApiKeys.webServices);
+    final ap = sel.airport;
+    // Build a descriptive search query that includes terminal & zone
+    final terminalPart = sel.terminal != null ? ', ${sel.terminal}' : '';
+    final zonePart = sel.pickupZone != null ? ' — ${sel.pickupZone}' : '';
+    final query = '${ap.name}$terminalPart';
+
+    try {
+      // Search via Places autocomplete
+      final results = await places.autocomplete(query);
+      if (!mounted) return;
+      if (results.isNotEmpty) {
+        final first = results.first;
+        final details = await places.details(first.placeId);
+        if (!mounted) return;
+        if (details != null) {
+          // Build the display label: "Terminal S — Arrivals Level 1 - Door 5"
+          final label = '${ap.code} · ${sel.terminal ?? ap.name}$zonePart';
+          _ctrl.setPickup(details, label);
+          // Animate map camera to airport
+          final target = LatLng(details.lat, details.lng);
+          _mapCtrl?.animateCamera(
+            CameraUpdate.newCameraPosition(
+              CameraPosition(target: target, zoom: 17),
+            ),
+          );
+          _appleMapCtrl?.animateCamera(
+            amap.CameraUpdate.newCameraPosition(
+              amap.CameraPosition(
+                target: amap.LatLng(details.lat, details.lng),
+                zoom: 17,
+              ),
+            ),
+          );
+          return;
+        }
+      }
+    } catch (_) {}
+
+    // Fallback: use airport name as manual label with no coords
+    // (rider must confirm/adjust pickup on map)
+    final terminalLabel = sel.terminal != null
+        ? '${ap.code} · ${sel.terminal}$zonePart'
+        : ap.name;
+    // Try a direct text search as second fallback
+    try {
+      final results = await places.autocomplete(ap.name);
+      if (!mounted) return;
+      if (results.isNotEmpty) {
+        final details = await places.details(results.first.placeId);
+        if (!mounted || details == null) return;
+        _ctrl.setPickup(details, terminalLabel);
+      }
+    } catch (_) {}
   }
 
   static const _gold = Color(0xFFE8C547);

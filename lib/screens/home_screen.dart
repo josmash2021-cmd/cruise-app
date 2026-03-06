@@ -2200,9 +2200,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         setState(() => _rideNow = true);
         return;
       }
-      Navigator.of(
-        context,
-      ).push(slideUpFadeRoute(RideRequestScreen(isAirportTrip: true)));
+      Navigator.of(context).push(
+        slideUpFadeRoute(
+          RideRequestScreen(
+            isAirportTrip: true,
+            airportSelection: airportResult,
+          ),
+        ),
+      );
       return;
     }
 

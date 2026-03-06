@@ -46,27 +46,28 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
 
   Future<void> _onCameraIdle() async {
     setState(() => _loading = true);
-    try {
-      final addr = await _places.reverseGeocode(
-        lat: _center.latitude,
-        lng: _center.longitude,
-      );
-      if (mounted) {
-        setState(() {
-          _address =
-              addr ??
-              '${_center.latitude.toStringAsFixed(5)}, ${_center.longitude.toStringAsFixed(5)}';
-          _loading = false;
-        });
+    // Try up to 3 times with increasing delays for iOS reliability
+    String? addr;
+    for (int attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) {
+        await Future.delayed(Duration(milliseconds: 400 * attempt));
       }
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _address =
-              '${_center.latitude.toStringAsFixed(5)}, ${_center.longitude.toStringAsFixed(5)}';
-          _loading = false;
-        });
-      }
+      try {
+        addr = await _places.reverseGeocode(
+          lat: _center.latitude,
+          lng: _center.longitude,
+        );
+        if (addr != null && addr.isNotEmpty) break;
+      } catch (_) {}
+    }
+    if (mounted) {
+      setState(() {
+        // Only fall back to coordinates if all 3 attempts failed
+        _address = (addr != null && addr.isNotEmpty)
+            ? addr
+            : 'Location at ${_center.latitude.toStringAsFixed(4)}, ${_center.longitude.toStringAsFixed(4)}';
+        _loading = false;
+      });
     }
   }
 
