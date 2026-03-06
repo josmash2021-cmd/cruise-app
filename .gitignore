@@ -1,3 +1,6 @@
+# Firebase service account key (sensitive)
+serviceAccountKey.json
+
 # Miscellaneous
 *.class
 *.log

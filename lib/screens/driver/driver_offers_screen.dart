@@ -153,6 +153,7 @@ class _DriverOffersScreenState extends State<DriverOffersScreen>
               zoomControlsEnabled: false,
               mapToolbarEnabled: false,
               compassEnabled: false,
+              liteModeEnabled: false,
             ),
           ),
 

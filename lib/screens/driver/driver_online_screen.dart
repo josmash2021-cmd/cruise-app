@@ -2374,6 +2374,7 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
         trafficEnabled:
             _phase == _Phase.enRouteToPickup || _phase == _Phase.inTrip,
         indoorViewEnabled: false,
+        liteModeEnabled: false,
         padding: EdgeInsets.only(
           top: MediaQuery.of(context).padding.top + 70,
           bottom: _mapBottomPadding,

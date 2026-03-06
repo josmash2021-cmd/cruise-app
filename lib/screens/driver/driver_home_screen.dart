@@ -285,6 +285,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
         zoomControlsEnabled: false,
         mapToolbarEnabled: false,
         compassEnabled: false,
+        liteModeEnabled: false,
       ),
     );
   }

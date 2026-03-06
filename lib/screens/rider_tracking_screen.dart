@@ -525,8 +525,8 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
     if (!mounted) return;
 
     // ── Constant-speed smooth interpolation ──
-    const posLerp = 0.10;
-    const brgLerp = 0.12;
+    const posLerp = 0.18;
+    const brgLerp = 0.16;
 
     final lat =
         _animPos.latitude + (_tgtPos.latitude - _animPos.latitude) * posLerp;
@@ -545,10 +545,9 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
     // Rebuild marker data (lightweight — just creates Marker objects)
     _rebuildCarMarker();
 
-    // Only trigger widget rebuild every 3rd frame (~10fps) to avoid
-    // GoogleMap flickering from excessive rebuilds
+    // Only trigger widget rebuild every 2nd frame (~15fps) for smoother visuals
     _interpFrameCount++;
-    if (_interpFrameCount % 3 == 0) {
+    if (_interpFrameCount % 2 == 0) {
       setState(() {});
     }
 
@@ -655,12 +654,13 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
   void _recenter() {
     setState(() {
       _userMovedMap = false;
-      _followingDriver = false;
-      _carIcon = _carIconCar ?? _carIcon;
     });
-    _rebuildCarMarker();
     _programmaticCam = true;
-    _fitAllPoints();
+    if (_followingDriver) {
+      _followDriverCamera();
+    } else {
+      _fitAllPoints();
+    }
   }
 
   void _toggleFollowDriver() {
@@ -753,18 +753,45 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
                 zoomControlsEnabled: false,
                 zoomGesturesEnabled: true,
                 scrollGesturesEnabled: true,
-                rotateGesturesEnabled: false,
+                rotateGesturesEnabled: true,
                 compassEnabled: false,
                 mapToolbarEnabled: false,
-                tiltGesturesEnabled: false,
+                tiltGesturesEnabled: true,
                 buildingsEnabled: false,
                 trafficEnabled: false,
                 indoorViewEnabled: false,
+                liteModeEnabled: false,
                 padding: EdgeInsets.only(
                   bottom: 260 + botPad,
-                  top: topPad + 16,
+                  top: topPad + 56,
                 ),
               ),
+            ),
+            // ── Back arrow for iOS / all platforms ──
+            Positioned(
+              top: topPad + 10,
+              left: 14,
+              child: _phase != _TrackPhase.completed
+                  ? GestureDetector(
+                      onTap: () => Navigator.of(context).pop(),
+                      child: Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF2A2A2A),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.35),
+                              blurRadius: 10,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 18),
+                      ),
+                    )
+                  : const SizedBox.shrink(),
             ),
             // ── Bottom card + control buttons ──
             Positioned(

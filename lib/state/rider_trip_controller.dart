@@ -196,6 +196,11 @@ class RiderTripController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setAirportTrip(bool isAirport) {
+    _state = _state.copyWith(isAirportTrip: isAirport);
+    notifyListeners();
+  }
+
   // ─── Route preview ──────────────────────────────────────────
 
   Future<void> _tryFetchRoute() async {

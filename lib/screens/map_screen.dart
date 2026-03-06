@@ -226,7 +226,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     ),
   ];
 
-  Future<BitmapDescriptor> _buildGoldPin({bool withHouse = false, bool isPickup = true}) async {
+  Future<BitmapDescriptor> _buildGoldPin({
+    bool withHouse = false,
+    bool isPickup = true,
+  }) async {
     const double size = 120;
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, size, size));
@@ -237,7 +240,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
     // Drop shadow
     canvas.drawCircle(
-      const Offset(cx, cy + 2), r + 2,
+      const Offset(cx, cy + 2),
+      r + 2,
       Paint()
         ..color = Colors.black.withValues(alpha: 0.35)
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
@@ -246,30 +250,47 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     if (isPickup) {
       // ── Circle shape for pickup ──
       canvas.drawCircle(const Offset(cx, cy), r, Paint()..color = _gold);
-      canvas.drawCircle(const Offset(cx, cy), r,
-        Paint()..style = PaintingStyle.stroke..strokeWidth = 2.5
-          ..color = Colors.white.withValues(alpha: 0.25));
+      canvas.drawCircle(
+        const Offset(cx, cy),
+        r,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.5
+          ..color = Colors.white.withValues(alpha: 0.25),
+      );
     } else {
       // ── Rounded square shape for dropoff ──
       final rect = RRect.fromRectAndRadius(
-        Rect.fromCenter(center: const Offset(cx, cy), width: r * 2, height: r * 2),
+        Rect.fromCenter(
+          center: const Offset(cx, cy),
+          width: r * 2,
+          height: r * 2,
+        ),
         Radius.circular(r * 0.28),
       );
       canvas.drawRRect(rect, Paint()..color = _gold);
-      canvas.drawRRect(rect,
-        Paint()..style = PaintingStyle.stroke..strokeWidth = 2.5
-          ..color = Colors.white.withValues(alpha: 0.25));
+      canvas.drawRRect(
+        rect,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.5
+          ..color = Colors.white.withValues(alpha: 0.25),
+      );
     }
 
     // Inner highlight
     canvas.drawCircle(
-      Offset(cx - r * 0.2, cy - r * 0.2), r * 0.5,
-      Paint()..color = Colors.white.withValues(alpha: 0.15)
+      Offset(cx - r * 0.2, cy - r * 0.2),
+      r * 0.5,
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.15)
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
     );
 
     // White icon
-    final iconPaint = Paint()..color = Colors.white..isAntiAlias = true;
+    final iconPaint = Paint()
+      ..color = Colors.white
+      ..isAntiAlias = true;
 
     if (withHouse) {
       // House icon
@@ -282,7 +303,12 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       canvas.drawPath(roof, iconPaint);
       canvas.drawRRect(
         RRect.fromRectAndRadius(
-          Rect.fromLTRB(cx - hs * 0.7, cy - hs * 0.1, cx + hs * 0.7, cy + hs * 0.8),
+          Rect.fromLTRB(
+            cx - hs * 0.7,
+            cy - hs * 0.1,
+            cx + hs * 0.7,
+            cy + hs * 0.8,
+          ),
           Radius.circular(hs * 0.08),
         ),
         iconPaint,
@@ -327,7 +353,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     return Marker(
       markerId: const MarkerId('dropoff'),
       position: position,
-      icon: _dropoffPinIcon ?? _goldPinIcon ?? BitmapDescriptor.defaultMarkerWithHue(_goldPinHue),
+      icon:
+          _dropoffPinIcon ??
+          _goldPinIcon ??
+          BitmapDescriptor.defaultMarkerWithHue(_goldPinHue),
       infoWindow: InfoWindow(title: 'Dropoff', snippet: snippet),
     );
   }
@@ -2235,6 +2264,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
               compassEnabled: true,
               mapToolbarEnabled: false,
               buildingsEnabled: false,
+              liteModeEnabled: false,
               markers: {
                 // Hide pickup pin once the driver starts the trip
                 if (_pickupMarker != null && _tripStatus != 'in_trip')
@@ -3186,91 +3216,93 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   Widget _backButton() {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: () async {
-          if (_stage == RideStage.riding || _stage == RideStage.matching) {
-            final confirm = await showDialog<bool>(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                backgroundColor: _c.mapSurface,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                title: Text(
-                  _stage == RideStage.riding
-                      ? 'Cancel Ride?'
-                      : 'Stop Searching?',
-                  style: TextStyle(
-                    color: _c.textPrimary,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                content: Text(
-                  _stage == RideStage.riding
-                      ? 'Are you sure you want to cancel this ride? A cancellation fee may apply.'
-                      : 'Are you sure you want to stop looking for a driver?',
-                  style: TextStyle(color: _c.textSecondary),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx, false),
-                    child: Text(
-                      'Keep Ride',
-                      style: TextStyle(
-                        color: _gold,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx, true),
-                    child: const Text(
-                      'Cancel',
-                      style: TextStyle(
-                        color: Colors.redAccent,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ],
+    return GestureDetector(
+      onTap: () async {
+        if (_stage == RideStage.riding || _stage == RideStage.matching) {
+          final confirm = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              backgroundColor: _c.mapSurface,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
               ),
-            );
-            if (confirm != true || !mounted) return;
-            _rideLifecycleTimer?.cancel();
-            _tripPollTimer?.cancel();
-            setState(() {
-              _driverMarker = null;
-              _rideProgress = 0;
-            });
-            Navigator.of(context).maybePop();
-            return;
-          }
-          if (_stage == RideStage.payment) {
-            _setStage(RideStage.confirmPickup);
-            return;
-          }
-          if (_stage == RideStage.confirmPickup) {
-            _setStage(RideStage.options);
-            return;
-          }
-          if (_stage == RideStage.options) {
-            _setStage(RideStage.plan);
-            return;
-          }
-          if (_stage == RideStage.plan || _stage == RideStage.loading) {
-            Navigator.of(context).maybePop();
-            return;
-          }
+              title: Text(
+                _stage == RideStage.riding ? 'Cancel Ride?' : 'Stop Searching?',
+                style: TextStyle(
+                  color: _c.textPrimary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              content: Text(
+                _stage == RideStage.riding
+                    ? 'Are you sure you want to cancel this ride? A cancellation fee may apply.'
+                    : 'Are you sure you want to stop looking for a driver?',
+                style: TextStyle(color: _c.textSecondary),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: Text(
+                    'Keep Ride',
+                    style: TextStyle(color: _gold, fontWeight: FontWeight.w700),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text(
+                    'Cancel',
+                    style: TextStyle(
+                      color: Colors.redAccent,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+          if (confirm != true || !mounted) return;
+          _rideLifecycleTimer?.cancel();
+          _tripPollTimer?.cancel();
+          setState(() {
+            _driverMarker = null;
+            _rideProgress = 0;
+          });
           Navigator.of(context).maybePop();
-        },
-        child: SizedBox(
-          width: 44,
-          height: 44,
-          child: Icon(Icons.arrow_back, color: _c.textPrimary),
+          return;
+        }
+        if (_stage == RideStage.payment) {
+          _setStage(RideStage.confirmPickup);
+          return;
+        }
+        if (_stage == RideStage.confirmPickup) {
+          _setStage(RideStage.options);
+          return;
+        }
+        if (_stage == RideStage.options) {
+          _setStage(RideStage.plan);
+          return;
+        }
+        if (_stage == RideStage.plan || _stage == RideStage.loading) {
+          Navigator.of(context).maybePop();
+          return;
+        }
+        Navigator.of(context).maybePop();
+      },
+      child: Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: const Color(0xFF2A2A2A),
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.3),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
+        child: Icon(Icons.arrow_back, color: _c.textPrimary, size: 20),
       ),
     );
   }

@@ -20,39 +20,44 @@ void main() async {
   };
 
   // Catch all unhandled async Dart errors
-  await runZonedGuarded(() async {
-    // ── Load persisted server URL (must run before any ApiService call) ──
-    await ApiService.init();
+  await runZonedGuarded(
+    () async {
+      // ── Load persisted server URL (must run before any ApiService call) ──
+      await ApiService.init();
+      // Auto-detect best reachable server (local, LAN, tunnel)
+      await ApiService.probeAndSetBestUrl();
 
-    // ── Stripe — skip if key is still a placeholder ──
-    if (!kIsWeb && !ApiKeys.stripePublishableKey.contains('REPLACE')) {
-      try {
-        Stripe.publishableKey = ApiKeys.stripePublishableKey;
-        Stripe.merchantIdentifier = ApiKeys.stripeMerchantId;
-        await Stripe.instance.applySettings();
-      } catch (e) {
-        debugPrint('[Stripe] init failed: $e');
+      // ── Stripe — skip if key is still a placeholder ──
+      if (!kIsWeb && !ApiKeys.stripePublishableKey.contains('REPLACE')) {
+        try {
+          Stripe.publishableKey = ApiKeys.stripePublishableKey;
+          Stripe.merchantIdentifier = ApiKeys.stripeMerchantId;
+          await Stripe.instance.applySettings();
+        } catch (e) {
+          debugPrint('[Stripe] init failed: $e');
+        }
+      } else {
+        debugPrint('[Stripe] skipped — placeholder key detected');
       }
-    } else {
-      debugPrint('[Stripe] skipped — placeholder key detected');
-    }
 
-    try {
-      await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
+      try {
+        await Firebase.initializeApp(
+          options: DefaultFirebaseOptions.currentPlatform,
+        );
+      } catch (e) {
+        debugPrint('[Firebase] init error: $e');
+      }
+
+      SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+      SystemChrome.setSystemUIOverlayStyle(
+        const SystemUiOverlayStyle(statusBarColor: Colors.transparent),
       );
-    } catch (e) {
-      debugPrint('[Firebase] init error: $e');
-    }
-
-    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-    SystemChrome.setSystemUIOverlayStyle(
-      const SystemUiOverlayStyle(statusBarColor: Colors.transparent),
-    );
-    runApp(const UberCloneApp());
-  }, (error, stack) {
-    debugPrint('[ZoneError] $error\n$stack');
-  });
+      runApp(const UberCloneApp());
+    },
+    (error, stack) {
+      debugPrint('[ZoneError] $error\n$stack');
+    },
+  );
 }
 
 /// Smooth 60 fps scroll everywhere — iOS-style bouncing on all platforms.

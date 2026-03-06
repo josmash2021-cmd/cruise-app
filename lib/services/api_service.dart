@@ -22,7 +22,8 @@ class ApiService {
 
   /// Default Cloudflare Tunnel URL.  Free tunnels change every restart;
   /// update via the in-app Settings → "Server URL" dialog instead of rebuilding.
-  static const String _defaultTunnelUrl = 'http://172.20.11.24:8000';
+  static const String _defaultTunnelUrl =
+      'https://combines-dramatically-five-cooperative.trycloudflare.com';
 
   static const String _serverUrlPrefKey = 'cruise_server_url';
 
@@ -54,20 +55,24 @@ class ApiService {
 
   /// Try each candidate URL with a lightweight health-check (`GET /health`).
   /// Keeps the first one that responds 200 within [timeout] and persists it.
-  /// Also clears any stored URL and resets to [_defaultTunnelUrl] if none work.
+  /// If the hard-coded tunnel fails, queries the local-network endpoint for
+  /// the latest tunnel URL written by cruise_service.ps1.
   static Future<String?> probeAndSetBestUrl({
     List<String>? candidates,
     Duration timeout = const Duration(seconds: 6),
   }) async {
-    final urls = candidates ??
-        [_activeUrl, _defaultTunnelUrl, _localUrl];
+    final urls =
+        candidates ??
+        [_activeUrl, _defaultTunnelUrl, _localNetworkUrl, _localUrl];
 
     for (final url in urls) {
       try {
-        final response = await http.get(
-          Uri.parse('$url/health'),
-          headers: {'Accept': 'application/json'},
-        ).timeout(timeout);
+        final response = await http
+            .get(
+              Uri.parse('$url/health'),
+              headers: {'Accept': 'application/json'},
+            )
+            .timeout(timeout);
         if (response.statusCode == 200) {
           await setServerUrl(url);
           return url;
@@ -76,6 +81,40 @@ class ApiService {
         // This endpoint not reachable — try next
       }
     }
+
+    // None of the known URLs worked — try discovering the latest tunnel URL
+    // via the local-network backend (only reachable on the same WiFi).
+    for (final base in [_localNetworkUrl, _localUrl]) {
+      try {
+        final disc = await http
+            .get(
+              Uri.parse('$base/tunnel-url'),
+              headers: {'Accept': 'application/json'},
+            )
+            .timeout(timeout);
+        if (disc.statusCode == 200) {
+          final body = jsonDecode(disc.body);
+          final tunnelUrl = body['tunnel_url'] as String?;
+          if (tunnelUrl != null && tunnelUrl.isNotEmpty) {
+            // Verify the discovered tunnel URL actually works
+            final check = await http
+                .get(
+                  Uri.parse('$tunnelUrl/health'),
+                  headers: {'Accept': 'application/json'},
+                )
+                .timeout(timeout);
+            if (check.statusCode == 200) {
+              await setServerUrl(tunnelUrl);
+              debugPrint('[ApiService] Discovered new tunnel URL: $tunnelUrl');
+              return tunnelUrl;
+            }
+          }
+        }
+      } catch (_) {
+        // Discovery endpoint not reachable — try next
+      }
+    }
+
     return null; // No reachable endpoint found
   }
 
@@ -301,7 +340,10 @@ class ApiService {
           body: jsonEncode(updates),
         )
         .timeout(const Duration(seconds: 10));
-    return _parse(res);
+    final data = _parse(res);
+    // Update cached user so subsequent reads see the fresh data
+    _cachedUser = data;
+    return data;
   }
 
   // ═══════════════════════════════════════════════════════
@@ -309,7 +351,7 @@ class ApiService {
   // ═══════════════════════════════════════════════════════
 
   /// Rider creates a new trip request.
-  /// Returns the created trip (status: requested).
+  /// Returns the created trip (status: requested or scheduled).
   static Future<Map<String, dynamic>> createTrip({
     required int riderId,
     required String pickupAddress,
@@ -320,6 +362,12 @@ class ApiService {
     required double dropoffLng,
     double? fare,
     String? vehicleType,
+    DateTime? scheduledAt,
+    bool isAirport = false,
+    String? airportCode,
+    String? terminal,
+    String? pickupZone,
+    String? notes,
   }) async {
     final h = await _authHeaders();
     final res = await http
@@ -336,9 +384,58 @@ class ApiService {
             'dropoff_lng': dropoffLng,
             'fare': ?fare,
             'vehicle_type': ?vehicleType,
+            if (scheduledAt != null)
+              'scheduled_at': scheduledAt.toUtc().toIso8601String(),
+            'is_airport': isAirport,
+            if (airportCode != null) 'airport_code': airportCode,
+            if (terminal != null) 'terminal': terminal,
+            if (pickupZone != null) 'pickup_zone': pickupZone,
+            if (notes != null) 'notes': notes,
           }),
         )
         .timeout(const Duration(seconds: 10));
+    return _parse(res);
+  }
+
+  /// Get scheduled trips for a rider.
+  static Future<List<Map<String, dynamic>>> getScheduledTrips(
+    int riderId,
+  ) async {
+    final h = await _authHeaders();
+    final res = await http
+        .get(Uri.parse('$_baseUrl/trips/scheduled/rider/$riderId'), headers: h)
+        .timeout(const Duration(seconds: 8));
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      final list = jsonDecode(res.body) as List;
+      return list.cast<Map<String, dynamic>>();
+    }
+    return [];
+  }
+
+  /// Get scheduled trips assigned to a driver.
+  static Future<List<Map<String, dynamic>>> getDriverScheduledTrips(
+    int driverId,
+  ) async {
+    final h = await _authHeaders();
+    final res = await http
+        .get(
+          Uri.parse('$_baseUrl/trips/scheduled/driver/$driverId'),
+          headers: h,
+        )
+        .timeout(const Duration(seconds: 8));
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      final list = jsonDecode(res.body) as List;
+      return list.cast<Map<String, dynamic>>();
+    }
+    return [];
+  }
+
+  /// Cancel a trip (scheduled or active).
+  static Future<Map<String, dynamic>> cancelTrip(int tripId) async {
+    final h = await _authHeaders();
+    final res = await http
+        .post(Uri.parse('$_baseUrl/trips/$tripId/cancel'), headers: h)
+        .timeout(const Duration(seconds: 8));
     return _parse(res);
   }
 
@@ -796,6 +893,7 @@ class ApiService {
 
     return null;
   }
+
   /// Check if any drivers are online near a given location.
   /// Returns the count of online drivers. Falls back to 0 on error.
   static Future<int> getNearbyDriversCount({
@@ -807,14 +905,17 @@ class ApiService {
       final h = await _authHeaders();
       final res = await http
           .get(
-            Uri.parse('$_baseUrl/drivers/nearby?lat=$lat&lng=$lng&radius_km=$radiusKm'),
+            Uri.parse(
+              '$_baseUrl/drivers/nearby?lat=$lat&lng=$lng&radius_km=$radiusKm',
+            ),
             headers: h,
           )
           .timeout(const Duration(seconds: 5));
       if (res.statusCode >= 200 && res.statusCode < 300) {
         final body = jsonDecode(res.body);
         if (body is List) return body.length;
-        if (body is Map && body.containsKey('count')) return body['count'] as int;
+        if (body is Map && body.containsKey('count'))
+          return body['count'] as int;
         return 0;
       }
     } catch (_) {}

@@ -11,6 +11,7 @@ import '../config/api_keys.dart';
 import '../config/app_theme.dart';
 import '../config/map_styles.dart';
 import '../config/page_transitions.dart';
+import '../services/api_service.dart';
 import '../services/directions_service.dart';
 import '../services/local_data_service.dart';
 import '../services/places_service.dart';
@@ -20,6 +21,7 @@ import 'payment_accounts_screen.dart';
 import 'pickup_dropoff_search_screen.dart';
 import 'ride_options_sheet.dart';
 import 'rider_tracking_screen.dart';
+import 'scheduled_rides_screen.dart';
 
 /// Main Uber-like ride request screen.
 ///
@@ -34,7 +36,15 @@ enum _PinIcon { none, person, house, store, airplane }
 class RideRequestScreen extends StatefulWidget {
   final bool fastRide;
   final bool applyPromo;
-  const RideRequestScreen({super.key, this.fastRide = false, this.applyPromo = false});
+  final bool isAirportTrip;
+  final DateTime? scheduledAt;
+  const RideRequestScreen({
+    super.key,
+    this.fastRide = false,
+    this.applyPromo = false,
+    this.isAirportTrip = false,
+    this.scheduledAt,
+  });
 
   @override
   State<RideRequestScreen> createState() => _RideRequestScreenState();
@@ -120,6 +130,13 @@ class _RideRequestScreenState extends State<RideRequestScreen>
     ).animate(CurvedAnimation(parent: _sheetCtrl, curve: Curves.easeOutCubic));
 
     _ctrl.addListener(_onStateChange);
+    // Wire in scheduled/airport params from widget
+    if (widget.isAirportTrip) {
+      _ctrl.setAirportTrip(true);
+    }
+    if (widget.scheduledAt != null) {
+      _ctrl.setSchedule(widget.scheduledAt);
+    }
     _initLocation();
     _loadLinkedPayments();
     _loadPinIcon();
@@ -195,7 +212,10 @@ class _RideRequestScreenState extends State<RideRequestScreen>
     return _PinIcon.house;
   }
 
-  Future<BitmapDescriptor> _buildGoldPin({_PinIcon icon = _PinIcon.none, bool isPickup = true}) async {
+  Future<BitmapDescriptor> _buildGoldPin({
+    _PinIcon icon = _PinIcon.none,
+    bool isPickup = true,
+  }) async {
     const double size = 90;
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, size, size));
@@ -221,21 +241,21 @@ class _RideRequestScreenState extends State<RideRequestScreen>
     final showEta = etaText != null && etaText.isNotEmpty;
 
     // ── Pin dimensions ──
-    const pinSize = 100.0;
+    const pinSize = 180.0;
 
     // ── Measure label text ──
     final textPainter = TextPainter(
       text: TextSpan(
         text: label,
         style: const TextStyle(
-          fontSize: 20,
+          fontSize: 30,
           fontWeight: FontWeight.w600,
           color: Colors.white,
         ),
       ),
       textDirection: TextDirection.ltr,
       maxLines: 1,
-    )..layout(maxWidth: 450);
+    )..layout(maxWidth: 550);
 
     TextPainter? etaPainter;
     if (showEta) {
@@ -243,7 +263,7 @@ class _RideRequestScreenState extends State<RideRequestScreen>
         text: TextSpan(
           text: etaText,
           style: const TextStyle(
-            fontSize: 15,
+            fontSize: 24,
             fontWeight: FontWeight.w800,
             color: Colors.white,
             letterSpacing: 0.3,
@@ -251,17 +271,19 @@ class _RideRequestScreenState extends State<RideRequestScreen>
         ),
         textDirection: TextDirection.ltr,
         maxLines: 1,
-      )..layout(maxWidth: 240);
+      )..layout(maxWidth: 300);
     }
 
     // ── Label box sizing ──
-    const hPad = 14.0;
-    const gap = 8.0;
-    const dotSize = 10.0;
-    const etaBoxPad = 8.0;
-    final etaW = etaPainter != null ? etaPainter.width + etaBoxPad * 2 + gap : 0.0;
-    final labelW = hPad + dotSize + gap + textPainter.width + etaW + hPad + 8;
-    const labelH = 50.0;
+    const hPad = 18.0;
+    const gap = 10.0;
+    const dotSize = 12.0;
+    const etaBoxPad = 10.0;
+    final etaW = etaPainter != null
+        ? etaPainter.width + etaBoxPad * 2 + gap
+        : 0.0;
+    final labelW = hPad + dotSize + gap + textPainter.width + etaW + hPad + 10;
+    const labelH = 78.0;
     const pinLabelGap = 4.0;
 
     // ── Total canvas ──
@@ -303,8 +325,14 @@ class _RideRequestScreenState extends State<RideRequestScreen>
         Rect.fromLTWH(x, labelY + (labelH - 28) / 2, etaBoxW, 28),
         const Radius.circular(8),
       );
-      canvas.drawRRect(etaRect, Paint()..color = Colors.white.withValues(alpha: 0.14));
-      etaPainter.paint(canvas, Offset(x + etaBoxPad, labelY + (labelH - etaPainter.height) / 2));
+      canvas.drawRRect(
+        etaRect,
+        Paint()..color = Colors.white.withValues(alpha: 0.14),
+      );
+      etaPainter.paint(
+        canvas,
+        Offset(x + etaBoxPad, labelY + (labelH - etaPainter.height) / 2),
+      );
       x += etaBoxW + gap;
     }
 
@@ -317,7 +345,10 @@ class _RideRequestScreenState extends State<RideRequestScreen>
     x += dotSize + gap;
 
     // Address text
-    textPainter.paint(canvas, Offset(x, labelY + (labelH - textPainter.height) / 2));
+    textPainter.paint(
+      canvas,
+      Offset(x, labelY + (labelH - textPainter.height) / 2),
+    );
 
     final picture = recorder.endRecording();
     final img = await picture.toImage(totalW.ceil(), totalH.ceil());
@@ -333,8 +364,11 @@ class _RideRequestScreenState extends State<RideRequestScreen>
   }
 
   /// Render a standalone gold pin (no label) as BitmapDescriptor.
-  Future<BitmapDescriptor> _buildStandalonePin({_PinIcon icon = _PinIcon.none, bool isPickup = true}) async {
-    const double size = 90;
+  Future<BitmapDescriptor> _buildStandalonePin({
+    _PinIcon icon = _PinIcon.none,
+    bool isPickup = true,
+  }) async {
+    const double size = 170;
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, size, size));
     _drawGoldPinAt(canvas, 0, 0, size, icon: icon, isPickup: isPickup);
@@ -347,24 +381,38 @@ class _RideRequestScreenState extends State<RideRequestScreen>
 
   /// Draw a gold pin at a specific position on a canvas.
   /// [isPickup] = true → circle; false → rounded square.
-  void _drawGoldPinAt(Canvas canvas, double ox, double oy, double size, {_PinIcon icon = _PinIcon.none, bool isPickup = true}) {
+  void _drawGoldPinAt(
+    Canvas canvas,
+    double ox,
+    double oy,
+    double size, {
+    _PinIcon icon = _PinIcon.none,
+    bool isPickup = true,
+  }) {
     final cx = ox + size / 2;
     final cy = oy + size / 2; // center of the shape
     final r = size * 0.38;
 
     // Shadow
     canvas.drawCircle(
-      Offset(cx, cy + 2), r + 2,
-      Paint()..color = Colors.black.withValues(alpha: 0.30)
+      Offset(cx, cy + 2),
+      r + 2,
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.30)
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
     );
 
     if (isPickup) {
       // ── Circle shape for pickup ──
       canvas.drawCircle(Offset(cx, cy), r, Paint()..color = _gold);
-      canvas.drawCircle(Offset(cx, cy), r,
-        Paint()..style = PaintingStyle.stroke..strokeWidth = 2.5
-          ..color = Colors.white.withValues(alpha: 0.25));
+      canvas.drawCircle(
+        Offset(cx, cy),
+        r,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.5
+          ..color = Colors.white.withValues(alpha: 0.25),
+      );
     } else {
       // ── Rounded square shape for dropoff ──
       final rect = RRect.fromRectAndRadius(
@@ -372,9 +420,13 @@ class _RideRequestScreenState extends State<RideRequestScreen>
         Radius.circular(r * 0.28),
       );
       canvas.drawRRect(rect, Paint()..color = _gold);
-      canvas.drawRRect(rect,
-        Paint()..style = PaintingStyle.stroke..strokeWidth = 2.5
-          ..color = Colors.white.withValues(alpha: 0.25));
+      canvas.drawRRect(
+        rect,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.5
+          ..color = Colors.white.withValues(alpha: 0.25),
+      );
     }
 
     // Subtle inner highlight on top-left for modern 3D feel
@@ -388,7 +440,9 @@ class _RideRequestScreenState extends State<RideRequestScreen>
 
     // Draw icon directly on gold — modern filled style
     final iconColor = Colors.white;
-    final iconPaint = Paint()..color = iconColor..isAntiAlias = true;
+    final iconPaint = Paint()
+      ..color = iconColor
+      ..isAntiAlias = true;
     final iconStrokePaint = Paint()
       ..color = iconColor
       ..style = PaintingStyle.stroke
@@ -401,14 +455,15 @@ class _RideRequestScreenState extends State<RideRequestScreen>
       case _PinIcon.person:
         final s = size * 0.12;
         // Head — filled circle
-        canvas.drawCircle(
-          Offset(cx, cy - s * 0.65),
-          s * 0.52,
-          iconPaint,
-        );
+        canvas.drawCircle(Offset(cx, cy - s * 0.65), s * 0.52, iconPaint);
         // Body — filled rounded shoulders
         final body = RRect.fromRectAndCorners(
-          Rect.fromLTRB(cx - s * 0.9, cy + s * 0.15, cx + s * 0.9, cy + s * 1.05),
+          Rect.fromLTRB(
+            cx - s * 0.9,
+            cy + s * 0.15,
+            cx + s * 0.9,
+            cy + s * 1.05,
+          ),
           topLeft: Radius.circular(s * 0.9),
           topRight: Radius.circular(s * 0.9),
           bottomLeft: Radius.circular(s * 0.2),
@@ -429,7 +484,12 @@ class _RideRequestScreenState extends State<RideRequestScreen>
         // House body (filled rect)
         canvas.drawRRect(
           RRect.fromRectAndRadius(
-            Rect.fromLTRB(cx - s * 0.8, cy - s * 0.1, cx + s * 0.8, cy + s * 0.9),
+            Rect.fromLTRB(
+              cx - s * 0.8,
+              cy - s * 0.1,
+              cx + s * 0.8,
+              cy + s * 0.9,
+            ),
             Radius.circular(s * 0.08),
           ),
           iconPaint,
@@ -437,7 +497,12 @@ class _RideRequestScreenState extends State<RideRequestScreen>
         // Door cutout (dark)
         canvas.drawRRect(
           RRect.fromRectAndRadius(
-            Rect.fromLTRB(cx - s * 0.22, cy + s * 0.3, cx + s * 0.22, cy + s * 0.9),
+            Rect.fromLTRB(
+              cx - s * 0.22,
+              cy + s * 0.3,
+              cx + s * 0.22,
+              cy + s * 0.9,
+            ),
             Radius.circular(s * 0.15),
           ),
           Paint()..color = _gold,
@@ -449,7 +514,12 @@ class _RideRequestScreenState extends State<RideRequestScreen>
         // Store body (filled)
         canvas.drawRRect(
           RRect.fromRectAndRadius(
-            Rect.fromLTRB(cx - s * 1.0, cy - s * 0.3, cx + s * 1.0, cy + s * 1.0),
+            Rect.fromLTRB(
+              cx - s * 1.0,
+              cy - s * 0.3,
+              cx + s * 1.0,
+              cy + s * 1.0,
+            ),
             Radius.circular(s * 0.1),
           ),
           iconPaint,
@@ -457,7 +527,12 @@ class _RideRequestScreenState extends State<RideRequestScreen>
         // Awning (filled with scallops)
         canvas.drawRRect(
           RRect.fromRectAndCorners(
-            Rect.fromLTRB(cx - s * 1.1, cy - s * 1.0, cx + s * 1.1, cy - s * 0.3),
+            Rect.fromLTRB(
+              cx - s * 1.1,
+              cy - s * 1.0,
+              cx + s * 1.1,
+              cy - s * 0.3,
+            ),
             topLeft: Radius.circular(s * 0.2),
             topRight: Radius.circular(s * 0.2),
           ),
@@ -474,7 +549,12 @@ class _RideRequestScreenState extends State<RideRequestScreen>
         // Window cutout
         canvas.drawRRect(
           RRect.fromRectAndRadius(
-            Rect.fromLTRB(cx - s * 0.7, cy - s * 0.05, cx - s * 0.1, cy + s * 0.5),
+            Rect.fromLTRB(
+              cx - s * 0.7,
+              cy - s * 0.05,
+              cx - s * 0.1,
+              cy + s * 0.5,
+            ),
             Radius.circular(s * 0.08),
           ),
           Paint()..color = _gold,
@@ -482,7 +562,12 @@ class _RideRequestScreenState extends State<RideRequestScreen>
         // Door cutout
         canvas.drawRRect(
           RRect.fromRectAndRadius(
-            Rect.fromLTRB(cx + s * 0.1, cy - s * 0.05, cx + s * 0.75, cy + s * 1.0),
+            Rect.fromLTRB(
+              cx + s * 0.1,
+              cy - s * 0.05,
+              cx + s * 0.75,
+              cy + s * 1.0,
+            ),
             Radius.circular(s * 0.08),
           ),
           Paint()..color = _gold,
@@ -493,7 +578,11 @@ class _RideRequestScreenState extends State<RideRequestScreen>
         final s = size * 0.12;
         // Fuselage (filled oval)
         canvas.drawOval(
-          Rect.fromCenter(center: Offset(cx, cy), width: s * 0.55, height: s * 2.0),
+          Rect.fromCenter(
+            center: Offset(cx, cy),
+            width: s * 0.55,
+            height: s * 2.0,
+          ),
           iconPaint,
         );
         // Wings (filled)
@@ -672,14 +761,20 @@ class _RideRequestScreenState extends State<RideRequestScreen>
     final dropoffIcon = _detectDropoffType(s.dropoffLabel);
 
     // Build all 4 variants: pin-only and pin+label for pickup and dropoff
-    _pickupPinOnly = await _buildStandalonePin(icon: _PinIcon.person, isPickup: true);
+    _pickupPinOnly = await _buildStandalonePin(
+      icon: _PinIcon.person,
+      isPickup: true,
+    );
     _pickupPinWithLabel = await _buildPinWithLabel(
       text: s.pickupLabel.isNotEmpty ? s.pickupLabel : 'Pickup',
       isPickup: true,
       icon: _PinIcon.person,
       labelOnLeft: false, // label on RIGHT of pickup pin
     );
-    _dropoffPinOnly = await _buildStandalonePin(icon: dropoffIcon, isPickup: false);
+    _dropoffPinOnly = await _buildStandalonePin(
+      icon: dropoffIcon,
+      isPickup: false,
+    );
     _dropoffPinWithLabel = await _buildPinWithLabel(
       text: s.dropoffLabel.isNotEmpty ? s.dropoffLabel : 'Dropoff',
       isPickup: false,
@@ -696,7 +791,8 @@ class _RideRequestScreenState extends State<RideRequestScreen>
     final s = _ctrl.state;
     if (s.route == null) return;
 
-    final fallback = _goldPinIcon ?? BitmapDescriptor.defaultMarkerWithHue(45.0);
+    final fallback =
+        _goldPinIcon ?? BitmapDescriptor.defaultMarkerWithHue(45.0);
     final markers = <Marker>{};
 
     // Pickup: one single marker, swaps between pin-only and pin+label
@@ -756,7 +852,6 @@ class _RideRequestScreenState extends State<RideRequestScreen>
 
   // Labels always visible — no toggle behavior
   void _togglePinLabels() {}
-
 
   void _fitRoute(List<LatLng> pts) {
     if (pts.isEmpty || _mapCtrl == null) return;
@@ -871,43 +966,44 @@ class _RideRequestScreenState extends State<RideRequestScreen>
           children: [
             // ── Map ──
             RepaintBoundary(
-            child: GoogleMap(
-              style: isDark ? MapStyles.dark : MapStyles.light,
-              initialCameraPosition: CameraPosition(
-                target: _center,
-                zoom: 15.5,
+              child: GoogleMap(
+                style: isDark ? MapStyles.dark : MapStyles.light,
+                initialCameraPosition: CameraPosition(
+                  target: _center,
+                  zoom: 15.5,
+                ),
+                onMapCreated: (ctrl) {
+                  _mapCtrl = ctrl;
+                  setState(() => _mapReady = true);
+                  if (_userLocation != null) {
+                    ctrl.animateCamera(
+                      CameraUpdate.newLatLngZoom(_userLocation!, 15.5),
+                    );
+                  }
+                },
+                onCameraMoveStarted: () {
+                  if (!_programmaticCam) {
+                    setState(() => _userMovedMap = true);
+                  }
+                },
+                onCameraMove: (_) {},
+                onCameraIdle: () => _programmaticCam = false,
+                markers: _markers,
+                polylines: _polylines,
+                myLocationEnabled: true,
+                myLocationButtonEnabled: false,
+                zoomControlsEnabled: false,
+                zoomGesturesEnabled: true,
+                scrollGesturesEnabled: true,
+                compassEnabled: false,
+                mapToolbarEnabled: false,
+                buildingsEnabled: false,
+                trafficEnabled: false,
+                liteModeEnabled: false,
+                padding: EdgeInsets.only(
+                  bottom: _bottomSheetHeight(phase, bottomPad),
+                ),
               ),
-              onMapCreated: (ctrl) {
-                _mapCtrl = ctrl;
-                setState(() => _mapReady = true);
-                if (_userLocation != null) {
-                  ctrl.animateCamera(
-                    CameraUpdate.newLatLngZoom(_userLocation!, 15.5),
-                  );
-                }
-              },
-              onCameraMoveStarted: () {
-                if (!_programmaticCam) {
-                  setState(() => _userMovedMap = true);
-                }
-              },
-              onCameraMove: (_) {},
-              onCameraIdle: () => _programmaticCam = false,
-              markers: _markers,
-              polylines: _polylines,
-              myLocationEnabled: true,
-              myLocationButtonEnabled: false,
-              zoomControlsEnabled: false,
-              zoomGesturesEnabled: true,
-              scrollGesturesEnabled: true,
-              compassEnabled: false,
-              mapToolbarEnabled: false,
-              buildingsEnabled: false,
-              trafficEnabled: false,
-              padding: EdgeInsets.only(
-                bottom: _bottomSheetHeight(phase, bottomPad),
-              ),
-            ),
             ),
 
             // ── Back button ──
@@ -994,6 +1090,18 @@ class _RideRequestScreenState extends State<RideRequestScreen>
 
   // ── "Where to?" bar ──
 
+  String get _rideBadgeLabel {
+    if (widget.isAirportTrip) return 'Airport';
+    if (widget.scheduledAt != null) return 'Schedule';
+    return 'Now';
+  }
+
+  IconData get _rideBadgeIcon {
+    if (widget.isAirportTrip) return Icons.flight_takeoff_rounded;
+    if (widget.scheduledAt != null) return Icons.schedule_rounded;
+    return Icons.access_time_rounded;
+  }
+
   Widget _buildWhereToBar(AppColors c, double topPad, bool visible) {
     return Positioned(
       top: topPad + 12,
@@ -1008,74 +1116,105 @@ class _RideRequestScreenState extends State<RideRequestScreen>
           opacity: visible ? 1.0 : 0.0,
           child: IgnorePointer(
             ignoring: !visible,
-            child: GestureDetector(
-              onTap: _openSearch,
-              child: Container(
-                height: 52,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1A1A1A),
-                  borderRadius: BorderRadius.circular(26),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.25),
-                      blurRadius: 16,
-                      offset: const Offset(0, 4),
+            child: Row(
+              children: [
+                // ── Back arrow ──
+                GestureDetector(
+                  onTap: () => Navigator.of(context).pop(),
+                  child: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1A1A1A),
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.25),
+                          blurRadius: 12,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.06),
+                      ),
                     ),
-                  ],
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.06),
-                    width: 1,
+                    child: const Icon(
+                      Icons.arrow_back_ios_new_rounded,
+                      color: Colors.white,
+                      size: 18,
+                    ),
                   ),
                 ),
-                child: Row(
-                  children: [
-                    const SizedBox(width: 16),
-                    Icon(Icons.search_rounded, color: c.gold, size: 22),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Where to?',
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white.withValues(alpha: 0.5),
+                const SizedBox(width: 10),
+                // ── Search pill ──
+                Expanded(
+                  child: GestureDetector(
+                    onTap: _openSearch,
+                    child: Container(
+                      height: 52,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1A1A1A),
+                        borderRadius: BorderRadius.circular(26),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.25),
+                            blurRadius: 16,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.06),
+                          width: 1,
                         ),
                       ),
-                    ),
-                    // Schedule button
-                    Container(
-                      margin: const EdgeInsets.only(right: 6),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: c.gold.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
                       child: Row(
-                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
-                            Icons.access_time_rounded,
-                            color: c.gold,
-                            size: 16,
+                          const SizedBox(width: 16),
+                          Icon(Icons.search_rounded, color: c.gold, size: 22),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Where to?',
+                              style: TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white.withValues(alpha: 0.5),
+                              ),
+                            ),
                           ),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Now',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: c.gold,
+                          // Dynamic badge: Now / Schedule / Airport
+                          Container(
+                            margin: const EdgeInsets.only(right: 6),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: c.gold.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(_rideBadgeIcon, color: c.gold, size: 16),
+                                const SizedBox(width: 4),
+                                Text(
+                                  _rideBadgeLabel,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: c.gold,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
                       ),
                     ),
-                  ],
+                  ),
                 ),
-              ),
+              ],
             ),
           ),
         ),
@@ -1092,7 +1231,8 @@ class _RideRequestScreenState extends State<RideRequestScreen>
     List<RideOption> displayOptions = s.rideOptions;
     if (widget.fastRide && s.rideOptions.isNotEmpty) {
       final baseFusion = s.rideOptions.last; // Fusion = cheapest = base
-      final expressPrice = (baseFusion.priceEstimate * 3.2).roundToDouble(); // ~$160/hr rate
+      final expressPrice = (baseFusion.priceEstimate * 3.2)
+          .roundToDouble(); // ~$160/hr rate
       displayOptions = [
         RideOption(
           id: 'comfort_express',
@@ -1108,15 +1248,20 @@ class _RideRequestScreenState extends State<RideRequestScreen>
 
     // Apply 10% promo discount
     if (widget.applyPromo) {
-      displayOptions = displayOptions.map((o) => RideOption(
-        id: o.id,
-        name: o.name,
-        description: o.description,
-        priceEstimate: (o.priceEstimate * 0.9 * 100).roundToDouble() / 100,
-        etaMinutes: o.etaMinutes,
-        icon: o.icon,
-        capacity: o.capacity,
-      )).toList();
+      displayOptions = displayOptions
+          .map(
+            (o) => RideOption(
+              id: o.id,
+              name: o.name,
+              description: o.description,
+              priceEstimate:
+                  (o.priceEstimate * 0.9 * 100).roundToDouble() / 100,
+              etaMinutes: o.etaMinutes,
+              icon: o.icon,
+              capacity: o.capacity,
+            ),
+          )
+          .toList();
     }
 
     final option = widget.fastRide
@@ -1154,242 +1299,275 @@ class _RideRequestScreenState extends State<RideRequestScreen>
           child: SafeArea(
             top: false,
             child: SingleChildScrollView(
-            physics: const ClampingScrollPhysics(),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Drag handle
-                Container(
-                  margin: const EdgeInsets.only(top: 8),
-                  width: 36,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const SizedBox(height: 8),
-
-                // Title — tappable to collapse/expand
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
-                  child: GestureDetector(
-                    onTap: () => setState(() => _rideOptionsExpanded = !_rideOptionsExpanded),
-                    behavior: HitTestBehavior.opaque,
-                    child: Row(
-                      children: [
-                        Text(
-                          widget.fastRide ? 'Fast Ride' : 'Choose a ride',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white.withValues(alpha: 0.9),
-                            letterSpacing: -0.3,
-                          ),
-                        ),
-                        if (_ctrl.state.isAirportTrip) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF4285F4).withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.flight_rounded, size: 12, color: Color(0xFF4285F4)),
-                                SizedBox(width: 4),
-                                Text(
-                                  'Airport',
-                                  style: TextStyle(
-                                    color: Color(0xFF4285F4),
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                        if (widget.applyPromo) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFE8C547).withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: const Text(
-                              '10% OFF',
-                              style: TextStyle(
-                                color: Color(0xFFE8C547),
-                                fontSize: 11,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                        ],
-                        const Spacer(),
-                        if (!widget.fastRide)
-                          AnimatedRotation(
-                            turns: _rideOptionsExpanded ? 0.0 : -0.25,
-                            duration: const Duration(milliseconds: 250),
-                            curve: Curves.easeInOut,
-                            child: Icon(
-                              Icons.keyboard_arrow_down_rounded,
-                              color: Colors.white.withValues(alpha: 0.5),
-                              size: 22,
-                            ),
-                          ),
-                      ],
+              physics: const ClampingScrollPhysics(),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Drag handle
+                  Container(
+                    margin: const EdgeInsets.only(top: 8),
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
-                ),
-                const SizedBox(height: 8),
+                  const SizedBox(height: 8),
 
-                // Ride options list — collapsible
-                AnimatedCrossFade(
-                  firstChild: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        for (int i = 0; i < displayOptions.length; i++) ...[
-                          GestureDetector(
-                            onTap: () {
-                              _ctrl.selectRideOption(displayOptions[i]);
-                              // Auto-collapse after selecting to show pay button
-                              Future.delayed(const Duration(milliseconds: 250), () {
-                                if (mounted) setState(() => _rideOptionsExpanded = false);
-                              });
-                            },
-                            child: _buildRideOptionCard(
-                              c,
-                              displayOptions[i],
-                              option?.id == displayOptions[i].id,
-                            ),
-                          ),
-                          if (i < displayOptions.length - 1)
-                            const SizedBox(height: 6),
-                        ],
-                      ],
-                    ),
-                  ),
-                  secondChild: option != null
-                      ? GestureDetector(
-                          onTap: () => setState(() => _rideOptionsExpanded = true),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 14),
-                            child: _buildRideOptionCard(c, option, true),
-                          ),
-                        )
-                      : const SizedBox.shrink(),
-                  crossFadeState: _rideOptionsExpanded
-                      ? CrossFadeState.showFirst
-                      : CrossFadeState.showSecond,
-                  duration: const Duration(milliseconds: 200),
-                  sizeCurve: Curves.easeInOut,
-                ),
-
-                const SizedBox(height: 6),
-                Divider(height: 1, color: Colors.white.withValues(alpha: 0.08)),
-                const SizedBox(height: 6),
-
-                // Inline payment method row
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: GestureDetector(
-                    onTap: () => _showPaymentMethodPicker(c, option),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.06),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: c.gold.withValues(alpha: 0.15)),
+                  // Title — tappable to collapse/expand
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 18),
+                    child: GestureDetector(
+                      onTap: () => setState(
+                        () => _rideOptionsExpanded = !_rideOptionsExpanded,
                       ),
+                      behavior: HitTestBehavior.opaque,
                       child: Row(
                         children: [
-                          _paymentLogoWidget(_selectedPaymentMethod, 28),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              _paymentLabel(_selectedPaymentMethod),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                              ),
+                          Text(
+                            widget.fastRide ? 'Fast Ride' : 'Choose a ride',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white.withValues(alpha: 0.9),
+                              letterSpacing: -0.3,
                             ),
                           ),
-                          Icon(
-                            Icons.chevron_right_rounded,
-                            color: Colors.white.withValues(alpha: 0.4),
-                            size: 20,
-                          ),
+                          if (_ctrl.state.isAirportTrip) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(
+                                  0xFF4285F4,
+                                ).withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.flight_rounded,
+                                    size: 12,
+                                    color: Color(0xFF4285F4),
+                                  ),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'Airport',
+                                    style: TextStyle(
+                                      color: Color(0xFF4285F4),
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                          if (widget.applyPromo) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(
+                                  0xFFE8C547,
+                                ).withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Text(
+                                '10% OFF',
+                                style: TextStyle(
+                                  color: Color(0xFFE8C547),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ],
+                          const Spacer(),
+                          if (!widget.fastRide)
+                            AnimatedRotation(
+                              turns: _rideOptionsExpanded ? 0.0 : -0.25,
+                              duration: const Duration(milliseconds: 250),
+                              curve: Curves.easeInOut,
+                              child: Icon(
+                                Icons.keyboard_arrow_down_rounded,
+                                color: Colors.white.withValues(alpha: 0.5),
+                                size: 22,
+                              ),
+                            ),
                         ],
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 10),
+                  const SizedBox(height: 8),
 
-                // Start Ride button — processes payment directly
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: _isProcessingPayment
-                            ? LinearGradient(
-                                colors: [
-                                  c.gold.withValues(alpha: 0.5),
-                                  c.goldLight.withValues(alpha: 0.5),
-                                ],
-                              )
-                            : LinearGradient(colors: [c.gold, c.goldLight]),
-                        borderRadius: BorderRadius.circular(26),
+                  // Ride options list — collapsible
+                  AnimatedCrossFade(
+                    firstChild: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          for (int i = 0; i < displayOptions.length; i++) ...[
+                            GestureDetector(
+                              onTap: () {
+                                _ctrl.selectRideOption(displayOptions[i]);
+                                // Auto-collapse after selecting to show pay button
+                                Future.delayed(
+                                  const Duration(milliseconds: 250),
+                                  () {
+                                    if (mounted)
+                                      setState(
+                                        () => _rideOptionsExpanded = false,
+                                      );
+                                  },
+                                );
+                              },
+                              child: _buildRideOptionCard(
+                                c,
+                                displayOptions[i],
+                                option?.id == displayOptions[i].id,
+                              ),
+                            ),
+                            if (i < displayOptions.length - 1)
+                              const SizedBox(height: 6),
+                          ],
+                        ],
                       ),
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.transparent,
-                          shadowColor: Colors.transparent,
-                          foregroundColor: Colors.black,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(26),
+                    ),
+                    secondChild: option != null
+                        ? GestureDetector(
+                            onTap: () =>
+                                setState(() => _rideOptionsExpanded = true),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                              ),
+                              child: _buildRideOptionCard(c, option, true),
+                            ),
+                          )
+                        : const SizedBox.shrink(),
+                    crossFadeState: _rideOptionsExpanded
+                        ? CrossFadeState.showFirst
+                        : CrossFadeState.showSecond,
+                    duration: const Duration(milliseconds: 200),
+                    sizeCurve: Curves.easeInOut,
+                  ),
+
+                  const SizedBox(height: 6),
+                  Divider(
+                    height: 1,
+                    color: Colors.white.withValues(alpha: 0.08),
+                  ),
+                  const SizedBox(height: 6),
+
+                  // Inline payment method row
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: GestureDetector(
+                      onTap: () => _showPaymentMethodPicker(c, option),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.06),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: c.gold.withValues(alpha: 0.15),
                           ),
                         ),
-                        onPressed: _isProcessingPayment
-                            ? null
-                            : () => _startRideDirectly(c, option),
-                        child: _isProcessingPayment
-                            ? const SizedBox(
-                                width: 24,
-                                height: 24,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.5,
-                                  color: Colors.black54,
-                                ),
-                              )
-                            : Text(
-                                option != null
-                                    ? 'Request Ride · \$${option.priceEstimate.toStringAsFixed(2)}'
-                                    : 'Request Ride',
+                        child: Row(
+                          children: [
+                            _paymentLogoWidget(_selectedPaymentMethod, 28),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                _paymentLabel(_selectedPaymentMethod),
                                 style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
                                 ),
                               ),
+                            ),
+                            Icon(
+                              Icons.chevron_right_rounded,
+                              color: Colors.white.withValues(alpha: 0.4),
+                              size: 20,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 8),
-              ],
+                  const SizedBox(height: 10),
+
+                  // Start Ride button — processes payment directly
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: _isProcessingPayment
+                              ? LinearGradient(
+                                  colors: [
+                                    c.gold.withValues(alpha: 0.5),
+                                    c.goldLight.withValues(alpha: 0.5),
+                                  ],
+                                )
+                              : LinearGradient(colors: [c.gold, c.goldLight]),
+                          borderRadius: BorderRadius.circular(26),
+                        ),
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.transparent,
+                            shadowColor: Colors.transparent,
+                            foregroundColor: Colors.black,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(26),
+                            ),
+                          ),
+                          onPressed: _isProcessingPayment
+                              ? null
+                              : () => _startRideDirectly(c, option),
+                          child: _isProcessingPayment
+                              ? const SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
+                                    color: Colors.black54,
+                                  ),
+                                )
+                              : Text(
+                                  option != null
+                                      ? 'Request Ride · \$${option.priceEstimate.toStringAsFixed(2)}'
+                                      : 'Request Ride',
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ),
             ),
-          ),
           ),
         ),
       ),
@@ -1543,28 +1721,37 @@ class _RideRequestScreenState extends State<RideRequestScreen>
                 ),
                 const SizedBox(height: 4),
                 // Trip time + arrival time
-                Builder(builder: (_) {
-                  final routeMins = _ctrl.state.route != null
-                      ? _parseDurationMins(_ctrl.state.route!.durationText)
-                      : 0;
-                  final arrival = DateTime.now().add(
-                    Duration(minutes: opt.etaMinutes + routeMins),
-                  );
-                  final h = arrival.hour;
-                  final m = arrival.minute;
-                  final ampm = h >= 12 ? 'PM' : 'AM';
-                  final h12 = h == 0 ? 12 : (h > 12 ? h - 12 : h);
-                  final arrivalStr = '$h12:${m.toString().padLeft(2, '0')} $ampm';
-                  return Row(
-                    children: [
-                      _chipWidget(Icons.schedule_rounded, '${opt.etaMinutes} min'),
-                      const SizedBox(width: 6),
-                      _chipWidget(Icons.access_time_filled_rounded, arrivalStr),
-                      const SizedBox(width: 6),
-                      _chipWidget(Icons.person_rounded, '${opt.capacity}'),
-                    ],
-                  );
-                }),
+                Builder(
+                  builder: (_) {
+                    final routeMins = _ctrl.state.route != null
+                        ? _parseDurationMins(_ctrl.state.route!.durationText)
+                        : 0;
+                    final arrival = DateTime.now().add(
+                      Duration(minutes: opt.etaMinutes + routeMins),
+                    );
+                    final h = arrival.hour;
+                    final m = arrival.minute;
+                    final ampm = h >= 12 ? 'PM' : 'AM';
+                    final h12 = h == 0 ? 12 : (h > 12 ? h - 12 : h);
+                    final arrivalStr =
+                        '$h12:${m.toString().padLeft(2, '0')} $ampm';
+                    return Row(
+                      children: [
+                        _chipWidget(
+                          Icons.schedule_rounded,
+                          '${opt.etaMinutes} min',
+                        ),
+                        const SizedBox(width: 6),
+                        _chipWidget(
+                          Icons.access_time_filled_rounded,
+                          arrivalStr,
+                        ),
+                        const SizedBox(width: 6),
+                        _chipWidget(Icons.person_rounded, '${opt.capacity}'),
+                      ],
+                    );
+                  },
+                ),
               ],
             ),
           ),
@@ -1836,29 +2023,31 @@ class _RideRequestScreenState extends State<RideRequestScreen>
                         ),
                         child: Row(
                           children: [
-                            Builder(builder: (_) {
-                              final optName = (option.name).toLowerCase();
-                              String asset = 'assets/images/fusion.png';
-                              if (optName.contains('suburban')) {
-                                asset = 'assets/images/suburban.png';
-                              } else if (optName.contains('camry')) {
-                                asset = 'assets/images/camry.png';
-                              }
-                              return Image.asset(
-                                asset,
-                                width: 40,
-                                height: 40,
-                                fit: BoxFit.contain,
-                                filterQuality: FilterQuality.high,
-                                isAntiAlias: true,
-                                cacheWidth: 160,
-                                errorBuilder: (_, _, _) => Icon(
-                                  Icons.directions_car_rounded,
-                                  color: c.gold,
-                                  size: 28,
-                                ),
-                              );
-                            }),
+                            Builder(
+                              builder: (_) {
+                                final optName = (option.name).toLowerCase();
+                                String asset = 'assets/images/fusion.png';
+                                if (optName.contains('suburban')) {
+                                  asset = 'assets/images/suburban.png';
+                                } else if (optName.contains('camry')) {
+                                  asset = 'assets/images/camry.png';
+                                }
+                                return Image.asset(
+                                  asset,
+                                  width: 40,
+                                  height: 40,
+                                  fit: BoxFit.contain,
+                                  filterQuality: FilterQuality.high,
+                                  isAntiAlias: true,
+                                  cacheWidth: 160,
+                                  errorBuilder: (_, _, _) => Icon(
+                                    Icons.directions_car_rounded,
+                                    color: c.gold,
+                                    size: 28,
+                                  ),
+                                );
+                              },
+                            ),
                             const SizedBox(width: 12),
                             Expanded(
                               child: Column(
@@ -2121,6 +2310,12 @@ class _RideRequestScreenState extends State<RideRequestScreen>
       setState(() => _isProcessingPayment = false);
       Navigator.of(context).pop();
       if (widget.applyPromo) await LocalDataService.setPromoUsed();
+
+      // If this is a scheduled trip, create via API and navigate to scheduled rides
+      if (_ctrl.state.scheduledAt != null) {
+        await _createScheduledTrip();
+        return;
+      }
       _ctrl.requestRide();
     } catch (e) {
       if (!mounted) return;
@@ -2167,6 +2362,12 @@ class _RideRequestScreenState extends State<RideRequestScreen>
       if (!mounted) return;
       setState(() => _isProcessingPayment = false);
       if (widget.applyPromo) await LocalDataService.setPromoUsed();
+
+      // If this is a scheduled trip, create via API and navigate to scheduled rides
+      if (_ctrl.state.scheduledAt != null) {
+        await _createScheduledTrip();
+        return;
+      }
       _ctrl.requestRide();
     } catch (e) {
       if (!mounted) return;
@@ -2175,6 +2376,63 @@ class _RideRequestScreenState extends State<RideRequestScreen>
         title: 'Payment Declined',
         message:
             'Your payment method was declined. Please try a different payment method or update your card details.',
+      );
+    }
+  }
+
+  /// Creates a scheduled trip via the backend API and navigates to the scheduled rides list.
+  Future<void> _createScheduledTrip() async {
+    try {
+      final userId = await ApiService.getCurrentUserId();
+      if (userId == null || !mounted) return;
+
+      final state = _ctrl.state;
+      await ApiService.createTrip(
+        riderId: userId,
+        pickupAddress: state.pickupLabel,
+        dropoffAddress: state.dropoffLabel,
+        pickupLat: state.pickup?.lat ?? 0,
+        pickupLng: state.pickup?.lng ?? 0,
+        dropoffLat: state.dropoff?.lat ?? 0,
+        dropoffLng: state.dropoff?.lng ?? 0,
+        fare: state.selectedOption?.priceEstimate,
+        vehicleType: state.selectedOption?.name,
+        scheduledAt: state.scheduledAt,
+        isAirport: state.isAirportTrip,
+      );
+
+      if (!mounted) return;
+
+      // Show success and navigate to scheduled rides
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: const Color(0xFFE8C547),
+          content: const Text(
+            'Ride scheduled successfully!',
+            style: TextStyle(color: Colors.black, fontWeight: FontWeight.w700),
+          ),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      );
+
+      // Pop back to home, then push scheduled rides
+      Navigator.of(context).pop();
+      Navigator.of(
+        context,
+      ).push(slideFromRightRoute(const ScheduledRidesScreen()));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: const Color(0xFFFF5252),
+          content: Text(
+            'Failed to schedule ride: $e',
+            style: const TextStyle(color: Colors.white),
+          ),
+        ),
       );
     }
   }
@@ -2675,21 +2933,14 @@ class _RideRequestScreenState extends State<RideRequestScreen>
         ),
         content: const Text(
           'Are you sure you want to cancel your ride request?',
-          style: TextStyle(
-            color: Colors.white70,
-            fontSize: 14,
-            height: 1.4,
-          ),
+          style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.4),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
             child: Text(
               'Keep Waiting',
-              style: TextStyle(
-                color: c.gold,
-                fontWeight: FontWeight.w600,
-              ),
+              style: TextStyle(color: c.gold, fontWeight: FontWeight.w600),
             ),
           ),
           TextButton(
@@ -2867,4 +3118,3 @@ class _RideRequestScreenState extends State<RideRequestScreen>
     );
   }
 }
-

@@ -20,6 +20,7 @@ import 'privacy_screen.dart';
 import 'about_screen.dart';
 import 'ride_history_screen.dart';
 import 'promo_code_screen.dart';
+import 'scheduled_rides_screen.dart';
 import 'driver/driver_home_screen.dart';
 
 class AccountScreen extends StatefulWidget {
@@ -205,6 +206,7 @@ class _AccountScreenState extends State<AccountScreen> {
       _MenuItem(Icons.help_outline_rounded, 'Help'),
       _MenuItem(Icons.account_balance_wallet_outlined, 'Wallet'),
       _MenuItem(Icons.history_rounded, 'Trips'),
+      _MenuItem(Icons.schedule_rounded, 'Scheduled'),
       _MenuItem(Icons.local_offer_rounded, 'Promos'),
       _MenuItem(Icons.shield_outlined, 'Safety'),
       _MenuItem(Icons.mail_outline_rounded, 'Inbox'),
@@ -227,6 +229,9 @@ class _AccountScreenState extends State<AccountScreen> {
                 break;
               case 'Trips':
                 Navigator.of(context).push(slideFromRightRoute(const RideHistoryScreen()));
+                break;
+              case 'Scheduled':
+                Navigator.of(context).push(slideFromRightRoute(const ScheduledRidesScreen()));
                 break;
               case 'Promos':
                 Navigator.of(context).push(slideFromRightRoute(const PromoCodeScreen()));

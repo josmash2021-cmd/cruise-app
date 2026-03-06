@@ -7,8 +7,10 @@ import 'package:geolocator/geolocator.dart';
 
 import 'dart:io' if (dart.library.html) 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'airport_terminal_sheet.dart';
 import 'map_screen.dart';
 import 'ride_request_screen.dart';
+import 'scheduled_rides_screen.dart';
 import 'trip_receipt_screen.dart';
 import 'account_screen.dart';
 import '../config/api_keys.dart';
@@ -1872,6 +1874,7 @@ class _HomeScreenState extends State<HomeScreen>
                 zoomGesturesEnabled: false,
                 rotateGesturesEnabled: false,
                 tiltGesturesEnabled: false,
+                liteModeEnabled: false,
               ),
             // Badge
             Positioned(
@@ -2085,8 +2088,22 @@ class _HomeScreenState extends State<HomeScreen>
     }
     
     if (choice == 'airport') {
-      // Airport ride - go directly to ride request with airport flag
-      Navigator.of(context).push(slideUpFadeRoute(const RideRequestScreen()));
+      // Airport ride — show terminal selector first
+      final airportResult = await showModalBottomSheet<AirportSelection>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => AirportTerminalSheet(isDark: AppColors.of(context).isDark),
+      );
+      if (airportResult == null || !mounted) {
+        setState(() => _rideNow = true);
+        return;
+      }
+      Navigator.of(context).push(slideUpFadeRoute(
+        RideRequestScreen(
+          isAirportTrip: true,
+        ),
+      ));
       return;
     }
     
@@ -2124,7 +2141,12 @@ class _HomeScreenState extends State<HomeScreen>
       ),
     );
 
-    Navigator.of(context).push(slideUpFadeRoute(const RideRequestScreen()));
+    Navigator.of(context).push(slideUpFadeRoute(
+      RideRequestScreen(
+        scheduledAt: scheduledAt,
+        isAirportTrip: isAirport,
+      ),
+    ));
   }
 
   void _openMapWithDropoff(String query) {

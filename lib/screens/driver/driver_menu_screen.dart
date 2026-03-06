@@ -10,6 +10,7 @@ import 'driver_settings_screen.dart';
 import 'driver_profile_screen.dart';
 import 'cruise_level_screen.dart';
 import 'payout_methods_screen.dart';
+import 'driver_scheduled_trips_screen.dart';
 import '../home_screen.dart';
 
 // ═══════════════════════════════════════════════════════════════
@@ -189,6 +190,17 @@ class _DriverMenuScreenState extends State<DriverMenuScreen>
 
                   // ── Manage ──
                   _sectionHeader('Manage'),
+                  _item(
+                    context,
+                    Icons.event_note_rounded,
+                    'Scheduled Trips',
+                    'Upcoming assigned rides',
+                    () {
+                      Navigator.of(
+                        context,
+                      ).push(slideFromRightRoute(const DriverScheduledTripsScreen()));
+                    },
+                  ),
                   _item(
                     context,
                     Icons.directions_car_rounded,

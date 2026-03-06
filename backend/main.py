@@ -2,7 +2,7 @@
 Complete implementation matching the Flutter client's ApiService endpoints.
 """
 
-import os, time, hmac, hashlib, math, secrets
+import os, time, hmac, hashlib, math, secrets, logging
 from datetime import datetime, timedelta, timezone
 from contextlib import asynccontextmanager
 from typing import Optional, List
@@ -62,7 +62,13 @@ class Trip(Base):
     dropoff_lng = Column(Float, nullable=False)
     fare = Column(Float, nullable=True)
     vehicle_type = Column(String(30), nullable=True)
-    status = Column(String(30), default="requested")  # requested, driver_en_route, arrived, in_trip, completed, canceled
+    status = Column(String(30), default="requested")  # requested, scheduled, driver_en_route, arrived, in_trip, completed, canceled
+    scheduled_at = Column(DateTime, nullable=True)  # None = ride now
+    is_airport = Column(Boolean, default=False)
+    airport_code = Column(String(10), nullable=True)  # e.g. 'BHM', 'ATL'
+    terminal = Column(String(50), nullable=True)
+    pickup_zone = Column(String(100), nullable=True)  # e.g. 'Terminal A - Door 3'
+    notes = Column(Text, nullable=True)  # flight number, special instructions
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -90,12 +96,26 @@ class Cashout(Base):
     status = Column(String(20), default="pending")
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
+# ── Firestore Sync ─────────────────────────────────────
+try:
+    import firestore_sync
+    _HAS_FIRESTORE = True
+except ImportError:
+    _HAS_FIRESTORE = False
+    logging.warning("firestore_sync module not available — dispatch sync disabled")
+
 # ── App lifecycle ───────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Create tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    # Bulk-sync existing data to Firestore on startup
+    if _HAS_FIRESTORE:
+        try:
+            await firestore_sync.bulk_sync_all(SessionLocal)
+        except Exception as e:
+            logging.error("Bulk Firestore sync failed: %s", e)
     yield
 
 app = FastAPI(title="Cruise Ride API", lifespan=lifespan)
@@ -106,6 +126,26 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── Rate Limiter (in-memory, per-IP) ───────────────────
+import collections
+_rate_buckets: dict[str, collections.deque] = {}
+_RATE_LIMIT = 60          # max requests …
+_RATE_WINDOW  = 60        # … per this many seconds
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.monotonic()
+    bucket = _rate_buckets.setdefault(client_ip, collections.deque())
+    # Purge old entries
+    while bucket and bucket[0] < now - _RATE_WINDOW:
+        bucket.popleft()
+    if len(bucket) >= _RATE_LIMIT:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"detail": "Rate limit exceeded"}, status_code=429)
+    bucket.append(now)
+    return await call_next(request)
 
 # ── Dependencies ────────────────────────────────────────
 async def get_db():
@@ -203,6 +243,12 @@ class CreateTripIn(BaseModel):
     dropoff_lng: float
     fare: Optional[float] = None
     vehicle_type: Optional[str] = None
+    scheduled_at: Optional[str] = None  # ISO datetime string
+    is_airport: bool = False
+    airport_code: Optional[str] = None
+    terminal: Optional[str] = None
+    pickup_zone: Optional[str] = None
+    notes: Optional[str] = None
 
 class AcceptTripIn(BaseModel):
     driver_id: int
@@ -258,6 +304,19 @@ async def register(body: RegisterIn, db: AsyncSession = Depends(get_db)):
     db.add(user)
     await db.commit()
     await db.refresh(user)
+
+    # Sync new user to Firestore for dispatch_app
+    if _HAS_FIRESTORE:
+        try:
+            firestore_sync.sync_client(
+                user_id=user.id, first_name=user.first_name,
+                last_name=user.last_name, phone=user.phone or "",
+                email=user.email, photo_url=user.photo_url,
+                role=user.role, created_at=user.created_at,
+                password_hash=user.password_hash,
+            )
+        except Exception as e:
+            logging.error("Firestore sync on register failed: %s", e)
 
     token = _create_token(user.id)
     return {"access_token": token, "token_type": "bearer", "user": _user_dict(user)}
@@ -320,12 +379,17 @@ async def get_me(user: User = Depends(_get_current_user)):
 @app.patch("/auth/me", dependencies=[Depends(_verify_api_key)])
 async def update_me(request: Request, user: User = Depends(_get_current_user), db: AsyncSession = Depends(get_db)):
     updates = await request.json()
+    # Re-fetch user in THIS session to avoid cross-session detached state
+    result = await db.execute(select(User).where(User.id == user.id))
+    db_user = result.scalar_one_or_none()
+    if not db_user:
+        raise HTTPException(404, "User not found")
     for key in ("first_name", "last_name", "email", "phone", "photo_url", "role"):
         if key in updates:
-            setattr(user, key, updates[key])
+            setattr(db_user, key, updates[key])
     await db.commit()
-    await db.refresh(user)
-    return _user_dict(user)
+    await db.refresh(db_user)
+    return _user_dict(db_user)
 
 # ═══════════════════════════════════════════════════════
 #  TRIP  ENDPOINTS
@@ -338,15 +402,50 @@ def _trip_dict(t: Trip) -> dict:
         "pickup_lat": t.pickup_lat, "pickup_lng": t.pickup_lng,
         "dropoff_lat": t.dropoff_lat, "dropoff_lng": t.dropoff_lng,
         "fare": t.fare, "vehicle_type": t.vehicle_type, "status": t.status,
+        "scheduled_at": t.scheduled_at.isoformat() if t.scheduled_at else None,
+        "is_airport": t.is_airport or False,
+        "airport_code": t.airport_code,
+        "terminal": t.terminal,
+        "pickup_zone": t.pickup_zone,
+        "notes": t.notes,
         "created_at": t.created_at.isoformat() if t.created_at else None,
     }
 
 @app.post("/trips", dependencies=[Depends(_verify_api_key)])
 async def create_trip(body: CreateTripIn, user: User = Depends(_get_current_user), db: AsyncSession = Depends(get_db)):
-    trip = Trip(**body.model_dump())
+    data = body.model_dump()
+    # Parse scheduled_at string → datetime
+    if data.get("scheduled_at") and isinstance(data["scheduled_at"], str):
+        try:
+            data["scheduled_at"] = datetime.fromisoformat(data["scheduled_at"].replace("Z", "+00:00"))
+            data["status"] = "scheduled"
+        except ValueError:
+            data["scheduled_at"] = None
+    trip = Trip(**data)
     db.add(trip)
     await db.commit()
     await db.refresh(trip)
+
+    # Sync trip to Firestore for dispatch_app
+    if _HAS_FIRESTORE:
+        try:
+            rider_result = await db.execute(select(User).where(User.id == trip.rider_id))
+            rider = rider_result.scalar_one_or_none()
+            firestore_sync.sync_trip(
+                trip_id=trip.id, rider_id=trip.rider_id,
+                rider_name=f"{rider.first_name} {rider.last_name}" if rider else "Unknown",
+                rider_phone=rider.phone or "" if rider else "",
+                pickup_address=trip.pickup_address, pickup_lat=trip.pickup_lat, pickup_lng=trip.pickup_lng,
+                dropoff_address=trip.dropoff_address, dropoff_lat=trip.dropoff_lat, dropoff_lng=trip.dropoff_lng,
+                status=trip.status, fare=trip.fare, vehicle_type=trip.vehicle_type,
+                created_at=trip.created_at,
+                scheduled_at=trip.scheduled_at, is_airport=trip.is_airport,
+                airport_code=trip.airport_code, terminal=trip.terminal,
+                pickup_zone=trip.pickup_zone, notes=trip.notes,
+            )
+        except Exception as e:
+            logging.error("Firestore sync on create_trip failed: %s", e)
+
     return _trip_dict(trip)
 
 @app.get("/trips/{trip_id}", dependencies=[Depends(_verify_api_key)])
@@ -381,6 +480,21 @@ async def accept_trip(trip_id: int, body: AcceptTripIn, user: User = Depends(_ge
     trip.status = "driver_en_route"
     await db.commit()
     await db.refresh(trip)
+
+    # Sync to Firestore
+    if _HAS_FIRESTORE:
+        try:
+            drv = await db.execute(select(User).where(User.id == body.driver_id))
+            driver = drv.scalar_one_or_none()
+            firestore_sync.sync_trip_status(
+                trip_id=trip.id, status="driver_en_route",
+                driver_id=body.driver_id,
+                driver_name=f"{driver.first_name} {driver.last_name}" if driver else None,
+                driver_phone=driver.phone if driver else None,
+            )
+        except Exception as e:
+            logging.error("Firestore sync on accept_trip failed: %s", e)
+
     return _trip_dict(trip)
 
 @app.patch("/trips/{trip_id}/status", dependencies=[Depends(_verify_api_key)])
@@ -393,6 +507,57 @@ async def update_trip_status(trip_id: int, status: str = Query(...), user: User 
     trip.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(trip)
+
+    # Sync status to Firestore
+    if _HAS_FIRESTORE:
+        try:
+            firestore_sync.sync_trip_status(trip_id=trip.id, status=status)
+        except Exception as e:
+            logging.error("Firestore sync on update_trip_status failed: %s", e)
+
+    return _trip_dict(trip)
+
+# ═══════════════════════════════════════════════════════
+#  SCHEDULED / AIRPORT TRIPS
+# ═══════════════════════════════════════════════════════
+
+@app.get("/trips/scheduled/rider/{rider_id}", dependencies=[Depends(_verify_api_key)])
+async def get_rider_scheduled_trips(rider_id: int, user: User = Depends(_get_current_user), db: AsyncSession = Depends(get_db)):
+    """Get all scheduled (future) trips for a rider."""
+    result = await db.execute(
+        select(Trip).where(
+            and_(Trip.rider_id == rider_id, Trip.status.in_(["scheduled", "requested"]), Trip.scheduled_at.isnot(None))
+        ).order_by(Trip.scheduled_at.asc())
+    )
+    return [_trip_dict(t) for t in result.scalars().all()]
+
+@app.get("/trips/scheduled/driver/{driver_id}", dependencies=[Depends(_verify_api_key)])
+async def get_driver_scheduled_trips(driver_id: int, user: User = Depends(_get_current_user), db: AsyncSession = Depends(get_db)):
+    """Get all scheduled trips assigned to a driver."""
+    result = await db.execute(
+        select(Trip).where(
+            and_(Trip.driver_id == driver_id, Trip.status.in_(["scheduled", "driver_en_route"]), Trip.scheduled_at.isnot(None))
+        ).order_by(Trip.scheduled_at.asc())
+    )
+    return [_trip_dict(t) for t in result.scalars().all()]
+
+@app.post("/trips/{trip_id}/cancel", dependencies=[Depends(_verify_api_key)])
+async def cancel_trip(trip_id: int, user: User = Depends(_get_current_user), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Trip).where(Trip.id == trip_id))
+    trip = result.scalar_one_or_none()
+    if not trip:
+        raise HTTPException(404, "Trip not found")
+    if trip.status in ("completed", "canceled"):
+        raise HTTPException(400, f"Cannot cancel trip with status '{trip.status}'")
+    trip.status = "canceled"
+    trip.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(trip)
+    if _HAS_FIRESTORE:
+        try:
+            firestore_sync.sync_trip_status(trip_id=trip.id, status="canceled")
+        except Exception as e:
+            logging.error("Firestore sync on cancel_trip failed: %s", e)
     return _trip_dict(trip)
 
 # ═══════════════════════════════════════════════════════
@@ -409,6 +574,14 @@ async def update_driver_location(driver_id: int, body: DriverLocationIn, user: U
     driver.lng = body.lng
     driver.is_online = body.is_online
     await db.commit()
+
+    # Sync driver location to Firestore
+    if _HAS_FIRESTORE:
+        try:
+            firestore_sync.sync_driver_location(driver_id, body.lat, body.lng, body.is_online)
+        except Exception as e:
+            logging.error("Firestore sync on driver location failed: %s", e)
+
     return {"status": "ok", "lat": driver.lat, "lng": driver.lng, "is_online": driver.is_online}
 
 @app.get("/riders/{rider_id}/trips", dependencies=[Depends(_verify_api_key)])
@@ -626,3 +799,15 @@ async def get_dispatch_status(trip_id: int = Query(...), user: User = Depends(_g
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+# ── Tunnel URL discovery ───────────────────────────────
+_TUNNEL_URL_FILE = os.path.join(os.path.dirname(__file__), "tunnel_url.txt")
+
+@app.get("/tunnel-url")
+async def tunnel_url():
+    """Return the current Cloudflare Tunnel public URL (if available)."""
+    if os.path.isfile(_TUNNEL_URL_FILE):
+        url = open(_TUNNEL_URL_FILE, "r").read().strip()
+        if url:
+            return {"tunnel_url": url}
+    return {"tunnel_url": None}
