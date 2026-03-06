@@ -139,8 +139,9 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
   }
 
   Future<void> _loadCarIcon() async {
-    // Use CarIconLoader to render the white nav car (no static asset needed)
-    final bytes = await CarIconLoader.loadUberBytes();
+    // Use ride-specific car type: Suburban→SUV, Fusion→black, Camry→white
+    final bytes = await CarIconLoader.loadForRideBytes(widget.rideName) ??
+        await CarIconLoader.loadUberBytes();
     if (bytes != null) {
       _carIconBytes = bytes;
       final icon = BitmapDescriptor.bytes(bytes, width: 22, height: 44);
@@ -361,7 +362,10 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
         final q = ((nb % 360) / 10).round() % 36;
         if (q != _lastRotQ) {
           _lastRotQ = q;
-          CarIconLoader.rotateBytes(nb).then((bytes) {
+          CarIconLoader.rotateBytesForRide(
+            nb,
+            rideName: widget.rideName,
+          ).then((bytes) {
             if (mounted) setState(() => _rotatedCarBytes = bytes);
           });
         }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -27,6 +28,7 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
   String _address = 'Move the map to pick a location';
   bool _loading = false;
   LatLng _center = const LatLng(40.7128, -74.0060);
+  Timer? _iosDebounce;
 
   @override
   void initState() {
@@ -34,6 +36,12 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
     if (widget.initialLat != null && widget.initialLng != null) {
       _center = LatLng(widget.initialLat!, widget.initialLng!);
     }
+  }
+
+  @override
+  void dispose() {
+    _iosDebounce?.cancel();
+    super.dispose();
   }
 
   Future<void> _onCameraIdle() async {
@@ -100,6 +108,12 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
                   },
                   onCameraMove: (pos) {
                     _center = LatLng(pos.target.latitude, pos.target.longitude);
+                    // Debounce: trigger geocode if onCameraIdle doesn't fire
+                    _iosDebounce?.cancel();
+                    _iosDebounce = Timer(
+                      const Duration(milliseconds: 600),
+                      _onCameraIdle,
+                    );
                   },
                   onCameraIdle: _onCameraIdle,
                   myLocationEnabled: true,

@@ -145,13 +145,18 @@ class CarIconLoader {
     final key = rideName.trim().toLowerCase();
     if (key.contains('suburba')) {
       if (_bytesCache.containsKey('suv_black')) return _bytesCache['suv_black'];
-      await loadForRide(rideName);
-      return _bytesCache['suv_black'];
+      final bytes = await _renderSuvBytes(_CarPalette.black);
+      _bytesCache['suv_black'] = bytes;
+      return bytes;
     }
     final cacheKey = key.contains('fusion') ? 'black' : 'white';
     if (_bytesCache.containsKey(cacheKey)) return _bytesCache[cacheKey];
-    await loadForRide(rideName);
-    return _bytesCache[cacheKey];
+    final palette = key.contains('fusion')
+        ? _CarPalette.black
+        : _CarPalette.whitePearl;
+    final bytes = await _renderDetailedBytes(palette);
+    _bytesCache[cacheKey] = bytes;
+    return bytes;
   }
 
   static void invalidate() {
@@ -159,24 +164,53 @@ class CarIconLoader {
     _bytesCache.clear();
     _cardCache.clear();
     _rotatedCache.clear();
+    _rotatedCacheByType.clear();
   }
 
   // ── Pre-rotated icon for Apple Maps (no native rotation support) ──
 
+  static final Map<String, Map<int, Uint8List>> _rotatedCacheByType = {};
   static final Map<int, Uint8List> _rotatedCache = {};
   static Uint8List? _baseForRotation;
 
   /// Returns car icon PNG bytes rotated by [degrees] (clockwise, 0 = north).
   /// Quantized to 5° increments and cached for performance.
-  static Future<Uint8List> rotateBytes(double degrees) async {
-    final q = ((degrees % 360) / 5).round() * 5;
-    if (_rotatedCache.containsKey(q)) return _rotatedCache[q]!;
+  /// Uses default white pearl sedan.
+  static Future<Uint8List> rotateBytes(double degrees) =>
+      rotateBytesForRide(degrees, rideName: 'Camry');
 
-    _baseForRotation ??= await _renderDetailedBytes(_CarPalette.whitePearl);
-    final base = _baseForRotation!;
+  /// Returns ride-specific car icon PNG bytes rotated by [degrees].
+  /// Supports Suburban (SUV), Fusion (black sedan), Camry (white sedan).
+  static Future<Uint8List> rotateBytesForRide(
+    double degrees, {
+    String rideName = 'Camry',
+  }) async {
+    final key = rideName.trim().toLowerCase();
+    final String typeKey;
+    if (key.contains('suburba')) {
+      typeKey = 'suv_black';
+    } else if (key.contains('fusion')) {
+      typeKey = 'black';
+    } else {
+      typeKey = 'white';
+    }
+
+    final q = ((degrees % 360) / 5).round() * 5;
+    final cache = _rotatedCacheByType.putIfAbsent(typeKey, () => {});
+    if (cache.containsKey(q)) return cache[q]!;
+
+    // Get or generate base bytes for this car type
+    final Uint8List base;
+    if (typeKey == 'suv_black') {
+      base = _bytesCache['suv_black'] ?? await _renderSuvBytes(_CarPalette.black);
+    } else if (typeKey == 'black') {
+      base = _bytesCache['black'] ?? await _renderDetailedBytes(_CarPalette.black);
+    } else {
+      base = _bytesCache['white'] ?? await _renderDetailedBytes(_CarPalette.whitePearl);
+    }
 
     if (q == 0) {
-      _rotatedCache[0] = base;
+      cache[0] = base;
       return base;
     }
 
@@ -202,7 +236,7 @@ class CarIconLoader {
     final data = await img.toByteData(format: ui.ImageByteFormat.png);
     final bytes = data!.buffer.asUint8List();
 
-    _rotatedCache[q] = bytes;
+    cache[q] = bytes;
     src.dispose();
     img.dispose();
     return bytes;
@@ -655,6 +689,49 @@ class CarIconLoader {
     _bytesCache['suv_black'] = pixelBytes; // SUV marker is always black
     // ignore: deprecated_member_use
     return BitmapDescriptor.fromBytes(pixelBytes);
+  }
+
+  /// Renders the SUV as raw PNG bytes (used by iOS rotation and loadForRideBytes).
+  static Future<Uint8List> _renderSuvBytes(_CarPalette p) async {
+    const double lw = 24, lh = 40;
+    const double scale = 3.0;
+    final int pw = (lw * scale).toInt();
+    final int ph = (lh * scale).toInt();
+    final double w = pw.toDouble();
+    final double h = ph.toDouble();
+
+    final rec = ui.PictureRecorder();
+    final c = Canvas(rec, Rect.fromLTWH(0, 0, w, h));
+    final cx = w / 2;
+    final cy = h * 0.46;
+    final bw = w * 0.32;
+    final bh = h * 0.40;
+
+    final body = _suvBodyPath(cx, cy, bw, bh);
+    _paintBody(c, body, cx, cy, bw, bh, p);
+    _bodyAO(c, body, cx, cy, bw, bh);
+    _suvFenderCurves(c, cx, cy, bw, bh, p);
+    _suvDoorPanels(c, cx, cy, bw, bh);
+    _suvDoorHandles(c, cx, cy, bw, bh, p);
+    _beltLine(c, cx, cy, bw, bh, p);
+    _suvWindshield(c, cx, cy, bw, bh);
+    _suvRearGlass(c, cx, cy, bw, bh);
+    _suvSideWindows(c, cx, cy, bw, bh);
+    _suvClosedRoof(c, cx, cy, bw, bh, p);
+    _suvRoofRails(c, cx, cy, bw, bh, p);
+    _suvHeadlights(c, cx, cy, bw, bh);
+    _suvTaillights(c, cx, cy, bw, bh);
+    _suvFrontBumper(c, cx, cy, bw, bh, p);
+    _suvRearBumper(c, cx, cy, bw, bh);
+    _suvMirrors(c, cx, cy, bw, bh, p);
+    _suvHoodCrease(c, cx, cy, bw, bh, p);
+
+    final pic = rec.endRecording();
+    final img = await pic.toImage(pw, ph);
+    final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
+    final pixelBytes = bytes!.buffer.asUint8List();
+    _bytesCache['suv_black'] = pixelBytes;
+    return pixelBytes;
   }
 
   // ── SUV Ground shadow ──────────────────────────────────────────────

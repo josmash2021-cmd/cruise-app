@@ -4469,7 +4469,13 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       final q = ((_driverBearing % 360) / 10).round() % 36;
       if (q != _lastDriverRotQ) {
         _lastDriverRotQ = q;
-        CarIconLoader.rotateBytes(_driverBearing).then((bytes) {
+        final rideName = _rides.isNotEmpty
+            ? _rides[_selectedRide].vehicle
+            : '';
+        CarIconLoader.rotateBytesForRide(
+          _driverBearing,
+          rideName: rideName,
+        ).then((bytes) {
           if (mounted) setState(() => _rotatedDriverBytes = bytes);
         });
       }
@@ -4560,7 +4566,12 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   /// Uber-style driver car icon (delegates to CarIconLoader).
   Future<void> _buildDriverCarIcon() async {
-    _driverCarIconBytes = await CarIconLoader.loadUberBytes();
+    // Use ride-specific car: Suburban→SUV, Fusion→black sedan, default→white sedan
+    final rideName = _rides.isNotEmpty
+        ? _rides[_selectedRide].vehicle
+        : '';
+    _driverCarIconBytes = await CarIconLoader.loadForRideBytes(rideName) ??
+        await CarIconLoader.loadUberBytes();
     final icon = _driverCarIconBytes != null
         ? BitmapDescriptor.fromBytes(_driverCarIconBytes!)
         : await CarIconLoader.loadUber();
