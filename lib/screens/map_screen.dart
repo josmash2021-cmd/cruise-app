@@ -1138,6 +1138,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             target: amap.LatLng(target.latitude, target.longitude),
             zoom: z,
             heading: bearing,
+            pitch: tilt,       // 3D tilt for navigation chase-cam on iOS
           ),
         ),
       );
@@ -2519,6 +2520,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                       ),
                       zoom: 14,
                     ),
+                    mapType: amap.MapType.standard,
                     onMapCreated: _onAppleMapCreated,
                     onCameraMove: _onAppleCameraMove,
                     onCameraIdle: _onCameraIdle,
@@ -2528,7 +2530,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     zoomGesturesEnabled: true,
                     rotateGesturesEnabled: true,
                     scrollGesturesEnabled: true,
+                    pitchGesturesEnabled: true,
                     compassEnabled: true,
+                    padding: _mapPaddingForContext(context),
                     annotations: _appleAnnotations,
                     polylines: _applePolylines,
                   )
@@ -3984,7 +3988,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     math.sin(aLat) * math.cos(bLat) * math.cos(dLng);
                 tripBearing = (math.atan2(x, y) * 180 / math.pi + 360) % 360;
               }
-              _panTo(_driverPosition!, zoom: 18.5, bearing: tripBearing);
+              _panTo(_driverPosition!, zoom: 18.5, bearing: tripBearing, tilt: 45);
             }
             // Draw/update route from driver â†’ dropoff
             await _updateDriverRoute(status);
@@ -4051,7 +4055,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     math.sin(aLat) * math.cos(bLat) * math.cos(dLng);
                 pickupBearing = (math.atan2(x, y) * 180 / math.pi + 360) % 360;
               }
-              _panTo(_driverPosition!, zoom: 18.5, bearing: pickupBearing);
+              _panTo(_driverPosition!, zoom: 18.5, bearing: pickupBearing, tilt: 45);
             }
             // Draw/update route from driver â†’ pickup
             await _updateDriverRoute(status);
@@ -4520,7 +4524,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
     // ── 3D Chase-Cam: follow driver every frame for game-like feel ──
     if (_stage == RideStage.riding && _driverPosition != null) {
-      _panTo(_driverPosition!, zoom: 18.5, bearing: _driverBearing);
+      _panTo(_driverPosition!, zoom: 18.5, bearing: _driverBearing, tilt: 45);
     }
 
     // Trim route behind driver on every frame for seamless visual
@@ -6872,3 +6876,4 @@ class _AnimatedSearchTextState extends State<_AnimatedSearchText> {
 }
 
 // Map styles are now in config/map_styles.dart (MapStyles.dark / MapStyles.light)
+

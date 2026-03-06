@@ -84,8 +84,12 @@ class CarIconLoader {
 
   static Future<BitmapDescriptor> loadUber() async {
     if (_cache.containsKey('white')) return _cache['white']!;
-    _cache['white'] = await _render(_CarPalette.whitePearl);
-    return _cache['white']!;
+    // Use the Google Maps–style nav car for the driver marker on both platforms.
+    final bytes = await loadUberBytes();
+    // ignore: deprecated_member_use
+    final descriptor = BitmapDescriptor.fromBytes(bytes!);
+    _cache['white'] = descriptor;
+    return descriptor;
   }
 
   static Future<BitmapDescriptor> loadForVehicle(String rideName) =>
@@ -112,8 +116,10 @@ class CarIconLoader {
   /// Used by apple_maps_flutter on iOS to create BitmapDescriptor.
   static Future<Uint8List?> loadUberBytes() async {
     if (_bytesCache.containsKey('white')) return _bytesCache['white'];
-    await loadUber(); // triggers _render, which fills _bytesCache
-    return _bytesCache['white'];
+    // Build the Google Maps–style nav car directly (faster than going via loadUber)
+    final bytes = await _renderGmapsNavCarBytes();
+    _bytesCache['white'] = bytes;
+    return bytes;
   }
 
   /// Returns raw PNG bytes for a ride-specific icon.
@@ -250,11 +256,213 @@ class CarIconLoader {
   // =================================================================
   //  RENDERER — small 3D closed-roof car
   // =================================================================
+  //  GOOGLE-MAPS-STYLE NAVIGATION CAR — used for the live driver marker
+  // =================================================================
+
+  /// Renders a clean Google-Maps-style top-down navigation car.
+  /// White pearl body, prominent dark windshield, drop shadow, headlights &
+  /// taillights — the same visual language as the Google Maps nav car icon.
+  static Future<Uint8List> _renderGmapsNavCarBytes() async {
+    // 22×44 logical units @ 4× → 88×176 physical pixels (Retina-ready)
+    const double lw = 22.0, lh = 44.0;
+    const double scale = 4.0;
+    final int pw = (lw * scale).round();
+    final int ph = (lh * scale).round();
+    final double w = pw.toDouble();
+    final double h = ph.toDouble();
+
+    final rec = ui.PictureRecorder();
+    final cvs = Canvas(rec, Rect.fromLTWH(0, 0, w, h));
+    final cx = w * 0.5;
+    final cy = h * 0.50;
+
+    // ── 1. Soft drop-shadow ──────────────────────────────────────────
+    cvs.drawOval(
+      Rect.fromCenter(
+          center: Offset(cx, cy + h * 0.04),
+          width: w * 0.82,
+          height: h * 0.88),
+      Paint()
+        ..color = const Color(0x55000000)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9),
+    );
+
+    // ── 2. Body path (organic sedan silhouette) ──────────────────────
+    final body = _gmapsBodyPath(cx, cy, w, h);
+
+    // Pearl-white lateral gradient
+    cvs.drawPath(
+      body,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          Offset(cx - w * 0.42, cy),
+          Offset(cx + w * 0.42, cy),
+          const [
+            Color(0xFFBFC4CC), // side in shadow
+            Color(0xFFD8DCE4),
+            Color(0xFFF2F4F8), // centre highlight
+            Color(0xFFD8DCE4),
+            Color(0xFFBFC4CC),
+          ],
+          [0.0, 0.22, 0.50, 0.78, 1.0],
+        ),
+    );
+
+    // Thin body outline
+    cvs.drawPath(
+      body,
+      Paint()
+        ..color = const Color(0x50505870)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = w * 0.028
+        ..isAntiAlias = true,
+    );
+
+    // ── 3. Windshield (front, ~28 % from nose) ──────────────────────
+    final wsTop = cy - h * 0.305;
+    final wsMid = cy - h * 0.135;
+    final wsPath = Path()
+      ..moveTo(cx - w * 0.215, wsTop + h * 0.020)
+      ..lineTo(cx + w * 0.215, wsTop + h * 0.020)
+      ..lineTo(cx + w * 0.252, wsMid)
+      ..lineTo(cx - w * 0.252, wsMid)
+      ..close();
+    cvs.drawPath(wsPath,
+        Paint()..color = const Color(0xD42B3D52)..isAntiAlias = true);
+
+    // Glass inner highlight strip
+    cvs.drawRect(
+      Rect.fromLTWH(cx - w * 0.17, wsTop + h * 0.030, w * 0.34, h * 0.022),
+      Paint()
+        ..color = const Color(0x22FFFFFF)
+        ..isAntiAlias = true,
+    );
+
+    // ── 4. Roof panel (between windshield & rear glass) ──────────────
+    final roofY1 = wsTop + h * 0.020;
+    final roofY2 = cy + h * 0.135;
+    cvs.drawRect(
+      Rect.fromLTWH(cx - w * 0.215, roofY1, w * 0.430, roofY2 - roofY1),
+      Paint()
+        ..shader = ui.Gradient.linear(
+          Offset(cx, roofY1),
+          Offset(cx, roofY2),
+          const [Color(0xFFDCE0E8), Color(0xFFF0F3F8), Color(0xFFDCE0E8)],
+          [0.0, 0.50, 1.0],
+        ),
+    );
+
+    // ── 5. Rear glass ────────────────────────────────────────────────
+    final rgTop = cy + h * 0.135;
+    final rgBot = cy + h * 0.290;
+    final rgPath = Path()
+      ..moveTo(cx - w * 0.220, rgTop)
+      ..lineTo(cx + w * 0.220, rgTop)
+      ..lineTo(cx + w * 0.195, rgBot)
+      ..lineTo(cx - w * 0.195, rgBot)
+      ..close();
+    cvs.drawPath(rgPath,
+        Paint()..color = const Color(0xBB2B3D52)..isAntiAlias = true);
+
+    // ── 6. Side mirrors ──────────────────────────────────────────────
+    final mirY = wsMid - h * 0.028;
+    // Left
+    cvs.drawRRect(
+      RRect.fromRectAndRadius(
+          Rect.fromLTWH(cx - w * 0.430, mirY, w * 0.070, h * 0.050),
+          Radius.circular(w * 0.014)),
+      Paint()..color = const Color(0xFFCDD1D8)..isAntiAlias = true,
+    );
+    // Right
+    cvs.drawRRect(
+      RRect.fromRectAndRadius(
+          Rect.fromLTWH(cx + w * 0.360, mirY, w * 0.070, h * 0.050),
+          Radius.circular(w * 0.014)),
+      Paint()..color = const Color(0xFFCDD1D8)..isAntiAlias = true,
+    );
+
+    // ── 7. Headlights (front) ───────────────────────────────────────
+    final hlY = cy - h * 0.415;
+    for (final sx in [-0.200, 0.200]) {
+      cvs.drawOval(
+        Rect.fromCenter(
+            center: Offset(cx + w * sx, hlY),
+            width: w * 0.175,
+            height: h * 0.046),
+        Paint()
+          ..color = const Color(0xFFFFF9E0)
+          ..isAntiAlias = true,
+      );
+    }
+
+    // ── 8. Taillights (rear) ────────────────────────────────────────
+    final tlY = cy + h * 0.415;
+    for (final sx in [-0.195, 0.195]) {
+      cvs.drawOval(
+        Rect.fromCenter(
+            center: Offset(cx + w * sx, tlY),
+            width: w * 0.165,
+            height: h * 0.040),
+        Paint()
+          ..color = const Color(0xFFFF3030)
+          ..isAntiAlias = true,
+      );
+    }
+
+    // ── 9. Hood crease / centre line ────────────────────────────────
+    final creaseTop = cy - h * 0.450;
+    final creaseMid = wsTop + h * 0.010;
+    cvs.drawLine(
+      Offset(cx, creaseTop),
+      Offset(cx, creaseMid),
+      Paint()
+        ..color = const Color(0x30000000)
+        ..strokeWidth = w * 0.018
+        ..isAntiAlias = true,
+    );
+
+    final pic = rec.endRecording();
+    final img = await pic.toImage(pw, ph);
+    final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
+    return byteData!.buffer.asUint8List();
+  }
+
+  /// Organic sedan body — tapered nose, wider at mid/rear (Google Maps style).
+  static Path _gmapsBodyPath(double cx, double cy, double w, double h) {
+    final path = Path();
+    final front = cy - h * 0.450;
+    final rear  = cy + h * 0.450;
+    path.moveTo(cx, front);
+    path.cubicTo(cx + w * 0.165, front,      cx + w * 0.400, front + h * 0.120,
+                 cx + w * 0.415, cy - h * 0.050);
+    path.cubicTo(cx + w * 0.420, cy + h * 0.110, cx + w * 0.380, rear - h * 0.100,
+                 cx + w * 0.130, rear);
+    path.lineTo(cx - w * 0.130, rear);
+    path.cubicTo(cx - w * 0.380, rear - h * 0.100, cx - w * 0.420, cy + h * 0.110,
+                 cx - w * 0.415, cy - h * 0.050);
+    path.cubicTo(cx - w * 0.400, front + h * 0.120, cx - w * 0.165, front,
+                 cx, front);
+    path.close();
+    return path;
+  }
+
+  // =================================================================
+  //  LEGACY RENDERER — used only by card thumbnails (not the map marker)
+  // =================================================================
 
   static Future<BitmapDescriptor> _render(_CarPalette p) async {
-    // Smaller logical size for a compact marker
+    // Delegate to the new Google-Maps-style nav car for the white sedan.
+    // Black palette (Fusion) keeps legacy renderer for card thumbnails.
+    if (p == _CarPalette.whitePearl) {
+      final bytes = await _renderGmapsNavCarBytes();
+      _bytesCache['white'] = bytes;
+      // ignore: deprecated_member_use
+      return BitmapDescriptor.fromBytes(bytes);
+    }
+
+    // Black sedan (Fusion) — legacy detailed renderer
     const double lw = 20, lh = 36;
-    const double scale = 3.0; // smaller for Android 9 fromBytes
+    const double scale = 3.0;
     final int pw = (lw * scale).toInt();
     final int ph = (lh * scale).toInt();
     final double w = pw.toDouble();
@@ -264,11 +472,9 @@ class CarIconLoader {
     final c = Canvas(rec, Rect.fromLTWH(0, 0, w, h));
     final cx = w / 2;
     final cy = h * 0.46;
+    final bw = w * 0.30;
+    final bh = h * 0.38;
 
-    final bw = w * 0.30; // body half-width
-    final bh = h * 0.38; // body half-height
-
-    // Render layers bottom-to-top (no ground/under-car shadow)
     final body = _bodyPath(cx, cy, bw, bh);
     _paintBody(c, body, cx, cy, bw, bh, p);
     _bodyAO(c, body, cx, cy, bw, bh);
@@ -293,9 +499,7 @@ class CarIconLoader {
     if (bytes == null) return BitmapDescriptor.defaultMarker;
 
     final pixelBytes = bytes.buffer.asUint8List();
-    // Cache raw bytes by palette so Apple Maps can use them on iOS.
-    final bKey = p == _CarPalette.whitePearl ? 'white' : 'black';
-    _bytesCache[bKey] = pixelBytes;
+    _bytesCache['black'] = pixelBytes;
     // ignore: deprecated_member_use
     return BitmapDescriptor.fromBytes(pixelBytes);
   }
