@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math' show sin, cos, sqrt, atan2, pi;
 import 'package:flutter/foundation.dart';
+import 'package:geocoding/geocoding.dart' as geo;
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 
@@ -125,7 +126,42 @@ class PlacesService {
     required double lat,
     required double lng,
   }) async {
-    // Google Geocoding first (best quality)
+    // 1) Native platform geocoder (most reliable, no API key needed)
+    try {
+      final placemarks = await geo
+          .placemarkFromCoordinates(lat, lng)
+          .timeout(const Duration(seconds: 5));
+      if (placemarks.isNotEmpty) {
+        final p = placemarks.first;
+        final parts = <String>[];
+        // Street address
+        if (p.street != null && p.street!.isNotEmpty) {
+          parts.add(p.street!);
+        } else {
+          if (p.subThoroughfare != null && p.subThoroughfare!.isNotEmpty) {
+            parts.add(p.subThoroughfare!);
+          }
+          if (p.thoroughfare != null && p.thoroughfare!.isNotEmpty) {
+            parts.add(p.thoroughfare!);
+          }
+        }
+        if (p.locality != null && p.locality!.isNotEmpty) {
+          parts.add(p.locality!);
+        }
+        if (p.administrativeArea != null && p.administrativeArea!.isNotEmpty) {
+          parts.add(p.administrativeArea!);
+        }
+        if (parts.isNotEmpty) {
+          final addr = parts.join(', ');
+          debugPrint('✅ Native geocode: $addr');
+          return addr;
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ Native geocode error: $e');
+    }
+
+    // 2) Google Geocoding API (best quality)
     try {
       final uri = Uri.https('maps.googleapis.com', '/maps/api/geocode/json', {
         'latlng': '$lat,$lng',

@@ -53,10 +53,10 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
     });
     final snap = LatLng(_center.latitude, _center.longitude);
     String? addr;
-    // Try up to 4 times with increasing delays for iOS reliability
-    for (int attempt = 0; attempt < 4; attempt++) {
+    // Try up to 2 times — native geocoder should resolve on first attempt
+    for (int attempt = 0; attempt < 2; attempt++) {
       if (attempt > 0) {
-        await Future.delayed(Duration(milliseconds: 500 * attempt));
+        await Future.delayed(const Duration(milliseconds: 800));
       }
       if (!mounted) return;
       try {
@@ -136,7 +136,14 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
                     target: _center,
                     zoom: 15,
                   ),
-                  onMapCreated: (ctrl) => _mapCtrl = ctrl,
+                  onMapCreated: (ctrl) {
+                    _mapCtrl = ctrl;
+                    // Trigger initial geocode after map loads (Android)
+                    Future.delayed(
+                      const Duration(milliseconds: 800),
+                      _onCameraIdle,
+                    );
+                  },
                   onCameraMove: _onCameraMove,
                   onCameraIdle: _onCameraIdle,
                   myLocationEnabled: true,

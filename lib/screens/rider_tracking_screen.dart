@@ -11,9 +11,11 @@ import 'package:apple_maps_flutter/apple_maps_flutter.dart' as amap;
 
 import '../config/app_theme.dart';
 import '../config/map_styles.dart';
+import '../config/page_transitions.dart';
 import '../navigation/car_icon_loader.dart';
 import '../services/directions_service.dart';
 import '../config/api_keys.dart';
+import 'home_screen.dart';
 
 class RiderTrackingScreen extends StatefulWidget {
   const RiderTrackingScreen({
@@ -76,11 +78,20 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
   int _etaMinutes = 2;
   double _distanceMiles = 0;
   List<LatLng> _routePts = [];
-  bool _showDetails = true;
+  bool _showDetails = false;
   int _ratingStars = 5;
   double _tipAmount = 0;
   bool _customTip = false;
   bool _saveDriver = false;
+  final Set<String> _feedbackChips = {};
+  static const _chipOptions = [
+    'Friendly driver',
+    'Clean car',
+    'Good driving',
+    'Above and beyond',
+    'Great music',
+    'Good conversation',
+  ];
 
   Timer? _simTimer;
   int _simStep = 0;
@@ -1033,56 +1044,70 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
               _banner(c),
               if (_phase == _TrackPhase.arriving ||
                   _phase == _TrackPhase.arrived) ...[
-                if (_showDetails) ...[
-                  Padding(
-                    padding: const EdgeInsets.only(top: 10),
-                    child: Text(
-                      'Driver will arrive on the same side of the street as your pickup spot',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.white.withValues(alpha: 0.5),
-                        height: 1.3,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  // ── Trip address info ──
-                  _tripAddressRow(
-                    iconColor: const Color(0xFFD4A843),
-                    label: widget.pickupLabel.isNotEmpty
-                        ? widget.pickupLabel
-                        : 'Pickup location',
-                  ),
-                  const SizedBox(height: 6),
-                  _tripAddressRow(
-                    iconColor: const Color(0xFFD4A843),
-                    label: widget.dropoffLabel.isNotEmpty
-                        ? widget.dropoffLabel
-                        : 'Destination',
-                  ),
-                ],
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeInOut,
+                  alignment: Alignment.topCenter,
+                  child: _showDetails
+                      ? Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.only(top: 10),
+                              child: Text(
+                                'Driver will arrive on the same side of the street as your pickup spot',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.white.withValues(alpha: 0.5),
+                                  height: 1.3,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            _tripAddressRow(
+                              iconColor: const Color(0xFFD4A843),
+                              label: widget.pickupLabel.isNotEmpty
+                                  ? widget.pickupLabel
+                                  : 'Pickup location',
+                            ),
+                            const SizedBox(height: 6),
+                            _tripAddressRow(
+                              iconColor: const Color(0xFFD4A843),
+                              label: widget.dropoffLabel.isNotEmpty
+                                  ? widget.dropoffLabel
+                                  : 'Destination',
+                            ),
+                          ],
+                        )
+                      : const SizedBox.shrink(),
+                ),
                 const SizedBox(height: 8),
                 GestureDetector(
                   onTap: () => setState(() => _showDetails = !_showDetails),
-                  child: Row(
-                    children: [
-                      Text(
-                        _showDetails ? 'Show less' : 'Show more',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white.withValues(alpha: 0.7),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      children: [
+                        Text(
+                          _showDetails ? 'Show less' : 'Show more',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white.withValues(alpha: 0.7),
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 2),
-                      Icon(
-                        _showDetails
-                            ? Icons.keyboard_arrow_up
-                            : Icons.keyboard_arrow_down,
-                        color: Colors.white.withValues(alpha: 0.7),
-                        size: 20,
-                      ),
-                    ],
+                        const SizedBox(width: 2),
+                        AnimatedRotation(
+                          turns: _showDetails ? 0.5 : 0,
+                          duration: const Duration(milliseconds: 250),
+                          child: Icon(
+                            Icons.keyboard_arrow_down,
+                            color: Colors.white.withValues(alpha: 0.7),
+                            size: 20,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],
@@ -1324,7 +1349,32 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
   Widget _ratingOverlay(double botPad) {
     final first = widget.driverName.split(' ').first;
     const gold = Color(0xFFD4A843);
+
+    String _starLabel() {
+      switch (_ratingStars) {
+        case 1:
+          return 'Poor';
+        case 2:
+          return 'Below Average';
+        case 3:
+          return 'Average';
+        case 4:
+          return 'Great';
+        case 5:
+          return 'Excellent!';
+        default:
+          return '';
+      }
+    }
+
+    // Percentage-based tips
+    final fare = widget.price > 0 ? widget.price : 23.0;
+    final tipPercents = [15, 20, 25];
+
     return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.78,
+      ),
       decoration: BoxDecoration(
         color: const Color(0xFF1E1E1E),
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
@@ -1338,14 +1388,15 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
       ),
       child: SafeArea(
         top: false,
-        child: Padding(
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               // Drag handle
               Container(
-                margin: const EdgeInsets.only(top: 12, bottom: 20),
+                margin: const EdgeInsets.only(top: 12, bottom: 16),
                 width: 36,
                 height: 4,
                 decoration: BoxDecoration(
@@ -1353,63 +1404,31 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
+
+              // ── "How was your ride?" title ──
               const Text(
-                'How was your trip?',
+                'How was your ride?',
                 style: TextStyle(
-                  fontSize: 22,
+                  fontSize: 24,
                   fontWeight: FontWeight.w800,
                   color: Colors.white,
                 ),
               ),
-              const SizedBox(height: 20),
-              // Driver avatar
-              Container(
-                width: 72,
-                height: 72,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withValues(alpha: 0.1),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.2),
-                    width: 2,
-                  ),
-                ),
-                child: Center(
-                  child: Text(
-                    widget.driverName.isNotEmpty
-                        ? widget.driverName[0].toUpperCase()
-                        : 'D',
-                    style: const TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                first,
-                style: const TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                ),
-              ),
               const SizedBox(height: 16),
-              // Stars
+
+              // ── Stars ──
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: List.generate(5, (i) {
                   return GestureDetector(
                     onTap: () => setState(() => _ratingStars = i + 1),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
                       child: Icon(
                         i < _ratingStars
                             ? Icons.star_rounded
                             : Icons.star_outline_rounded,
-                        size: 44,
+                        size: 48,
                         color: i < _ratingStars
                             ? gold
                             : Colors.white.withValues(alpha: 0.2),
@@ -1418,95 +1437,241 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
                   );
                 }),
               ),
-              const SizedBox(height: 24),
-              // Tip section
+              const SizedBox(height: 8),
+
+              // ── Star label ──
               Text(
-                'Add a tip for $first',
+                _starLabel(),
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: gold,
+                ),
+              ),
+
+              const SizedBox(height: 6),
+              Text(
+                'What went well?',
                 style: TextStyle(
                   fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white.withValues(alpha: 0.6),
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white.withValues(alpha: 0.85),
                 ),
               ),
               const SizedBox(height: 12),
+
+              // ── Feedback chips ──
               Wrap(
+                spacing: 8,
+                runSpacing: 8,
                 alignment: WrapAlignment.center,
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  ...[1.0, 2.0, 5.0, 10.0].map((amt) {
-                    final sel = _tipAmount == amt && !_customTip;
-                    return GestureDetector(
-                      onTap: () => setState(() {
-                        _customTip = false;
-                        _tipAmount = sel ? 0 : amt;
-                      }),
-                      child: Container(
-                        width: 64,
-                        height: 44,
-                        decoration: BoxDecoration(
+                children: _chipOptions.map((label) {
+                  final sel = _feedbackChips.contains(label);
+                  return GestureDetector(
+                    onTap: () => setState(() {
+                      sel
+                          ? _feedbackChips.remove(label)
+                          : _feedbackChips.add(label);
+                    }),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: sel
+                            ? gold.withValues(alpha: 0.2)
+                            : Colors.white.withValues(alpha: 0.06),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
                           color: sel
                               ? gold
-                              : Colors.white.withValues(alpha: 0.08),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: sel
-                                ? gold
-                                : Colors.white.withValues(alpha: 0.15),
-                          ),
-                        ),
-                        child: Center(
-                          child: Text(
-                            '\$${amt.toInt()}',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                              color: sel
-                                  ? Colors.white
-                                  : Colors.white.withValues(alpha: 0.7),
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  }),
-                  GestureDetector(
-                    onTap: () => setState(() {
-                      _customTip = !_customTip;
-                      if (!_customTip) _tipAmount = 0;
-                    }),
-                    child: Container(
-                      width: 80,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: _customTip
-                            ? gold
-                            : Colors.white.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: _customTip
-                              ? gold
                               : Colors.white.withValues(alpha: 0.15),
+                          width: sel ? 1.5 : 1,
                         ),
                       ),
-                      child: Center(
-                        child: Text(
-                          'Custom',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                            color: _customTip
-                                ? Colors.white
-                                : Colors.white.withValues(alpha: 0.7),
+                      child: Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: sel
+                              ? gold
+                              : Colors.white.withValues(alpha: 0.7),
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 16),
+
+              // ── Leave anonymous feedback ──
+              GestureDetector(
+                onTap: () {},
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      'Leave anonymous feedback',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.white.withValues(alpha: 0.5),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Icon(
+                      Icons.edit_note_rounded,
+                      size: 18,
+                      color: Colors.white.withValues(alpha: 0.4),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 20),
+              Divider(height: 1, color: Colors.white.withValues(alpha: 0.1)),
+              const SizedBox(height: 20),
+
+              // ── Tip section header ──
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Your tip for $first',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
                           ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '100% of tips go to drivers',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.white.withValues(alpha: 0.5),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Driver avatar
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white.withValues(alpha: 0.1),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.2),
+                        width: 2,
+                      ),
+                    ),
+                    child: Center(
+                      child: Text(
+                        widget.driverName.isNotEmpty
+                            ? widget.driverName[0].toUpperCase()
+                            : 'D',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
                         ),
                       ),
                     ),
                   ),
                 ],
               ),
+              const SizedBox(height: 16),
+
+              // ── Percentage tip buttons ──
+              Row(
+                children: tipPercents.map((pct) {
+                  final amt = (fare * pct / 100).roundToDouble();
+                  final sel = _tipAmount == amt && !_customTip;
+                  return Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.only(
+                        right: pct != tipPercents.last ? 10 : 0,
+                      ),
+                      child: GestureDetector(
+                        onTap: () => setState(() {
+                          _customTip = false;
+                          _tipAmount = sel ? 0 : amt;
+                        }),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          height: 60,
+                          decoration: BoxDecoration(
+                            color: sel
+                                ? gold.withValues(alpha: 0.15)
+                                : Colors.white.withValues(alpha: 0.06),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: sel
+                                  ? gold
+                                  : Colors.white.withValues(alpha: 0.15),
+                              width: sel ? 2 : 1,
+                            ),
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                '$pct%',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                  color: sel
+                                      ? gold
+                                      : Colors.white.withValues(alpha: 0.8),
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '\$${amt.toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                  color: sel
+                                      ? gold.withValues(alpha: 0.8)
+                                      : Colors.white.withValues(alpha: 0.45),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 10),
+
+              // Custom tip link
+              GestureDetector(
+                onTap: () => setState(() {
+                  _customTip = !_customTip;
+                  if (!_customTip) _tipAmount = 0;
+                }),
+                child: Text(
+                  _customTip ? 'Cancel custom tip' : 'Enter custom amount',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: gold.withValues(alpha: 0.7),
+                  ),
+                ),
+              ),
+
               if (_customTip) ...[
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 SizedBox(
                   width: 140,
                   height: 48,
@@ -1555,7 +1720,8 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
                 ),
               ],
               const SizedBox(height: 20),
-              // Save driver
+
+              // ── Favorite driver ──
               GestureDetector(
                 onTap: () => setState(() => _saveDriver = !_saveDriver),
                 child: Container(
@@ -1574,62 +1740,87 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
                   ),
                   child: Row(
                     children: [
-                      Icon(
-                        _saveDriver
-                            ? Icons.favorite_rounded
-                            : Icons.favorite_border_rounded,
-                        size: 22,
-                        color: _saveDriver
-                            ? gold
-                            : Colors.white.withValues(alpha: 0.4),
+                      Container(
+                        width: 24,
+                        height: 24,
+                        decoration: BoxDecoration(
+                          color: _saveDriver ? gold : Colors.transparent,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: _saveDriver
+                                ? gold
+                                : Colors.white.withValues(alpha: 0.3),
+                            width: 2,
+                          ),
+                        ),
+                        child: _saveDriver
+                            ? const Icon(
+                                Icons.check_rounded,
+                                size: 16,
+                                color: Colors.white,
+                              )
+                            : null,
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: Text(
-                          'Save $first as favorite driver',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white.withValues(alpha: 0.7),
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Favorite this driver',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'We\'ll prioritize your favorite drivers for scheduled rides',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.white.withValues(alpha: 0.5),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      if (_saveDriver)
-                        const Icon(
-                          Icons.check_circle_rounded,
-                          size: 22,
-                          color: gold,
-                        ),
                     ],
                   ),
                 ),
               ),
               const SizedBox(height: 20),
-              // Submit button
+
+              // ── Send button ──
               SizedBox(
                 width: double.infinity,
                 height: 54,
                 child: ElevatedButton(
                   onPressed: () {
                     HapticFeedback.mediumImpact();
-                    widget.onTripComplete?.call();
+                    // Navigate to rider home with smooth fade
+                    Navigator.of(context).pushAndRemoveUntil(
+                      PageRouteBuilder(
+                        pageBuilder: (_, __, ___) => const HomeScreen(),
+                        transitionsBuilder: (_, anim, __, child) {
+                          return FadeTransition(opacity: anim, child: child);
+                        },
+                        transitionDuration: const Duration(milliseconds: 500),
+                      ),
+                      (_) => false,
+                    );
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: gold,
                     foregroundColor: Colors.black,
                     elevation: 0,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(27),
                     ),
                   ),
-                  child: Text(
-                    _tipAmount > 0
-                        ? 'Submit with \$${_tipAmount.toInt()} tip'
-                        : 'Submit',
-                    style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800,
-                    ),
+                  child: const Text(
+                    'Send',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
                   ),
                 ),
               ),
