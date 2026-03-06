@@ -2071,6 +2071,26 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _openScheduleSheet() => _showScheduleSheet();
 
   Future<void> _showScheduleSheet() async {
+    // First show Airport/Schedule choice
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _LaterOptionsSheet(isDark: AppColors.of(context).isDark),
+    );
+    
+    // If cancelled or no choice, revert to Now
+    if (choice == null || !mounted) {
+      setState(() => _rideNow = true);
+      return;
+    }
+    
+    if (choice == 'airport') {
+      // Airport ride - go directly to ride request with airport flag
+      Navigator.of(context).push(slideUpFadeRoute(const RideRequestScreen()));
+      return;
+    }
+    
+    // Schedule option - show date/time picker
     final result = await showModalBottomSheet<(DateTime, bool)>(
       context: context,
       isScrollControlled: true,
@@ -2078,7 +2098,12 @@ class _HomeScreenState extends State<HomeScreen>
       builder: (_) =>
           _ScheduleBottomSheet(isDark: AppColors.of(context).isDark),
     );
-    if (result == null || !mounted) return;
+    
+    // If cancelled, revert to Now
+    if (result == null || !mounted) {
+      setState(() => _rideNow = true);
+      return;
+    }
 
     final (scheduledAt, isAirport) = result;
     final formattedDate = '${scheduledAt.month}/${scheduledAt.day}/${scheduledAt.year}';
@@ -2298,6 +2323,140 @@ class _HomeScreenState extends State<HomeScreen>
 
     await LocalDataService.markNotificationsAsRead();
     await _loadSavedData();
+  }
+}
+
+// ─────────────────────────────────────────────
+// Later Options Sheet - Airport or Schedule
+// ─────────────────────────────────────────────
+class _LaterOptionsSheet extends StatelessWidget {
+  final bool isDark;
+  const _LaterOptionsSheet({required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    return Container(
+      decoration: BoxDecoration(
+        color: c.panel,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Drag handle
+            Container(
+              width: 40,
+              height: 4.5,
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(40),
+              ),
+            ),
+            Text(
+              'Choose ride type',
+              style: TextStyle(
+                color: c.textPrimary,
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 24),
+            
+            // Airport option
+            _optionCard(
+              context: context,
+              icon: Icons.flight_takeoff_rounded,
+              title: 'Airport',
+              subtitle: 'Book a ride to or from the airport',
+              onTap: () => Navigator.pop(context, 'airport'),
+            ),
+            
+            const SizedBox(height: 12),
+            
+            // Schedule option
+            _optionCard(
+              context: context,
+              icon: Icons.schedule_rounded,
+              title: 'Schedule',
+              subtitle: 'Schedule a ride for later',
+              onTap: () => Navigator.pop(context, 'schedule'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _optionCard({
+    required BuildContext context,
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    final c = AppColors.of(context);
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.06),
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFE8C547), Color(0xFFFBE47A)],
+                ),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(icon, color: Colors.black87, size: 24),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: c.textPrimary,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: c.textSecondary,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.arrow_forward_ios_rounded,
+              color: c.textSecondary,
+              size: 16,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

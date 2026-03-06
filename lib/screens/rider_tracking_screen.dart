@@ -555,15 +555,15 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
     // ── Camera control ──
     if (_map != null && !_userMovedMap && _camInitialized) {
       if (_followingDriver && _interpFrameCount % 5 == 0) {
-        // GPS-style: follow driver with tilt + bearing — throttled for performance
+        // GPS navigation mode: follow driver with 3D tilt + bearing — throttled for performance
         _programmaticCam = true;
         _map!.moveCamera(
           CameraUpdate.newCameraPosition(
             CameraPosition(
               target: _animPos,
-              zoom: 17.5,
-              bearing: _animBearing,
-              tilt: 55,
+              zoom: 18.0, // Closer zoom for GPS navigation view
+              bearing: _animBearing, // Follow driver's direction
+              tilt: 60, // Enhanced 3D tilt for GPS-style navigation
             ),
           ),
         );
@@ -684,13 +684,14 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
   void _followDriverCamera() {
     if (!_followingDriver || _map == null) return;
     _programmaticCam = true;
+    // GPS navigation view: higher zoom, 3D tilt, following bearing
     _map!.animateCamera(
       CameraUpdate.newCameraPosition(
         CameraPosition(
           target: _animPos,
-          zoom: 17.5,
-          bearing: _animBearing,
-          tilt: 55,
+          zoom: 18.0, // Closer zoom for better navigation view
+          bearing: _animBearing, // Follow driver's direction
+          tilt: 60, // More tilt for 3D GPS-style view
         ),
       ),
     );

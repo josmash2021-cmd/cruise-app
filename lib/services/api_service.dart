@@ -10,8 +10,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Base URL resolves to `10.0.2.2` on Android emulator (host localhost).
 /// On web, dynamically uses the browser's hostname so it works from any device.
 class ApiService {
+  /// Local backend server URL
+  /// On Android emulator: 10.0.2.2 maps to host machine's localhost
+  /// On physical devices: use your computer's local IP or Cloudflare tunnel
+  static const String _localUrl = 'http://10.0.2.2:8000';
+  
   /// Public tunnel URL — accessible from anywhere without WiFi.
   /// Powered by Cloudflare Tunnel → routes to the backend server.
+  /// UPDATE THIS URL when you start a new Cloudflare tunnel
   static const String _tunnelUrl =
       'https://warner-adware-thickness-kelkoo.trycloudflare.com';
 
@@ -27,7 +33,8 @@ class ApiService {
       'qUDmTNu1Dxxg_xo7kaUfRba4XiU_5H1ZhkUMDuVrD2dLQ2ImT8JXZ5FgUyXpSJ5h';
 
   static String get _baseUrl {
-    // All platforms use the public tunnel URL (works from any network)
+    // Use tunnel URL for physical devices (iPhone/Android)
+    // Switch to _localUrl only when running on Android emulator
     return _tunnelUrl;
   }
 
