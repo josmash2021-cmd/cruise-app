@@ -19,17 +19,19 @@ workflows:
           cd ios && pod install
       - name: Disable code signing in project
         script: |
-          sed -i '' 's/DEVELOPMENT_TEAM = [^;]*;/DEVELOPMENT_TEAM = "";/g' ios/Runner.xcodeproj/project.pbxproj
-          sed -i '' 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g' ios/Runner.xcodeproj/project.pbxproj
-          /usr/libexec/PlistBuddy -c "Set :objects:97C147061CF9000F007C117D:buildSettings:CODE_SIGNING_ALLOWED NO" ios/Runner.xcodeproj/project.pbxproj 2>/dev/null || true
+          cd ios
+          # Disable code signing for all targets
+          sed -i '' 's/CODE_SIGN_IDENTITY = .*;/CODE_SIGN_IDENTITY = "";/g' Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/DEVELOPMENT_TEAM = [^;]*;/DEVELOPMENT_TEAM = "";/g' Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g' Runner.xcodeproj/project.pbxproj
       - name: Flutter build iOS (no codesign)
         script: |
-          flutter build ios --release --no-codesign \
+          flutter build ios --release --no-codesign --no-tree-shake-icons \
             --suppress-analytics \
             2>&1 | tee /tmp/flutter_build.log
           # fallback: try debug if release fails
           if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            flutter build ios --debug --no-codesign
+            flutter build ios --debug --no-codesign --no-tree-shake-icons
           fi
       - name: Empaquetar .app en .ipa
         script: |
@@ -67,7 +69,7 @@ workflows:
           cd ios && pod install
       - name: Flutter build IPA (ad hoc)
         script: |
-          flutter build ipa --release
+          flutter build ipa --release --no-tree-shake-icons
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
@@ -104,7 +106,7 @@ workflows:
           cd ios && pod install
       - name: Flutter build IPA (App Store)
         script: |
-          flutter build ipa --release
+          flutter build ipa --release --no-tree-shake-icons
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log

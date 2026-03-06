@@ -272,8 +272,16 @@ async def check_exists(body: CheckExistsIn, db: AsyncSession = Depends(get_db)):
 
 @app.post("/auth/login", dependencies=[Depends(_verify_api_key)])
 async def login(body: LoginIn, db: AsyncSession = Depends(get_db)):
+    identifier = body.identifier.strip()
+    # Normalize phone: if it looks like digits, ensure E.164 format
+    cleaned = identifier.replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+    if cleaned.lstrip("+").isdigit() and len(cleaned.lstrip("+")) >= 7:
+        if not cleaned.startswith("+"):
+            cleaned = "+1" + cleaned  # Default to US
+        identifier = cleaned
+
     result = await db.execute(
-        select(User).where((User.email == body.identifier) | (User.phone == body.identifier))
+        select(User).where((User.email == body.identifier) | (User.phone == identifier))
     )
     user = result.scalar_one_or_none()
     if not user or not pwd.verify(body.password, user.password_hash):

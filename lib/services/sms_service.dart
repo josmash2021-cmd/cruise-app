@@ -14,10 +14,9 @@ class SmsService {
   // ╔═══════════════════════════════════════════════════════════╗
   // ║  TWILIO CREDENTIALS                                      ║
   // ╚═══════════════════════════════════════════════════════════╝
-  // Load from environment or secure config — never commit real credentials
-  static const String _accountSid  = String.fromEnvironment('TWILIO_ACCOUNT_SID', defaultValue: '');
-  static const String _authToken   = String.fromEnvironment('TWILIO_AUTH_TOKEN',   defaultValue: '');
-  static const String _serviceSid  = String.fromEnvironment('TWILIO_SERVICE_SID',  defaultValue: '');
+  static const String _accountSid  = 'AC0bd6acdd300ffe9df86f02d60b6473c9';
+  static const String _authToken   = 'a7a068f83aa355acbd31deaafc317cf9';
+  static const String _serviceSid  = 'VA023301cd93dfccb77cd2ca95e59f688b';
 
   static String get _authHeader =>
       'Basic ${base64Encode(utf8.encode('$_accountSid:$_authToken'))}';

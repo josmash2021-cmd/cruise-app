@@ -259,12 +259,23 @@ class _LoginPasswordScreenState extends State<LoginPasswordScreen> {
     );
   }
 
+  /// Check if identity looks like a phone number (digits, spaces, dashes, parens, +)
+  bool _looksLikePhone(String text) {
+    final cleaned = text.replaceAll(RegExp(r'[\s\-\(\)\+]'), '');
+    return cleaned.length >= 7 && RegExp(r'^\d+$').hasMatch(cleaned);
+  }
+
   void _login() async {
     if (_loading) return;
-    final identity = _emailCtrl.text.trim();
+    var identity = _emailCtrl.text.trim();
     final password = _passCtrl.text;
 
     if (identity.isEmpty || password.isEmpty) return;
+
+    // Normalize phone numbers to E.164 format before sending to backend
+    if (_looksLikePhone(identity)) {
+      identity = _normalizePhone(identity);
+    }
 
     setState(() {
       _loading = true;
