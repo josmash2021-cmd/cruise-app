@@ -27,6 +27,7 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
   amap.AppleMapController? _appleMapCtrl;
   String _address = 'Move the map to pick a location';
   bool _loading = false;
+  bool _geocodeFailed = false;
   LatLng _center = const LatLng(40.7128, -74.0060);
   Timer? _iosDebounce;
 
@@ -45,27 +46,36 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
   }
 
   Future<void> _onCameraIdle() async {
-    setState(() => _loading = true);
-    // Try up to 3 times with increasing delays for iOS reliability
+    if (!mounted) return;
+    setState(() {
+      _loading = true;
+      _geocodeFailed = false;
+    });
+    final snap = LatLng(_center.latitude, _center.longitude);
     String? addr;
-    for (int attempt = 0; attempt < 3; attempt++) {
+    // Try up to 4 times with increasing delays for iOS reliability
+    for (int attempt = 0; attempt < 4; attempt++) {
       if (attempt > 0) {
-        await Future.delayed(Duration(milliseconds: 400 * attempt));
+        await Future.delayed(Duration(milliseconds: 500 * attempt));
       }
+      if (!mounted) return;
       try {
         addr = await _places.reverseGeocode(
-          lat: _center.latitude,
-          lng: _center.longitude,
+          lat: snap.latitude,
+          lng: snap.longitude,
         );
         if (addr != null && addr.isNotEmpty) break;
       } catch (_) {}
     }
     if (mounted) {
       setState(() {
-        // Only fall back to coordinates if all 3 attempts failed
-        _address = (addr != null && addr.isNotEmpty)
-            ? addr
-            : 'Location at ${_center.latitude.toStringAsFixed(4)}, ${_center.longitude.toStringAsFixed(4)}';
+        if (addr != null && addr.isNotEmpty) {
+          _address = addr;
+          _geocodeFailed = false;
+        } else {
+          _address = 'Pinned location';
+          _geocodeFailed = true;
+        }
         _loading = false;
       });
     }
@@ -101,9 +111,9 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
                   ),
                   onMapCreated: (ctrl) {
                     _appleMapCtrl = ctrl;
-                    // Trigger reverse-geocode once map is ready (no onCameraIdle on load)
+                    // Trigger reverse-geocode once map is ready (longer delay for iOS)
                     Future.delayed(
-                      const Duration(milliseconds: 700),
+                      const Duration(milliseconds: 1200),
                       _onCameraIdle,
                     );
                   },
@@ -230,15 +240,37 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
                                       fontSize: 15,
                                     ),
                                   )
-                                : Text(
-                                    _address,
-                                    style: TextStyle(
-                                      color: c.textPrimary,
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w600,
+                                : GestureDetector(
+                                    onTap: _geocodeFailed
+                                        ? _onCameraIdle
+                                        : null,
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            _address,
+                                            style: TextStyle(
+                                              color: c.textPrimary,
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        if (_geocodeFailed)
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                              left: 8,
+                                            ),
+                                            child: Icon(
+                                              Icons.refresh_rounded,
+                                              color: _gold,
+                                              size: 20,
+                                            ),
+                                          ),
+                                      ],
                                     ),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
                                   ),
                           ),
                         ],
