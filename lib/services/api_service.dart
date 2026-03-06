@@ -17,10 +17,12 @@ class ApiService {
   /// Android emulator loopback — maps to host machine localhost.
   static const String _localUrl = 'http://10.0.2.2:8000';
 
+  /// Local network URL — works for physical devices on same WiFi network
+  static const String _localNetworkUrl = 'http://172.20.11.24:8000';
+
   /// Default Cloudflare Tunnel URL.  Free tunnels change every restart;
   /// update via the in-app Settings → "Server URL" dialog instead of rebuilding.
-  static const String _defaultTunnelUrl =
-      'https://warner-adware-thickness-kelkoo.trycloudflare.com';
+  static const String _defaultTunnelUrl = 'http://172.20.11.24:8000';
 
   static const String _serverUrlPrefKey = 'cruise_server_url';
 
