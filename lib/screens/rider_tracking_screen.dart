@@ -358,7 +358,7 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
 
       // On iOS, pre-rotate the car icon when bearing changes (Apple Maps has no rotation)
       if (Platform.isIOS) {
-        final q = ((nb % 360) / 5).round() * 5;
+        final q = ((nb % 360) / 10).round() % 36;
         if (q != _lastRotQ) {
           _lastRotQ = q;
           CarIconLoader.rotateBytes(nb).then((bytes) {

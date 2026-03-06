@@ -135,8 +135,7 @@ class CarIconLoader {
   /// Used by apple_maps_flutter on iOS to create BitmapDescriptor.
   static Future<Uint8List?> loadUberBytes() async {
     if (_bytesCache.containsKey('white')) return _bytesCache['white'];
-    // Build the Google Maps–style nav car directly (faster than going via loadUber)
-    final bytes = await _renderGmapsNavCarBytes();
+    final bytes = await _renderDetailedBytes(_CarPalette.whitePearl);
     _bytesCache['white'] = bytes;
     return bytes;
   }
@@ -164,10 +163,7 @@ class CarIconLoader {
 
   // ── Pre-rotated icon for Apple Maps (no native rotation support) ──
 
-  /// Cache of rotated PNGs keyed by quantised angle.
   static final Map<int, Uint8List> _rotatedCache = {};
-
-  /// The base (0°) icon bytes used for rotation.
   static Uint8List? _baseForRotation;
 
   /// Returns car icon PNG bytes rotated by [degrees] (clockwise, 0 = north).
@@ -176,7 +172,7 @@ class CarIconLoader {
     final q = ((degrees % 360) / 5).round() * 5;
     if (_rotatedCache.containsKey(q)) return _rotatedCache[q]!;
 
-    _baseForRotation ??= await _renderGmapsNavCarBytes();
+    _baseForRotation ??= await _renderDetailedBytes(_CarPalette.whitePearl);
     final base = _baseForRotation!;
 
     if (q == 0) {
@@ -561,17 +557,8 @@ class CarIconLoader {
   //  LEGACY RENDERER — used only by card thumbnails (not the map marker)
   // =================================================================
 
-  static Future<BitmapDescriptor> _render(_CarPalette p) async {
-    // Delegate to the new Google-Maps-style nav car for the white sedan.
-    // Black palette (Fusion) keeps legacy renderer for card thumbnails.
-    if (p == _CarPalette.whitePearl) {
-      final bytes = await _renderGmapsNavCarBytes();
-      _bytesCache['white'] = bytes;
-      // ignore: deprecated_member_use
-      return BitmapDescriptor.fromBytes(bytes);
-    }
-
-    // Black sedan (Fusion) — legacy detailed renderer
+  /// Renders the detailed 3D car as raw PNG bytes.
+  static Future<Uint8List> _renderDetailedBytes(_CarPalette p) async {
     const double lw = 20, lh = 36;
     const double scale = 3.0;
     final int pw = (lw * scale).toInt();
@@ -607,10 +594,13 @@ class CarIconLoader {
     final pic = rec.endRecording();
     final img = await pic.toImage(pw, ph);
     final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
-    if (bytes == null) return BitmapDescriptor.defaultMarker;
+    return bytes!.buffer.asUint8List();
+  }
 
-    final pixelBytes = bytes.buffer.asUint8List();
-    _bytesCache['black'] = pixelBytes;
+  static Future<BitmapDescriptor> _render(_CarPalette p) async {
+    final pixelBytes = await _renderDetailedBytes(p);
+    final cacheKey = p == _CarPalette.whitePearl ? 'white' : 'black';
+    _bytesCache[cacheKey] = pixelBytes;
     // ignore: deprecated_member_use
     return BitmapDescriptor.fromBytes(pixelBytes);
   }

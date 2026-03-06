@@ -4466,7 +4466,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
     // On iOS, pre-rotate the icon (Apple Maps annotations have no rotation)
     if (Platform.isIOS) {
-      final q = ((_driverBearing % 360) / 5).round() * 5;
+      final q = ((_driverBearing % 360) / 10).round() % 36;
       if (q != _lastDriverRotQ) {
         _lastDriverRotQ = q;
         CarIconLoader.rotateBytes(_driverBearing).then((bytes) {
