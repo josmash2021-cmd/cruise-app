@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_stripe/flutter_stripe.dart';
 import 'firebase_options.dart';
@@ -12,32 +13,46 @@ import 'services/api_service.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // ── Load persisted server URL (must run before any ApiService call) ──
-  await ApiService.init();
+  // Catch any Flutter framework errors and log them instead of crashing
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+    debugPrint('[FlutterError] ${details.exception}\n${details.stack}');
+  };
 
-  // ── Stripe (not supported on web) ──
-  if (!kIsWeb) {
-    try {
-      Stripe.publishableKey = ApiKeys.stripePublishableKey;
-      Stripe.merchantIdentifier = ApiKeys.stripeMerchantId;
-      await Stripe.instance.applySettings();
-    } catch (e) {
-      debugPrint('Stripe init failed: $e');
+  // Catch all unhandled async Dart errors
+  await runZonedGuarded(() async {
+    // ── Load persisted server URL (must run before any ApiService call) ──
+    await ApiService.init();
+
+    // ── Stripe — skip if key is still a placeholder ──
+    if (!kIsWeb && !ApiKeys.stripePublishableKey.contains('REPLACE')) {
+      try {
+        Stripe.publishableKey = ApiKeys.stripePublishableKey;
+        Stripe.merchantIdentifier = ApiKeys.stripeMerchantId;
+        await Stripe.instance.applySettings();
+      } catch (e) {
+        debugPrint('[Stripe] init failed: $e');
+      }
+    } else {
+      debugPrint('[Stripe] skipped — placeholder key detected');
     }
-  }
 
-  try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
+    try {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+    } catch (e) {
+      debugPrint('[Firebase] init error: $e');
+    }
+
+    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+    SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(statusBarColor: Colors.transparent),
     );
-  } catch (_) {
-    // Already initialized on hot restart
-  }
-  SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-  SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(statusBarColor: Colors.transparent),
-  );
-  runApp(const UberCloneApp());
+    runApp(const UberCloneApp());
+  }, (error, stack) {
+    debugPrint('[ZoneError] $error\n$stack');
+  });
 }
 
 /// Smooth 60 fps scroll everywhere — iOS-style bouncing on all platforms.
