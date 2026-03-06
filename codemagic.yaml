@@ -21,8 +21,42 @@ workflows:
       - build/ios/iphoneos/*.app
       - /tmp/xcodebuild_logs/*.log
 
+  ios-adhoc:
+    name: iOS Ad Hoc (instalar en iPhone)
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: Codemagic
+    environment:
+      ios_signing:
+        distribution_type: ad_hoc
+        bundle_identifier: com.cruiseapp.cruise
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Get Flutter packages
+        script: |
+          flutter packages pub get
+      - name: Install CocoaPods dependencies
+        script: |
+          cd ios && pod install
+      - name: Flutter build IPA (ad hoc)
+        script: |
+          flutter build ipa --release
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      email:
+        recipients:
+          - josmash2021@gmail.com
+        notify:
+          success: true
+          failure: true
+
   ios-release:
-    name: iOS Release Build (signed)
+    name: iOS Release Build (App Store)
     max_build_duration: 120
     instance_type: mac_mini_m2
     integrations:
@@ -34,8 +68,6 @@ workflows:
       flutter: stable
       xcode: latest
       cocoapods: default
-      vars:
-        APP_STORE_APPLE_ID: 0000000000
     scripts:
       - name: Get Flutter packages
         script: |
@@ -43,9 +75,9 @@ workflows:
       - name: Install CocoaPods dependencies
         script: |
           cd ios && pod install
-      - name: Flutter build IPA
+      - name: Flutter build IPA (App Store)
         script: |
-          flutter build ipa --release --export-options-plist=/Users/builder/export_options.plist
+          flutter build ipa --release
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
