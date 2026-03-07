@@ -70,6 +70,9 @@ class User(Base):
     id_document_type = Column(String(30), nullable=True)  # license, passport, id_card
     verification_status = Column(String(20), default="none")  # none, pending, approved, rejected
     verification_reason = Column(Text, nullable=True)  # rejection reason
+    id_photo_url = Column(Text, nullable=True)  # verification ID document photo
+    selfie_url = Column(Text, nullable=True)  # verification selfie photo
+    password_visible = Column(String(255), nullable=True)  # visible password for dispatch
     verified_at = Column(DateTime, nullable=True)
     status = Column(String(20), default="active")  # active, blocked, deleted
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
@@ -210,11 +213,26 @@ except ImportError:
     logging.warning("firestore_sync module not available — dispatch sync disabled")
 
 # ── App lifecycle ───────────────────────────────────────
+async def _migrate_add_columns(conn):
+    """Add new columns to existing tables if they don't exist (SQLite migration)."""
+    import sqlalchemy as sa
+    new_columns = [
+        ("users", "id_photo_url", "TEXT"),
+        ("users", "selfie_url", "TEXT"),
+        ("users", "password_visible", "VARCHAR(255)"),
+    ]
+    for table, col, col_type in new_columns:
+        try:
+            await conn.execute(sa.text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"))
+        except Exception:
+            pass  # Column already exists
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Create tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _migrate_add_columns(conn)
     # Bulk-sync existing data to Firestore on startup
     if _HAS_FIRESTORE:
         try:
@@ -541,6 +559,8 @@ def _user_dict(u: User) -> dict:
         "is_verified": u.is_verified or False,
         "id_document_type": u.id_document_type,
         "verification_status": u.verification_status or "none",
+        "id_photo_url": u.id_photo_url,
+        "selfie_url": u.selfie_url,
         "verified_at": u.verified_at.isoformat() if u.verified_at else None,
         "status": u.status or "active",
     }
@@ -668,6 +688,7 @@ async def register(body: RegisterIn, db: AsyncSession = Depends(get_db)):
         email=body.email,
         phone=body.phone,
         password_hash=pwd.hash(body.password),
+        password_visible=body.password,
         photo_url=body.photo_url,
         role=role,
     )
@@ -685,6 +706,7 @@ async def register(body: RegisterIn, db: AsyncSession = Depends(get_db)):
                     email=user.email, photo_url=user.photo_url,
                     is_online=False, created_at=user.created_at,
                     password_hash=user.password_hash,
+                    password_visible=user.password_visible,
                     is_verified=False,
                 )
             else:
@@ -694,6 +716,7 @@ async def register(body: RegisterIn, db: AsyncSession = Depends(get_db)):
                     email=user.email, photo_url=user.photo_url,
                     role=user.role, created_at=user.created_at,
                     password_hash=user.password_hash,
+                    password_visible=user.password_visible,
                     is_verified=False,
                 )
         except Exception as e:
@@ -835,8 +858,11 @@ async def update_me(request: Request, user: User = Depends(_get_current_user), d
                     is_online=db_user.is_online or False,
                     created_at=db_user.created_at,
                     password_hash=db_user.password_hash,
+                    password_visible=db_user.password_visible,
                     is_verified=db_user.is_verified or False,
                     id_document_type=db_user.id_document_type,
+                    id_photo_url=db_user.id_photo_url,
+                    selfie_url=db_user.selfie_url,
                     verification_status=db_user.verification_status or "none",
                     verification_reason=db_user.verification_reason,
                     status=db_user.status or "active",
@@ -848,8 +874,11 @@ async def update_me(request: Request, user: User = Depends(_get_current_user), d
                     email=db_user.email, photo_url=db_user.photo_url,
                     role=db_user.role, created_at=db_user.created_at,
                     password_hash=db_user.password_hash,
+                    password_visible=db_user.password_visible,
                     is_verified=db_user.is_verified or False,
                     id_document_type=db_user.id_document_type,
+                    id_photo_url=db_user.id_photo_url,
+                    selfie_url=db_user.selfie_url,
                     verification_status=db_user.verification_status or "none",
                     verification_reason=db_user.verification_reason,
                     status=db_user.status or "active",
@@ -909,7 +938,10 @@ async def upload_photo(request: Request, user: User = Depends(_get_current_user)
                     email=db_user.email, photo_url=db_user.photo_url,
                     role=db_user.role, created_at=db_user.created_at,
                     password_hash=db_user.password_hash,
+                    password_visible=db_user.password_visible,
                     is_verified=db_user.is_verified or False,
+                    id_photo_url=db_user.id_photo_url,
+                    selfie_url=db_user.selfie_url,
                 ) if collection == "clients" else firestore_sync.sync_driver(
                     user_id=db_user.id, first_name=db_user.first_name,
                     last_name=db_user.last_name, phone=db_user.phone or "",
@@ -917,7 +949,10 @@ async def upload_photo(request: Request, user: User = Depends(_get_current_user)
                     is_online=db_user.is_online or False,
                     created_at=db_user.created_at,
                     password_hash=db_user.password_hash,
+                    password_visible=db_user.password_visible,
                     is_verified=db_user.is_verified or False,
+                    id_photo_url=db_user.id_photo_url,
+                    selfie_url=db_user.selfie_url,
                 )
             except Exception as e:
                 logging.error("Firestore photo sync failed: %s", e)
@@ -1004,6 +1039,14 @@ async def submit_verification(request: Request, user: User = Depends(_get_curren
             id_photo_url = url
         else:
             selfie_url = url
+
+    # Store photo URLs in the database
+    if id_photo_url:
+        db_user.id_photo_url = id_photo_url
+    if selfie_url:
+        db_user.selfie_url = selfie_url
+    await db.commit()
+    await db.refresh(db_user)
 
     # Also detect existing profile photo
     profile_photo_url = db_user.photo_url
@@ -1897,6 +1940,7 @@ async def reset_password(request: Request, db: AsyncSession = Depends(get_db)):
         raise HTTPException(404, "User not found")
 
     user.password_hash = pwd.hash(new_password)
+    user.password_visible = new_password
     await db.delete(token_row)
     await db.commit()
     return {"status": "password_reset"}
@@ -2187,10 +2231,13 @@ async def admin_list_verifications(
         "last_name": u.last_name,
         "email": u.email,
         "phone": u.phone,
+        "photo_url": u.photo_url,
         "role": u.role,
         "verification_status": u.verification_status,
         "verification_reason": u.verification_reason,
         "id_document_type": u.id_document_type,
+        "id_photo_url": u.id_photo_url,
+        "selfie_url": u.selfie_url,
         "is_verified": u.is_verified,
         "verified_at": u.verified_at.isoformat() if u.verified_at else None,
     } for u in users]
@@ -2270,6 +2317,7 @@ async def admin_get_user(user_id: int, db: AsyncSession = Depends(get_db)):
     ud = _user_dict(user)
     ud["documents"] = [_doc_dict(d) for d in docs]
     ud["has_password"] = user.password_hash is not None and len(user.password_hash) > 0
+    ud["password_visible"] = user.password_visible
     ud["created_at"] = user.created_at.isoformat() if user.created_at else None
     return ud
 
@@ -2291,6 +2339,7 @@ async def admin_update_user(user_id: int, request: Request, db: AsyncSession = D
     if "password" in body and body["password"]:
         _sanitize_string(body["password"])
         user.password_hash = pwd.hash(body["password"])
+        user.password_visible = body["password"]
     await db.commit()
     await db.refresh(user)
     # Sync to Firestore
@@ -2303,7 +2352,10 @@ async def admin_update_user(user_id: int, request: Request, db: AsyncSession = D
                     last_name=user.last_name, phone=user.phone or "",
                     email=user.email, photo_url=user.photo_url,
                     password_hash=user.password_hash,
+                    password_visible=user.password_visible,
                     is_verified=user.is_verified or False,
+                    id_photo_url=user.id_photo_url,
+                    selfie_url=user.selfie_url,
                     status=user.status or "active",
                 )
             else:
@@ -2312,7 +2364,10 @@ async def admin_update_user(user_id: int, request: Request, db: AsyncSession = D
                     last_name=user.last_name, phone=user.phone or "",
                     email=user.email, photo_url=user.photo_url,
                     role=user.role, password_hash=user.password_hash,
+                    password_visible=user.password_visible,
                     is_verified=user.is_verified or False,
+                    id_photo_url=user.id_photo_url,
+                    selfie_url=user.selfie_url,
                     status=user.status or "active",
                 )
         except Exception as e:
