@@ -284,13 +284,16 @@ class _AirportTerminalSheetState extends State<AirportTerminalSheet>
             _AirportSuggestion(description: desc, placeId: placeId, code: code),
           );
         }
-        if (mounted)
+        if (mounted) {
           setState(() {
             _suggestions = suggestions;
             _loadingSuggestions = false;
           });
+        }
       } else {
-        if (mounted) setState(() => _loadingSuggestions = false);
+        if (mounted) {
+          setState(() => _loadingSuggestions = false);
+        }
       }
     } catch (_) {
       if (mounted) setState(() => _loadingSuggestions = false);
@@ -503,7 +506,7 @@ class _AirportTerminalSheetState extends State<AirportTerminalSheet>
             children: [
               // Local matches
               if (filtered.isNotEmpty)
-                ...filtered.map((a) => _buildLocalAirportTile(a)).toList(),
+                ...filtered.map((a) => _buildLocalAirportTile(a)),
 
               // Separator when showing Google results
               if (_suggestions.isNotEmpty && filtered.isNotEmpty)
@@ -530,71 +533,69 @@ class _AirportTerminalSheetState extends State<AirportTerminalSheet>
 
               // Google Places suggestions
               if (_suggestions.isNotEmpty)
-                ..._suggestions
-                    .map(
-                      (s) => GestureDetector(
-                        onTap: () => _selectSuggestion(s),
-                        child: Container(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: _surface,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: _border),
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 48,
-                                height: 48,
-                                decoration: BoxDecoration(
-                                  color: const Color(
-                                    0xFF4285F4,
-                                  ).withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                                child: Center(
-                                  child: s.code.isNotEmpty
-                                      ? Text(
-                                          s.code,
-                                          style: const TextStyle(
-                                            color: Color(0xFF4285F4),
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w900,
-                                          ),
-                                        )
-                                      : const Icon(
-                                          Icons.flight_rounded,
-                                          color: Color(0xFF4285F4),
-                                          size: 20,
-                                        ),
-                                ),
-                              ),
-                              const SizedBox(width: 14),
-                              Expanded(
-                                child: Text(
-                                  s.description,
-                                  style: TextStyle(
-                                    color: _textPrimary,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Icon(
-                                Icons.chevron_right_rounded,
-                                color: _textSecondary,
-                                size: 20,
-                              ),
-                            ],
-                          ),
-                        ),
+                ..._suggestions.map(
+                  (s) => GestureDetector(
+                    onTap: () => _selectSuggestion(s),
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: _surface,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: _border),
                       ),
-                    )
-                    .toList(),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: const Color(
+                                0xFF4285F4,
+                              ).withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Center(
+                              child: s.code.isNotEmpty
+                                  ? Text(
+                                      s.code,
+                                      style: const TextStyle(
+                                        color: Color(0xFF4285F4),
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    )
+                                  : const Icon(
+                                      Icons.flight_rounded,
+                                      color: Color(0xFF4285F4),
+                                      size: 20,
+                                    ),
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Text(
+                              s.description,
+                              style: TextStyle(
+                                color: _textPrimary,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Icon(
+                            Icons.chevron_right_rounded,
+                            color: _textSecondary,
+                            size: 20,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
 
               // Loading indicator
               if (_loadingSuggestions)

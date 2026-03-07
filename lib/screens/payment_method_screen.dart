@@ -96,7 +96,7 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
     }
 
     if (id == 'google_pay') {
-      // Simulate Google Pay setup
+      // TODO: Complete Google Pay setup via Stripe
       _showSetupSnack('Google Pay linked successfully');
       await Future.delayed(const Duration(milliseconds: 600));
       if (!mounted) return;
@@ -145,8 +145,10 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         backgroundColor: const Color(0xFFE8C547),
-        content: Text(message,
-            style: const TextStyle(fontWeight: FontWeight.w600)),
+        content: Text(
+          message,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
@@ -164,16 +166,10 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
         mode: LaunchMode.externalApplication,
       );
       if (!launched) {
-        await launchUrl(
-          paypalWebUri,
-          mode: LaunchMode.externalApplication,
-        );
+        await launchUrl(paypalWebUri, mode: LaunchMode.externalApplication);
       }
     } catch (_) {
-      await launchUrl(
-        paypalWebUri,
-        mode: LaunchMode.externalApplication,
-      );
+      await launchUrl(paypalWebUri, mode: LaunchMode.externalApplication);
     }
 
     // After returning from PayPal, mark as set up
@@ -208,8 +204,11 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
                     color: c.surface,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(Icons.arrow_back_ios_new_rounded,
-                      color: c.textPrimary, size: 18),
+                  child: Icon(
+                    Icons.arrow_back_ios_new_rounded,
+                    color: c.textPrimary,
+                    size: 18,
+                  ),
                 ),
               ),
               const SizedBox(height: 28),
@@ -243,7 +242,9 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 200),
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 18),
+                          horizontal: 16,
+                          vertical: 18,
+                        ),
                         decoration: BoxDecoration(
                           color: selected
                               ? _gold.withValues(alpha: 0.08)
@@ -252,7 +253,8 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
                           border: selected
                               ? Border.all(
                                   color: _gold.withValues(alpha: 0.4),
-                                  width: 1.5)
+                                  width: 1.5,
+                                )
                               : null,
                         ),
                         child: Row(
@@ -264,8 +266,11 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
                                 color: opt.iconColor.withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(10),
                               ),
-                              child: Icon(opt.icon,
-                                  color: opt.iconColor, size: 20),
+                              child: Icon(
+                                opt.icon,
+                                color: opt.iconColor,
+                                size: 20,
+                              ),
                             ),
                             const SizedBox(width: 14),
                             Expanded(
@@ -278,8 +283,11 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
                                 ),
                               ),
                             ),
-                            Icon(Icons.chevron_right_rounded,
-                                color: c.chevron, size: 22),
+                            Icon(
+                              Icons.chevron_right_rounded,
+                              color: c.chevron,
+                              size: 22,
+                            ),
                           ],
                         ),
                       ),

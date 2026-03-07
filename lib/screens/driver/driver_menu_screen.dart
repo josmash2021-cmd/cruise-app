@@ -11,7 +11,6 @@ import 'driver_profile_screen.dart';
 import 'cruise_level_screen.dart';
 import 'payout_methods_screen.dart';
 import 'driver_scheduled_trips_screen.dart';
-import '../home_screen.dart';
 
 // ═══════════════════════════════════════════════════════════════
 //  CRUISE DRIVER — FULL-SCREEN MENU (Uber Driver style)
@@ -196,9 +195,9 @@ class _DriverMenuScreenState extends State<DriverMenuScreen>
                     'Scheduled Trips',
                     'Upcoming assigned rides',
                     () {
-                      Navigator.of(
-                        context,
-                      ).push(slideFromRightRoute(const DriverScheduledTripsScreen()));
+                      Navigator.of(context).push(
+                        slideFromRightRoute(const DriverScheduledTripsScreen()),
+                      );
                     },
                   ),
                   _item(
@@ -290,23 +289,6 @@ class _DriverMenuScreenState extends State<DriverMenuScreen>
                   const SizedBox(height: 24),
                   _divider(),
                   const SizedBox(height: 8),
-
-                  // ── Switch account ──
-                  _item(
-                    context,
-                    Icons.swap_horiz_rounded,
-                    'Switch to Rider',
-                    'Passenger mode',
-                    () async {
-                      await UserSession.saveMode('rider');
-                      if (!context.mounted) return;
-                      Navigator.of(context).pushAndRemoveUntil(
-                        slideFromRightRoute(const HomeScreen()),
-                        (_) => false,
-                      );
-                    },
-                    accent: true,
-                  ),
 
                   // ── Sign out ──
                   _item(

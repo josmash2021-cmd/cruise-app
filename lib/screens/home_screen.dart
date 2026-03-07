@@ -370,6 +370,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         });
       }
       if (!await _ensureVerified()) return;
+      if (!mounted) return;
       Navigator.of(
         context,
       ).push(slideUpFadeRoute(const RideRequestScreen(applyPromo: true)));
@@ -1086,6 +1087,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           return;
         }
         if (!await _ensureVerified()) return;
+        if (!mounted) return;
         await Navigator.of(
           context,
         ).push(scaleExpandRoute(const RideRequestScreen()));
@@ -1311,6 +1313,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               return;
             }
             if (!await _ensureVerified()) return;
+            if (!mounted) return;
             Navigator.of(
               context,
             ).push(slideUpFadeRoute(const RideRequestScreen(fastRide: true)));
@@ -1665,6 +1668,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           child: GestureDetector(
             onTap: () async {
               if (!await _ensureVerified()) return;
+              if (!mounted) return;
               Navigator.of(
                 context,
               ).push(slideFromRightRoute(const RideRequestScreen()));
@@ -2087,6 +2091,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       return;
     }
     if (!await _ensureVerified()) return;
+    if (!mounted) return;
     LocalDataService.incrementDestinationUsage(address);
     Navigator.of(context)
         .push(
@@ -2326,16 +2331,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               )
             else
               GoogleMap(
+                style: MapStyles.dark,
                 initialCameraPosition: CameraPosition(
                   target: _currentLatLng!,
                   zoom: 15,
                 ),
                 onMapCreated: (controller) {
                   _miniMapController = controller;
-                  try {
-                    // ignore: deprecated_member_use
-                    controller.setMapStyle(MapStyles.dark);
-                  } catch (_) {}
                 },
                 markers: {
                   Marker(
@@ -2531,6 +2533,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           return;
         }
         if (!await _ensureVerified()) return;
+        if (!mounted) return;
         await Navigator.of(
           context,
         ).push(slideUpFadeRoute(const RideRequestScreen()));
@@ -2635,6 +2638,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
 
     if (!await _ensureVerified()) return;
+    if (!mounted) return;
 
     Navigator.of(context).push(
       slideUpFadeRoute(
@@ -2649,6 +2653,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       return;
     }
     if (!await _ensureVerified()) return;
+    if (!mounted) return;
     LocalDataService.incrementDestinationUsage(query);
     Navigator.of(context).push(
       slideFromRightRoute(RideRequestScreen(initialDropoffAddress: query)),
@@ -2675,6 +2680,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           price: ride.price,
           pickupLabel: ride.pickupLabel,
           dropoffLabel: ride.dropoffLabel,
+          tripId: ride.tripId,
+          firestoreTripId: ride.firestoreTripId,
           onTripComplete: () {
             LocalDataService.clearActiveRide();
             Navigator.of(context).pop();

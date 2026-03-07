@@ -93,8 +93,9 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
   }
 
   void _confirm() {
-    if (_address.isEmpty || _address == 'Move the map to pick a location')
+    if (_address.isEmpty || _address == 'Move the map to pick a location') {
       return;
+    }
     Navigator.of(context).pop({
       'address': _address,
       'lat': _center.latitude,

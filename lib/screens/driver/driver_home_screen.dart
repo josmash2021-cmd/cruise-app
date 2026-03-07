@@ -37,9 +37,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
   bool _mapReady = false;
 
   // ── Stats ──
-  final double _todayEarnings = 0.0;
-  final int _todayTrips = 0;
-  final double _todayHours = 0.0;
+  double _todayEarnings = 0.0;
+  int _todayTrips = 0;
+  double _todayHours = 0.0;
   String _driverName = 'Driver';
   String? _photoUrl;
 
@@ -59,7 +59,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
   bool _dragging = false;
 
   // ── Inbox unread count ──
-  final int _unreadCount = 2;
+  int _unreadCount = 0;
 
   @override
   void initState() {
@@ -161,6 +161,28 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
               ? '$firstName ${lastName[0].toUpperCase()}.'
               : firstName;
           _photoUrl = me['photo_url'];
+        });
+      }
+    } catch (_) {}
+
+    // Fetch today's stats
+    try {
+      final data = await ApiService.getDriverEarnings(period: 'today');
+      if (mounted) {
+        setState(() {
+          _todayEarnings = (data['total'] as num?)?.toDouble() ?? 0.0;
+          _todayTrips = (data['trips_count'] as num?)?.toInt() ?? 0;
+          _todayHours = (data['online_hours'] as num?)?.toDouble() ?? 0.0;
+        });
+      }
+    } catch (_) {}
+
+    // Fetch unread notification count
+    try {
+      final notifs = await ApiService.getNotifications();
+      if (mounted) {
+        setState(() {
+          _unreadCount = notifs.where((n) => n['is_read'] != true).length;
         });
       }
     } catch (_) {}
@@ -268,16 +290,13 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
 
     return RepaintBoundary(
       child: GoogleMap(
+        style: MapStyles.dark,
         initialCameraPosition: CameraPosition(
           target: _currentLatLng!,
           zoom: 16,
         ),
         onMapCreated: (ctrl) {
           _mapController = ctrl;
-          try {
-            // ignore: deprecated_member_use
-            ctrl.setMapStyle(MapStyles.dark);
-          } catch (_) {}
           setState(() => _mapReady = true);
         },
         myLocationEnabled: true,

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import '../services/api_service.dart';
 import '../services/directions_service.dart';
 import '../services/places_service.dart';
 import '../config/api_keys.dart';
@@ -107,6 +108,10 @@ class RiderTripState {
   final DateTime? scheduledAt;
   final bool isAirportTrip;
 
+  // Backend trip IDs
+  final int? tripId;
+  final String? firestoreTripId;
+
   const RiderTripState({
     this.phase = RiderPhase.idle,
     this.pickup,
@@ -122,6 +127,8 @@ class RiderTripState {
     this.driverBearing = 0,
     this.scheduledAt,
     this.isAirportTrip = false,
+    this.tripId,
+    this.firestoreTripId,
   });
 
   RiderTripState copyWith({
@@ -139,6 +146,8 @@ class RiderTripState {
     double? driverBearing,
     DateTime? scheduledAt,
     bool? isAirportTrip,
+    int? tripId,
+    String? firestoreTripId,
   }) {
     return RiderTripState(
       phase: phase ?? this.phase,
@@ -155,6 +164,8 @@ class RiderTripState {
       driverBearing: driverBearing ?? this.driverBearing,
       scheduledAt: scheduledAt ?? this.scheduledAt,
       isAirportTrip: isAirportTrip ?? this.isAirportTrip,
+      tripId: tripId ?? this.tripId,
+      firestoreTripId: firestoreTripId ?? this.firestoreTripId,
     );
   }
 }
@@ -169,8 +180,7 @@ class RiderTripController extends ChangeNotifier {
   final DirectionsService _directions = DirectionsService(ApiKeys.webServices);
 
   Timer? _searchTimer;
-  Timer? _driverSimTimer;
-  int _simStep = 0;
+  Timer? _pollTimer;
 
   // ─── Location selection ──────────────────────────────────────
 
@@ -243,7 +253,8 @@ class RiderTripController extends ChangeNotifier {
     double baseFare = 2.50 + (miles * 1.50) + (mins * 0.25);
 
     // Airport surcharge: +$8 flat + 15% uplift
-    final airportTrip = _isAirport(_state.pickupLabel) || _isAirport(_state.dropoffLabel);
+    final airportTrip =
+        _isAirport(_state.pickupLabel) || _isAirport(_state.dropoffLabel);
     if (airportTrip) {
       baseFare = (baseFare + 8.0) * 1.15;
     }
@@ -313,142 +324,106 @@ class RiderTripController extends ChangeNotifier {
 
   // ─── Request ride ───────────────────────────────────────────
 
-  void requestRide() {
+  Future<void> requestRide() async {
     _state = _state.copyWith(phase: RiderPhase.requesting);
     notifyListeners();
 
-    // Simulate searching → match in 3–6 seconds
+    // Transition to searching UI
     _searchTimer?.cancel();
     _searchTimer = Timer(const Duration(milliseconds: 800), () {
       _state = _state.copyWith(phase: RiderPhase.searchingDriver);
       notifyListeners();
     });
 
-    Timer(const Duration(seconds: 15), () {
-      _onDriverMatched();
+    // Call backend dispatch
+    try {
+      final userId = await ApiService.getCurrentUserId();
+      if (userId == null) {
+        _state = _state.copyWith(phase: RiderPhase.cancelled);
+        notifyListeners();
+        return;
+      }
+
+      final result = await ApiService.dispatchRideRequest(
+        riderId: userId,
+        pickupAddress: _state.pickupLabel,
+        dropoffAddress: _state.dropoffLabel,
+        pickupLat: _state.pickup!.lat,
+        pickupLng: _state.pickup!.lng,
+        dropoffLat: _state.dropoff!.lat,
+        dropoffLng: _state.dropoff!.lng,
+        fare: _state.selectedOption?.priceEstimate,
+        vehicleType: _state.selectedOption?.name,
+      );
+
+      final tripId = result['trip_id'] as int?;
+      if (tripId == null) {
+        _state = _state.copyWith(phase: RiderPhase.cancelled);
+        notifyListeners();
+        return;
+      }
+
+      _state = _state.copyWith(tripId: tripId);
+      notifyListeners();
+
+      // Poll dispatch status until a driver accepts
+      _startDispatchPolling(tripId);
+    } catch (e) {
+      debugPrint('❌ dispatchRideRequest failed: $e');
+      _state = _state.copyWith(phase: RiderPhase.cancelled);
+      notifyListeners();
+    }
+  }
+
+  void _startDispatchPolling(int tripId) {
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
+      try {
+        final status = await ApiService.getDispatchStatus(tripId);
+        final tripStatus = status['status']?.toString() ?? '';
+
+        if (tripStatus == 'accepted' || tripStatus == 'driver_en_route') {
+          timer.cancel();
+          _onDriverMatched(status, tripId);
+        } else if (tripStatus == 'cancelled' ||
+            tripStatus == 'no_drivers' ||
+            tripStatus == 'expired') {
+          timer.cancel();
+          _state = _state.copyWith(phase: RiderPhase.cancelled);
+          notifyListeners();
+        }
+        // Otherwise keep polling (status is 'searching' or 'pending')
+      } catch (e) {
+        debugPrint('⚠️ dispatch poll error: $e');
+      }
     });
   }
 
-  void _onDriverMatched() {
-    // Pick vehicle based on selected ride option
-    String make = 'Toyota';
-    String model = 'Camry';
-    String color = 'Gray';
-    String plate = 'ABC-1234';
-    String year = '2022';
-    String name = 'Yuniel';
-
-    final optId = _state.selectedOption?.id ?? 'fusion';
-    switch (optId) {
-      case 'fusion':
-        // Fusion → Black Ford Fusion
-        make = 'Ford';
-        model = 'Fusion';
-        color = 'Black';
-        plate = 'KTR-7293';
-        year = '2024';
-        name = 'Carlos M.';
-        break;
-      case 'camry':
-        // Camry → White Toyota Camry
-        make = 'Toyota';
-        model = 'Camry';
-        color = 'White';
-        plate = 'MFL-4821';
-        year = '2023';
-        name = 'Yuniel';
-        break;
-      case 'suburban':
-        // VIP Suburban → Black Chevrolet Suburban
-        make = 'Chevrolet';
-        model = 'Suburban';
-        color = 'Black';
-        plate = 'LUX-0088';
-        year = '2025';
-        name = 'David L.';
-        break;
-    }
-
+  void _onDriverMatched(Map<String, dynamic> data, int tripId) {
     final driver = MatchedDriver(
-      id: 'drv-001',
-      name: name,
-      rating: 4.9,
-      totalTrips: 1847,
-      vehicleMake: make,
-      vehicleModel: model,
-      vehicleColor: color,
-      vehiclePlate: plate,
-      vehicleYear: year,
+      id: (data['driver_id'] ?? '').toString(),
+      name: data['driver_name']?.toString() ?? 'Driver',
+      rating: (data['driver_rating'] as num?)?.toDouble() ?? 4.9,
+      totalTrips: (data['driver_trips'] as num?)?.toInt() ?? 0,
+      vehicleMake: data['vehicle_make']?.toString() ?? '',
+      vehicleModel: data['vehicle_model']?.toString() ?? '',
+      vehicleColor: data['vehicle_color']?.toString() ?? '',
+      vehiclePlate: data['vehicle_plate']?.toString() ?? '',
+      vehicleYear: data['vehicle_year']?.toString() ?? '',
     );
 
     _state = _state.copyWith(
       phase: RiderPhase.driverAssigned,
       driver: driver,
+      tripId: tripId,
       etaMinutes: _state.selectedOption?.etaMinutes ?? 5,
     );
     notifyListeners();
 
-    // After 1.5s transition to arriving
+    // After a brief transition, move to arriving phase
     Timer(const Duration(milliseconds: 1500), () {
       _state = _state.copyWith(phase: RiderPhase.driverArriving);
       notifyListeners();
-      _startDriverSimulation();
-    });
-  }
-
-  // ─── Driver simulation (demo) ──────────────────────────────
-
-  void _startDriverSimulation() {
-    if (_state.route == null || _state.route!.points.isEmpty) return;
-
-    final pts = _state.route!.points;
-    // Driver starts 30% of the way if going to pickup, simulates from there
-    _simStep = 0;
-    final totalSteps = (pts.length * 0.4).round().clamp(1, pts.length - 1);
-
-    _driverSimTimer?.cancel();
-    _driverSimTimer = Timer.periodic(const Duration(milliseconds: 120), (
-      timer,
-    ) {
-      if (_simStep >= totalSteps) {
-        timer.cancel();
-        // Arrived at pickup
-        _state = _state.copyWith(
-          phase: RiderPhase.onTrip,
-          driverLocation: _state.pickup != null
-              ? LatLng(_state.pickup!.lat, _state.pickup!.lng)
-              : pts.last,
-        );
-        notifyListeners();
-
-        // Simulate trip for 8 seconds then complete
-        Timer(const Duration(seconds: 8), () {
-          _state = _state.copyWith(phase: RiderPhase.completed);
-          notifyListeners();
-        });
-        return;
-      }
-
-      final idx = (_simStep * pts.length ~/ totalSteps).clamp(
-        0,
-        pts.length - 1,
-      );
-      final pos = pts[idx];
-      double bearing = 0;
-      if (idx + 1 < pts.length) {
-        bearing = _calcBearing(pos, pts[idx + 1]);
-      }
-
-      _state = _state.copyWith(
-        driverLocation: pos,
-        driverBearing: bearing,
-        etaMinutes: ((totalSteps - _simStep) * 0.12 / 60 * 100).round().clamp(
-          1,
-          99,
-        ),
-      );
-      notifyListeners();
-      _simStep++;
     });
   }
 
@@ -467,14 +442,21 @@ class RiderTripController extends ChangeNotifier {
 
   void cancelRide() {
     _searchTimer?.cancel();
-    _driverSimTimer?.cancel();
+    _pollTimer?.cancel();
+
+    // Cancel on backend if we have a trip ID
+    final tripId = _state.tripId;
+    if (tripId != null) {
+      ApiService.cancelTrip(tripId).catchError((_) => <String, dynamic>{});
+    }
+
     _state = _state.copyWith(phase: RiderPhase.cancelled);
     notifyListeners();
   }
 
   void reset() {
     _searchTimer?.cancel();
-    _driverSimTimer?.cancel();
+    _pollTimer?.cancel();
     _state = const RiderTripState();
     notifyListeners();
   }
@@ -482,7 +464,7 @@ class RiderTripController extends ChangeNotifier {
   @override
   void dispose() {
     _searchTimer?.cancel();
-    _driverSimTimer?.cancel();
+    _pollTimer?.cancel();
     super.dispose();
   }
 }

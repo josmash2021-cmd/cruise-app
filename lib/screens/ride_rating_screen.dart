@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../config/app_theme.dart';
+import '../services/api_service.dart';
 
 /// Result returned from the rating screen.
 class RideRating {
-  final int stars;      // 1‑5
+  final int stars; // 1‑5
   final double tipAmount;
 
   const RideRating({required this.stars, required this.tipAmount});
@@ -14,12 +15,14 @@ class RideRatingScreen extends StatefulWidget {
   final String driverName;
   final String rideName;
   final String price;
+  final int? tripId;
 
   const RideRatingScreen({
     super.key,
     required this.driverName,
     required this.rideName,
     required this.price,
+    this.tripId,
   });
 
   @override
@@ -54,12 +57,23 @@ class _RideRatingScreenState extends State<RideRatingScreen>
     super.dispose();
   }
 
-  void _submit() {
-    final rating = RideRating(
-      stars: _stars == 0 ? 5 : _stars,
-      tipAmount: _selectedTipIndex >= 0 ? _tipAmounts[_selectedTipIndex] : 0,
-    );
-    Navigator.of(context).pop(rating);
+  void _submit() async {
+    final stars = _stars == 0 ? 5 : _stars;
+    final tip = _selectedTipIndex >= 0 ? _tipAmounts[_selectedTipIndex] : 0.0;
+    final rating = RideRating(stars: stars, tipAmount: tip);
+
+    // Send to backend
+    if (widget.tripId != null) {
+      try {
+        await ApiService.rateTrip(
+          tripId: widget.tripId!,
+          stars: stars,
+          tipAmount: tip,
+        );
+      } catch (_) {}
+    }
+
+    if (mounted) Navigator.of(context).pop(rating);
   }
 
   @override
@@ -79,25 +93,38 @@ class _RideRatingScreenState extends State<RideRatingScreen>
 
                 // ── Driver avatar ──
                 Container(
-                  width: 90, height: 90,
+                  width: 90,
+                  height: 90,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: c.surface,
-                    border: Border.all(color: _gold.withValues(alpha: 0.4), width: 2.5),
+                    border: Border.all(
+                      color: _gold.withValues(alpha: 0.4),
+                      width: 2.5,
+                    ),
                   ),
-                  child: Icon(Icons.person_rounded, size: 48, color: c.textTertiary),
+                  child: Icon(
+                    Icons.person_rounded,
+                    size: 48,
+                    color: c.textTertiary,
+                  ),
                 ),
                 const SizedBox(height: 20),
 
-                Text('How was your ride?',
-                    style: TextStyle(
-                        fontSize: 26,
-                        fontWeight: FontWeight.w800,
-                        color: c.textPrimary,
-                        letterSpacing: -0.5)),
+                Text(
+                  'How was your ride?',
+                  style: TextStyle(
+                    fontSize: 26,
+                    fontWeight: FontWeight.w800,
+                    color: c.textPrimary,
+                    letterSpacing: -0.5,
+                  ),
+                ),
                 const SizedBox(height: 8),
-                Text('Rate your experience with ${widget.driverName}',
-                    style: TextStyle(fontSize: 15, color: c.textSecondary)),
+                Text(
+                  'Rate your experience with ${widget.driverName}',
+                  style: TextStyle(fontSize: 15, color: c.textSecondary),
+                ),
                 const SizedBox(height: 32),
 
                 // ── Stars ──
@@ -113,9 +140,13 @@ class _RideRatingScreenState extends State<RideRatingScreen>
                           scale: filled ? 1.15 : 1.0,
                           duration: const Duration(milliseconds: 200),
                           child: Icon(
-                            filled ? Icons.star_rounded : Icons.star_outline_rounded,
+                            filled
+                                ? Icons.star_rounded
+                                : Icons.star_outline_rounded,
                             size: 44,
-                            color: filled ? _gold : c.textTertiary.withValues(alpha: 0.4),
+                            color: filled
+                                ? _gold
+                                : c.textTertiary.withValues(alpha: 0.4),
                           ),
                         ),
                       ),
@@ -129,22 +160,28 @@ class _RideRatingScreenState extends State<RideRatingScreen>
                   child: Text(
                     _starLabel(),
                     style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: _gold),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: _gold,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 40),
 
                 // ── Tip section ──
-                Text('Add a tip',
-                    style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                        color: c.textPrimary)),
+                Text(
+                  'Add a tip',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: c.textPrimary,
+                  ),
+                ),
                 const SizedBox(height: 6),
-                Text('100% goes to your driver',
-                    style: TextStyle(fontSize: 14, color: c.textSecondary)),
+                Text(
+                  '100% goes to your driver',
+                  style: TextStyle(fontSize: 14, color: c.textSecondary),
+                ),
                 const SizedBox(height: 18),
 
                 Row(
@@ -152,7 +189,11 @@ class _RideRatingScreenState extends State<RideRatingScreen>
                   children: [
                     _tipChip(c, -1, 'No tip'),
                     ...List.generate(_tipAmounts.length, (i) {
-                      return _tipChip(c, i, '\$${_tipAmounts[i].toStringAsFixed(0)}');
+                      return _tipChip(
+                        c,
+                        i,
+                        '\$${_tipAmounts[i].toStringAsFixed(0)}',
+                      );
                     }),
                   ],
                 ),
@@ -168,7 +209,8 @@ class _RideRatingScreenState extends State<RideRatingScreen>
                       backgroundColor: _gold,
                       foregroundColor: Colors.black,
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16)),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
                       elevation: 0,
                     ),
                     onPressed: _submit,
@@ -177,7 +219,9 @@ class _RideRatingScreenState extends State<RideRatingScreen>
                           ? 'Submit · \$${_tipAmounts[_selectedTipIndex].toStringAsFixed(0)} tip'
                           : 'Submit Rating',
                       style: const TextStyle(
-                          fontSize: 17, fontWeight: FontWeight.w700),
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                 ),
@@ -185,11 +229,14 @@ class _RideRatingScreenState extends State<RideRatingScreen>
 
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(null),
-                  child: Text('Skip',
-                      style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          color: c.textSecondary)),
+                  child: Text(
+                    'Skip',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: c.textSecondary,
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 24),
               ],
@@ -216,7 +263,8 @@ class _RideRatingScreenState extends State<RideRatingScreen>
               : Border.all(
                   color: c.isDark
                       ? c.border
-                      : Colors.black.withValues(alpha: 0.08)),
+                      : Colors.black.withValues(alpha: 0.08),
+                ),
         ),
         child: Text(
           label,
@@ -232,12 +280,18 @@ class _RideRatingScreenState extends State<RideRatingScreen>
 
   String _starLabel() {
     switch (_stars) {
-      case 1: return 'Poor';
-      case 2: return 'Below Average';
-      case 3: return 'Average';
-      case 4: return 'Great';
-      case 5: return 'Excellent!';
-      default: return '';
+      case 1:
+        return 'Poor';
+      case 2:
+        return 'Below Average';
+      case 3:
+        return 'Average';
+      case 4:
+        return 'Great';
+      case 5:
+        return 'Excellent!';
+      default:
+        return '';
     }
   }
 }

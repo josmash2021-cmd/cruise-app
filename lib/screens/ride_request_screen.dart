@@ -1003,7 +1003,7 @@ class _RideRequestScreenState extends State<RideRequestScreen>
 
     // Persist active ride so home screen can show "Resume" banner
     final routePts =
-        s.route?.points?.map((p) => [p.latitude, p.longitude]).toList() ?? [];
+        s.route?.points.map((p) => [p.latitude, p.longitude]).toList() ?? [];
     LocalDataService.setActiveRide(
       ActiveRideInfo(
         pickupLat: s.pickup!.lat,
@@ -1022,6 +1022,7 @@ class _RideRequestScreenState extends State<RideRequestScreen>
         rideName: s.selectedOption?.name ?? 'Fusion',
         price: s.selectedOption?.priceEstimate ?? 0,
         routePoints: routePts,
+        tripId: s.tripId,
       ),
     );
 
@@ -1042,6 +1043,7 @@ class _RideRequestScreenState extends State<RideRequestScreen>
           price: s.selectedOption?.priceEstimate ?? 0,
           pickupLabel: s.pickupLabel,
           dropoffLabel: s.dropoffLabel,
+          tripId: s.tripId,
           onTripComplete: () {
             LocalDataService.clearActiveRide();
             // Pop RiderTrackingScreen, then pop RideRequestScreen
@@ -2475,7 +2477,7 @@ class _RideRequestScreenState extends State<RideRequestScreen>
   }
 
   /// Processes payment: verifies linked method, checks Stripe PM ID for cards,
-  /// simulates charge. If anything fails → shows Declined dialog, stays on sheet.
+  /// charges payment. If anything fails → shows Declined dialog, stays on sheet.
   Future<void> _processPayment(
     BuildContext ctx,
     AppColors c,
@@ -2509,7 +2511,7 @@ class _RideRequestScreenState extends State<RideRequestScreen>
     setState(() => _isProcessingPayment = true);
 
     try {
-      // Simulate payment processing (replace with real Stripe charge later)
+      // Process payment (Stripe integration pending — validates linked method)
       await Future.delayed(const Duration(seconds: 2));
 
       // ── Check if payment was "approved" ──

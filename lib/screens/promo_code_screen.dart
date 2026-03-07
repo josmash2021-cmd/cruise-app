@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config/app_theme.dart';
+import '../services/api_service.dart';
 
 class PromoCodeScreen extends StatefulWidget {
   const PromoCodeScreen({super.key});
@@ -38,7 +39,11 @@ class _PromoCodeScreenState extends State<PromoCodeScreen> {
     if (raw != null && raw.isNotEmpty) {
       try {
         final list = jsonDecode(raw) as List;
-        _promos = list.map((e) => _PromoItem.fromJson(Map<String, dynamic>.from(e as Map))).toList();
+        _promos = list
+            .map(
+              (e) => _PromoItem.fromJson(Map<String, dynamic>.from(e as Map)),
+            )
+            .toList();
       } catch (_) {}
     }
 
@@ -76,7 +81,7 @@ class _PromoCodeScreenState extends State<PromoCodeScreen> {
     );
   }
 
-  void _applyCode() {
+  void _applyCode() async {
     final code = _controller.text.trim().toUpperCase();
     if (code.isEmpty) return;
 
@@ -86,34 +91,45 @@ class _PromoCodeScreenState extends State<PromoCodeScreen> {
       return;
     }
 
-    // Simulate validation — accept codes that start with CRUISE or are 6+ chars
-    if (code.length < 4) {
-      _showSnack('Invalid promo code');
-      return;
+    setState(() => _loading = true);
+
+    try {
+      final result = await ApiService.validatePromoCode(code);
+      final discount = (result['discount_percent'] as num?)?.toInt() ?? 15;
+      final msg = result['message'] as String? ?? 'Discount applied!';
+
+      final newPromo = _PromoItem(
+        code: code,
+        description: msg,
+        discountPercent: discount,
+        isUsed: false,
+        expiresAt: DateTime.now().add(const Duration(days: 7)),
+      );
+
+      setState(() {
+        _promos.insert(0, newPromo);
+        _controller.clear();
+        _loading = false;
+      });
+      _save();
+      _showSnack(msg);
+    } on ApiException catch (e) {
+      setState(() => _loading = false);
+      _showSnack(e.message);
+    } catch (_) {
+      setState(() => _loading = false);
+      _showSnack('Could not validate promo code');
     }
-
-    final newPromo = _PromoItem(
-      code: code,
-      description: 'Promo discount applied',
-      discountPercent: 15,
-      isUsed: false,
-      expiresAt: DateTime.now().add(const Duration(days: 7)),
-    );
-
-    setState(() {
-      _promos.insert(0, newPromo);
-      _controller.clear();
-    });
-    _save();
-    _showSnack('Promo code applied!');
   }
 
   void _showSnack(String msg) {
     final c = AppColors.of(context);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg),
-      backgroundColor: c.isDark ? c.surface : Colors.black87,
-    ));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: c.isDark ? c.surface : Colors.black87,
+      ),
+    );
   }
 
   @override
@@ -138,22 +154,36 @@ class _PromoCodeScreenState extends State<PromoCodeScreen> {
                         GestureDetector(
                           onTap: () => Navigator.of(context).pop(),
                           child: Container(
-                            width: 40, height: 40,
+                            width: 40,
+                            height: 40,
                             decoration: BoxDecoration(
                               color: c.surface,
                               borderRadius: BorderRadius.circular(12),
-                              border: c.isDark ? null : Border.all(color: Colors.black.withValues(alpha: 0.06)),
+                              border: c.isDark
+                                  ? null
+                                  : Border.all(
+                                      color: Colors.black.withValues(
+                                        alpha: 0.06,
+                                      ),
+                                    ),
                             ),
-                            child: Icon(Icons.arrow_back_ios_new_rounded, color: c.textPrimary, size: 18),
+                            child: Icon(
+                              Icons.arrow_back_ios_new_rounded,
+                              color: c.textPrimary,
+                              size: 18,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 16),
-                        Text('Promotions',
-                            style: TextStyle(
-                                fontSize: 26,
-                                fontWeight: FontWeight.w800,
-                                color: c.textPrimary,
-                                letterSpacing: -0.5)),
+                        Text(
+                          'Promotions',
+                          style: TextStyle(
+                            fontSize: 26,
+                            fontWeight: FontWeight.w800,
+                            color: c.textPrimary,
+                            letterSpacing: -0.5,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -167,31 +197,51 @@ class _PromoCodeScreenState extends State<PromoCodeScreen> {
                       decoration: BoxDecoration(
                         color: c.surface,
                         borderRadius: BorderRadius.circular(16),
-                        border: c.isDark ? null : Border.all(color: Colors.black.withValues(alpha: 0.06)),
+                        border: c.isDark
+                            ? null
+                            : Border.all(
+                                color: Colors.black.withValues(alpha: 0.06),
+                              ),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Have a promo code?',
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: c.textPrimary)),
+                          Text(
+                            'Have a promo code?',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: c.textPrimary,
+                            ),
+                          ),
                           const SizedBox(height: 12),
                           Row(
                             children: [
                               Expanded(
                                 child: TextField(
                                   controller: _controller,
-                                  textCapitalization: TextCapitalization.characters,
+                                  textCapitalization:
+                                      TextCapitalization.characters,
                                   style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                      color: c.textPrimary,
-                                      letterSpacing: 1.5),
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    color: c.textPrimary,
+                                    letterSpacing: 1.5,
+                                  ),
                                   decoration: InputDecoration(
                                     hintText: 'Enter code',
-                                    hintStyle: TextStyle(color: c.textTertiary, letterSpacing: 0.5),
+                                    hintStyle: TextStyle(
+                                      color: c.textTertiary,
+                                      letterSpacing: 0.5,
+                                    ),
                                     filled: true,
-                                    fillColor: c.isDark ? c.bg : const Color(0xFFF5F6FA),
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                                    fillColor: c.isDark
+                                        ? c.bg
+                                        : const Color(0xFFF5F6FA),
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 14,
+                                    ),
                                     border: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(12),
                                       borderSide: BorderSide.none,
@@ -203,16 +253,22 @@ class _PromoCodeScreenState extends State<PromoCodeScreen> {
                               GestureDetector(
                                 onTap: _applyCode,
                                 child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 20,
+                                    vertical: 14,
+                                  ),
                                   decoration: BoxDecoration(
                                     color: _gold,
                                     borderRadius: BorderRadius.circular(12),
                                   ),
-                                  child: const Text('Apply',
-                                      style: TextStyle(
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.w700,
-                                          color: Colors.black)),
+                                  child: const Text(
+                                    'Apply',
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.black,
+                                    ),
+                                  ),
                                 ),
                               ),
                             ],
@@ -226,25 +282,37 @@ class _PromoCodeScreenState extends State<PromoCodeScreen> {
                   // ── Promo list ──
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: Text('Available Promos',
-                        style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.w700, color: c.textPrimary)),
+                    child: Text(
+                      'Available Promos',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: c.textPrimary,
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 12),
 
                   Expanded(
                     child: _promos.isEmpty
                         ? Center(
-                            child: Text('No promos available',
-                                style: TextStyle(fontSize: 15, color: c.textSecondary)),
+                            child: Text(
+                              'No promos available',
+                              style: TextStyle(
+                                fontSize: 15,
+                                color: c.textSecondary,
+                              ),
+                            ),
                           )
                         : ListView.separated(
                             physics: const BouncingScrollPhysics(),
                             cacheExtent: 300,
                             padding: const EdgeInsets.symmetric(horizontal: 24),
                             itemCount: _promos.length,
-                            separatorBuilder: (context2, idx) => const SizedBox(height: 10),
-                            itemBuilder: (context, i) => _buildPromoCard(c, _promos[i]),
+                            separatorBuilder: (context2, idx) =>
+                                const SizedBox(height: 10),
+                            itemBuilder: (context, i) =>
+                                _buildPromoCard(c, _promos[i]),
                           ),
                   ),
                 ],
@@ -264,17 +332,21 @@ class _PromoCodeScreenState extends State<PromoCodeScreen> {
         color: c.surface,
         borderRadius: BorderRadius.circular(16),
         border: c.isDark
-            ? (isActive ? Border.all(color: _gold.withValues(alpha: 0.3)) : null)
+            ? (isActive
+                  ? Border.all(color: _gold.withValues(alpha: 0.3))
+                  : null)
             : Border.all(
                 color: isActive
                     ? _gold.withValues(alpha: 0.3)
-                    : Colors.black.withValues(alpha: 0.06)),
+                    : Colors.black.withValues(alpha: 0.06),
+              ),
       ),
       child: Row(
         children: [
           // ── Icon ──
           Container(
-            width: 48, height: 48,
+            width: 48,
+            height: 48,
             decoration: BoxDecoration(
               color: isActive
                   ? _gold.withValues(alpha: 0.12)
@@ -293,28 +365,35 @@ class _PromoCodeScreenState extends State<PromoCodeScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(promo.code,
-                    style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: isActive ? c.textPrimary : c.textTertiary,
-                        letterSpacing: 1)),
+                Text(
+                  promo.code,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: isActive ? c.textPrimary : c.textTertiary,
+                    letterSpacing: 1,
+                  ),
+                ),
                 const SizedBox(height: 4),
-                Text(promo.description,
-                    style: TextStyle(
-                        fontSize: 14,
-                        color: isActive ? c.textSecondary : c.textTertiary)),
+                Text(
+                  promo.description,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: isActive ? c.textSecondary : c.textTertiary,
+                  ),
+                ),
                 const SizedBox(height: 4),
                 Text(
                   promo.isUsed
                       ? 'Used'
                       : isExpired
-                          ? 'Expired'
-                          : 'Expires in $daysLeft day${daysLeft == 1 ? '' : 's'}',
+                      ? 'Expired'
+                      : 'Expires in $daysLeft day${daysLeft == 1 ? '' : 's'}',
                   style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: isActive ? _gold : c.textTertiary),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: isActive ? _gold : c.textTertiary,
+                  ),
                 ),
               ],
             ),
@@ -333,9 +412,10 @@ class _PromoCodeScreenState extends State<PromoCodeScreen> {
                     ? '\$${promo.discountFlat!.toStringAsFixed(0)} OFF'
                     : '${promo.discountPercent}% OFF',
                 style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: _gold),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: _gold,
+                ),
               ),
             ),
         ],
@@ -364,20 +444,22 @@ class _PromoItem {
   });
 
   Map<String, dynamic> toJson() => {
-        'code': code,
-        'description': description,
-        'discountPercent': discountPercent,
-        'discountFlat': discountFlat,
-        'isUsed': isUsed,
-        'expiresAt': expiresAt.toIso8601String(),
-      };
+    'code': code,
+    'description': description,
+    'discountPercent': discountPercent,
+    'discountFlat': discountFlat,
+    'isUsed': isUsed,
+    'expiresAt': expiresAt.toIso8601String(),
+  };
 
   static _PromoItem fromJson(Map<String, dynamic> json) => _PromoItem(
-        code: json['code']?.toString() ?? '',
-        description: json['description']?.toString() ?? '',
-        discountPercent: (json['discountPercent'] as num?)?.toInt() ?? 0,
-        discountFlat: (json['discountFlat'] as num?)?.toDouble(),
-        isUsed: json['isUsed'] == true,
-        expiresAt: DateTime.tryParse(json['expiresAt']?.toString() ?? '') ?? DateTime.now(),
-      );
+    code: json['code']?.toString() ?? '',
+    description: json['description']?.toString() ?? '',
+    discountPercent: (json['discountPercent'] as num?)?.toInt() ?? 0,
+    discountFlat: (json['discountFlat'] as num?)?.toDouble(),
+    isUsed: json['isUsed'] == true,
+    expiresAt:
+        DateTime.tryParse(json['expiresAt']?.toString() ?? '') ??
+        DateTime.now(),
+  );
 }

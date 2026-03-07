@@ -125,7 +125,8 @@ class ReadyToRideScreen extends StatelessWidget {
                       child: Container(
                         decoration: BoxDecoration(
                           gradient: const LinearGradient(
-                              colors: [_gold, _goldLight]),
+                            colors: [_gold, _goldLight],
+                          ),
                           borderRadius: BorderRadius.circular(28),
                         ),
                         child: ElevatedButton(
@@ -139,10 +140,13 @@ class ReadyToRideScreen extends StatelessWidget {
                           ),
                           onPressed: () async {
                             await UserSession.saveMode('rider');
+                            await UserSession.updateField('role', 'rider');
                             if (!context.mounted) return;
                             Navigator.of(context).pushAndRemoveUntil(
-                              smoothFadeRoute(const HomeScreen(),
-                                  durationMs: 600),
+                              smoothFadeRoute(
+                                const HomeScreen(),
+                                durationMs: 600,
+                              ),
                               (_) => false,
                             );
                           },

@@ -1,5 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../services/api_service.dart';
 
 /// Full-page chat screen used for both driver messaging and support chat.
 class ChatScreen extends StatefulWidget {
@@ -9,12 +12,14 @@ class ChatScreen extends StatefulWidget {
     this.recipientPhone,
     this.isSupport = false,
     this.avatarInitial,
+    this.tripId,
   });
 
   final String recipientName;
   final String? recipientPhone;
   final bool isSupport;
   final String? avatarInitial;
+  final int? tripId;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -26,67 +31,82 @@ class _ChatScreenState extends State<ChatScreen> {
   final _scrollController = ScrollController();
   final _focusNode = FocusNode();
   final List<_ChatMessage> _messages = [];
+  Timer? _pollTimer;
+  int? _myUserId;
 
   @override
   void initState() {
     super.initState();
-    // Seed with a welcome message
-    if (widget.isSupport) {
-      _messages.add(_ChatMessage(
-        text: 'Hi! How can we help you today?',
-        isMe: false,
-        time: DateTime.now(),
-      ));
-    } else {
-      _messages.add(_ChatMessage(
-        text: "Hi, I'm on my way to your pickup spot.",
-        isMe: false,
-        time: DateTime.now(),
-      ));
+    _initChat();
+  }
+
+  Future<void> _initChat() async {
+    _myUserId = await ApiService.getCurrentUserId();
+    if (widget.tripId != null) {
+      await _fetchMessages();
+      // Poll every 3 seconds for new messages
+      _pollTimer = Timer.periodic(
+        const Duration(seconds: 3),
+        (_) => _fetchMessages(),
+      );
+    } else if (widget.isSupport) {
+      _messages.add(
+        _ChatMessage(
+          text: 'Hi! How can we help you today?',
+          isMe: false,
+          time: DateTime.now(),
+        ),
+      );
+      setState(() {});
     }
+  }
+
+  Future<void> _fetchMessages() async {
+    if (widget.tripId == null) return;
+    try {
+      final msgs = await ApiService.getChatMessages(widget.tripId!);
+      if (!mounted) return;
+      setState(() {
+        _messages.clear();
+        for (final m in msgs) {
+          _messages.add(
+            _ChatMessage(
+              text: (m['message'] ?? '') as String,
+              isMe: m['sender_id'] == _myUserId,
+              time:
+                  DateTime.tryParse((m['created_at'] ?? '') as String) ??
+                  DateTime.now(),
+            ),
+          );
+        }
+      });
+      _scrollToBottom();
+    } catch (_) {}
   }
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
     _controller.dispose();
     _scrollController.dispose();
     _focusNode.dispose();
     super.dispose();
   }
 
-  void _sendMessage() {
+  void _sendMessage() async {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
     setState(() {
-      _messages.add(_ChatMessage(
-        text: text,
-        isMe: true,
-        time: DateTime.now(),
-      ));
+      _messages.add(_ChatMessage(text: text, isMe: true, time: DateTime.now()));
       _controller.clear();
     });
     _scrollToBottom();
 
-    // Simulate a response after a short delay
-    Future.delayed(const Duration(seconds: 2), () {
-      if (!mounted) return;
-      setState(() {
-        if (widget.isSupport) {
-          _messages.add(_ChatMessage(
-            text: 'Thank you for reaching out. A support agent will be with you shortly.',
-            isMe: false,
-            time: DateTime.now(),
-          ));
-        } else {
-          _messages.add(_ChatMessage(
-            text: 'Got it, see you soon!',
-            isMe: false,
-            time: DateTime.now(),
-          ));
-        }
-      });
-      _scrollToBottom();
-    });
+    if (widget.tripId != null) {
+      try {
+        await ApiService.sendChatMessage(tripId: widget.tripId!, message: text);
+      } catch (_) {}
+    }
   }
 
   void _scrollToBottom() {
@@ -101,18 +121,15 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  void _callDriver() {
+  void _callDriver() async {
     HapticFeedback.mediumImpact();
-    // Show a snackbar indicating the call action
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Calling ${widget.recipientName}...'),
-        backgroundColor: const Color(0xFF2A2A2A),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        duration: const Duration(seconds: 2),
-      ),
-    );
+    final phone = widget.recipientPhone;
+    if (phone != null && phone.isNotEmpty) {
+      final uri = Uri(scheme: 'tel', path: phone);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri);
+      }
+    }
   }
 
   @override
@@ -129,7 +146,12 @@ class _ChatScreenState extends State<ChatScreen> {
           children: [
             // ── App bar ──
             Container(
-              padding: EdgeInsets.only(top: topPad + 8, bottom: 12, left: 8, right: 8),
+              padding: EdgeInsets.only(
+                top: topPad + 8,
+                bottom: 12,
+                left: 8,
+                right: 8,
+              ),
               decoration: BoxDecoration(
                 color: const Color(0xFF161820),
                 boxShadow: [
@@ -145,7 +167,10 @@ class _ChatScreenState extends State<ChatScreen> {
                   // Back button
                   IconButton(
                     onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+                    icon: const Icon(
+                      Icons.arrow_back_rounded,
+                      color: Colors.white,
+                    ),
                     splashRadius: 22,
                   ),
                   // Avatar
@@ -166,9 +191,14 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                     child: Center(
                       child: widget.isSupport
-                          ? Icon(Icons.support_agent_rounded, size: 18, color: _gold)
+                          ? Icon(
+                              Icons.support_agent_rounded,
+                              size: 18,
+                              color: _gold,
+                            )
                           : Text(
-                              widget.avatarInitial ?? widget.recipientName[0].toUpperCase(),
+                              widget.avatarInitial ??
+                                  widget.recipientName[0].toUpperCase(),
                               style: const TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w800,
@@ -184,7 +214,9 @@ class _ChatScreenState extends State<ChatScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          widget.isSupport ? 'Cruise Support' : widget.recipientName,
+                          widget.isSupport
+                              ? 'Cruise Support'
+                              : widget.recipientName,
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w700,
@@ -230,7 +262,10 @@ class _ChatScreenState extends State<ChatScreen> {
             Expanded(
               child: ListView.builder(
                 controller: _scrollController,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
                 itemCount: _messages.length,
                 itemBuilder: (context, index) {
                   final msg = _messages[index];
@@ -328,7 +363,9 @@ class _ChatScreenState extends State<ChatScreen> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
-        mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+        mainAxisAlignment: isMe
+            ? MainAxisAlignment.end
+            : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           if (!isMe) ...[
@@ -345,7 +382,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 child: widget.isSupport
                     ? Icon(Icons.support_agent_rounded, size: 13, color: _gold)
                     : Text(
-                        widget.avatarInitial ?? widget.recipientName[0].toUpperCase(),
+                        widget.avatarInitial ??
+                            widget.recipientName[0].toUpperCase(),
                         style: const TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
@@ -360,9 +398,7 @@ class _ChatScreenState extends State<ChatScreen> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
-                color: isMe
-                    ? _gold
-                    : Colors.white.withValues(alpha: 0.08),
+                color: isMe ? _gold : Colors.white.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.only(
                   topLeft: const Radius.circular(18),
                   topRight: const Radius.circular(18),
@@ -407,9 +443,5 @@ class _ChatMessage {
   final bool isMe;
   final DateTime time;
 
-  _ChatMessage({
-    required this.text,
-    required this.isMe,
-    required this.time,
-  });
+  _ChatMessage({required this.text, required this.isMe, required this.time});
 }

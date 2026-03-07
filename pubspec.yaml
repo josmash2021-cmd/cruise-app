@@ -45,6 +45,7 @@ dependencies:
   path_provider: ^2.1.4
   permission_handler: ^11.3.1
   url_launcher: ^6.3.1
+  share_plus: ^10.1.4
   video_player: ^2.9.3
   package_info_plus: ^8.3.0
   flutter_stripe: ^11.4.0
@@ -55,8 +56,10 @@ dependencies:
   crypto: ^3.0.6
   uuid: ^4.5.3
   flutter_local_notifications: ^21.0.0
+  timezone: ^0.11.0
   local_auth: ^2.3.0
   google_fonts: ^6.2.1
+  flutter_secure_storage: ^10.0.0
 
 dev_dependencies:
   flutter_test:
@@ -87,6 +90,7 @@ flutter:
     - assets/images/welcome_bg.mp4
     - assets/images/car_sprites/
     - assets/markers/
+    - assets/google_fonts/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

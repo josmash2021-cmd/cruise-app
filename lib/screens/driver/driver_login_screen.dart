@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../config/page_transitions.dart';
 import '../../services/api_service.dart';
 import '../../services/user_session.dart';
+import '../forgot_password_screen.dart';
 import 'driver_signup_screen.dart';
 import 'driver_home_screen.dart';
 
@@ -64,40 +65,6 @@ class _DriverLoginScreenState extends State<DriverLoginScreen>
     }
   }
 
-  /// Bypass all security / rate-limit checks and go straight to driver home.
-  Future<void> _bypassLogin() async {
-    setState(() {
-      _loading = true;
-      _errorText = null;
-    });
-
-    try {
-      // Offline-first: save a mock dev session without hitting the backend.
-      // This lets the Quick Access button work even when the server is down.
-      await UserSession.saveUser(
-        firstName: 'Driver',
-        lastName: 'Dev',
-        email: 'dev@cruise.app',
-        userId: 1,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _errorText = 'Quick access failed: $e';
-      });
-      return;
-    }
-
-    await UserSession.saveMode('driver');
-    if (!mounted) return;
-    setState(() => _loading = false);
-    Navigator.of(context).pushAndRemoveUntil(
-      slideFromRightRoute(const DriverHomeScreen()),
-      (_) => false,
-    );
-  }
-
   Future<void> _handleLogin() async {
     if (!_canLogin) return;
     setState(() {
@@ -114,7 +81,31 @@ class _DriverLoginScreenState extends State<DriverLoginScreen>
       final loginToken = loginRes['login_token'] as String;
 
       // Step 2: Exchange login_token for full JWT (auto-saves token)
-      await ApiService.completeLogin(loginToken: loginToken);
+      final result = await ApiService.completeLogin(loginToken: loginToken);
+      final user = result['user'] as Map<String, dynamic>;
+
+      // Validate that this account is a driver
+      final backendRole = user['role'] as String? ?? 'rider';
+      if (backendRole != 'driver') {
+        if (!mounted) return;
+        setState(() {
+          _loading = false;
+          _errorText =
+              'This account is registered as a rider. Please use Rider login.';
+        });
+        return;
+      }
+
+      // Save user data locally
+      await UserSession.saveUser(
+        firstName: user['first_name'] ?? '',
+        lastName: user['last_name'] ?? '',
+        email: user['email'] ?? '',
+        phone: user['phone'] ?? '',
+        userId: user['id'] as int?,
+        role: 'driver',
+      );
+      await UserSession.saveMode('driver');
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -133,9 +124,6 @@ class _DriverLoginScreenState extends State<DriverLoginScreen>
 
     if (!mounted) return;
     setState(() => _loading = false);
-
-    await UserSession.saveMode('driver');
-    if (!mounted) return;
 
     // Navigate to driver home
     Navigator.of(context).pushAndRemoveUntil(
@@ -278,7 +266,11 @@ class _DriverLoginScreenState extends State<DriverLoginScreen>
                           alignment: Alignment.centerRight,
                           child: GestureDetector(
                             onTap: () {
-                              // TODO: forgot password flow
+                              Navigator.of(context).push(
+                                slideFromRightRoute(
+                                  const ForgotPasswordScreen(),
+                                ),
+                              );
                             },
                             child: const Text(
                               'Forgot password?',
@@ -430,24 +422,6 @@ class _DriverLoginScreenState extends State<DriverLoginScreen>
                         ),
 
                         const SizedBox(height: 24),
-
-                        // ── Quick Access (bypass security) ──
-                        Center(
-                          child: TextButton.icon(
-                            onPressed: _bypassLogin,
-                            icon: const Icon(Icons.bolt_rounded, size: 18),
-                            label: const Text(
-                              'Quick Access (Dev)',
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            style: TextButton.styleFrom(
-                              foregroundColor: Colors.white38,
-                            ),
-                          ),
-                        ),
 
                         const SizedBox(height: 40),
                       ],

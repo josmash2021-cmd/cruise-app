@@ -8,11 +8,13 @@ import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
+import 'package:url_launcher/url_launcher.dart';
 import '../../services/api_service.dart';
 import '../../services/navigation_service.dart';
 import '../../services/trip_firestore_service.dart';
 import '../../config/api_keys.dart';
 import '../../config/map_styles.dart';
+import '../chat_screen.dart';
 import '../../navigation/car_icon_loader.dart';
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -76,6 +78,7 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
   Timer? _pollT;
   String _riderName = '';
   String _riderInit = '';
+  String _riderPhone = '';
   String _pickupAddr = '';
   String _dropoffAddr = '';
   double _fare = 0;
@@ -243,7 +246,6 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
     _startClock();
     _startPolling();
     _startPosStream();
-    _scheduleDemoTrip();
   }
 
   Future<void> _locate() async {
@@ -1099,39 +1101,6 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   //  POLLING & CLOCK
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  /// Injects a fake demo trip offer 3 seconds after going online.
-  /// Lets you preview the full trip flow without a real backend request.
-  void _scheduleDemoTrip() {
-    Future.delayed(const Duration(seconds: 3), () {
-      if (!mounted || _phase != _Phase.searching) return;
-      // Stop real poller so it can't overwrite the demo offer card
-      _pollT?.cancel();
-      _pollT = null;
-      final p = _pos; // driver starting position
-      final pickup = LatLng(p.latitude + 0.0030, p.longitude + 0.0015);
-      final dropoff = LatLng(p.latitude + 0.0165, p.longitude - 0.0060);
-      setState(() {
-        _pendingOffers = [
-          {
-            'offer_id': 9001,
-            'trip_id': 9001,
-            'rider_name': 'Alex Demo',
-            'pickup_lat': pickup.latitude,
-            'pickup_lng': pickup.longitude,
-            'dropoff_lat': dropoff.latitude,
-            'dropoff_lng': dropoff.longitude,
-            'pickup_address': '123 Demo Pickup St',
-            'dropoff_address': '456 Demo Dropoff Ave',
-            'fare': 14.50,
-            'vehicle_type': 'CruiseX',
-            'dist_km': 2.1,
-            'eta_min': 3,
-          },
-        ];
-      });
-    });
-  }
-
   void _startPolling() {
     _pollT?.cancel();
     _pollT = Timer.periodic(const Duration(seconds: 3), (_) {
@@ -1159,8 +1128,6 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
       final offers = await ApiService.getDriverPendingOffers(_driverId!);
       debugPrint('ðŸ“¡ Poll result: ${offers.length} offer(s)');
       if (!mounted || _phase != _Phase.searching) return;
-      // Never overwrite a demo offer with real backend results
-      if (_pendingOffers.any((o) => o['offer_id'] == 9001)) return;
       if (offers.isNotEmpty && _pendingOffers.isEmpty) {
         HapticFeedback.heavyImpact();
       }
@@ -1191,10 +1158,9 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
     HapticFeedback.heavyImpact();
     final offerId = r['offer_id'] as int?;
     final tripId = r['trip_id'] as int? ?? r['id'] as int?;
-    const int demoId = 9001; // fake demo trip — skip all backend calls
 
-    // Accept this offer via API (skip for demo trip)
-    if (offerId != null && offerId != demoId && _driverId != null) {
+    // Accept this offer via API
+    if (offerId != null && _driverId != null) {
       try {
         await ApiService.acceptRideOffer(
           offerId: offerId,
@@ -1207,7 +1173,7 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
         );
         return;
       }
-    } else if (offerId != demoId && tripId != null && _driverId != null) {
+    } else if (tripId != null && _driverId != null) {
       try {
         await ApiService.acceptTrip(tripId: tripId, driverId: _driverId!);
       } catch (e) {
@@ -1245,6 +1211,7 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
     _tripId = tripId;
     _riderName = name;
     _riderInit = name.isNotEmpty ? name[0].toUpperCase() : '?';
+    _riderPhone = (r['rider_phone'] ?? '') as String;
     _pickupAddr = r['pickup_address'] ?? 'Pickup';
     _dropoffAddr = r['dropoff_address'] ?? 'Drop-off';
     _fare = (r['fare'] as num?)?.toDouble() ?? 0;
@@ -1253,12 +1220,6 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
     _etaToPickup = (_distToPickup * 1000 / 17.88 / 60).ceil().clamp(1, 99);
     _tripDist = _hav(_pickupLL, _dropoffLL);
     _tripEta = (_tripDist * 1000 / 17.88 / 60).ceil().clamp(1, 99);
-
-    // For demo trips, clear IDs so all backend status calls are skipped
-    if (offerId == 9001) {
-      _tripId = null;
-      _currentOfferId = null;
-    }
 
     setState(() => _pendingOffers = []);
     _pollT?.cancel();
@@ -2300,13 +2261,9 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
   //  MAP
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   void _applyMapStyle(bool isDark) {
-    if (_map == null) return;
     if (isDark == _lastStyleDark) return;
     _lastStyleDark = isDark;
-    try {
-      // ignore: deprecated_member_use
-      _map!.setMapStyle(isDark ? MapStyles.dark : MapStyles.light);
-    } catch (_) {}
+    setState(() {}); // rebuild GoogleMap with new style: param
   }
 
   /// Called by GoogleMap when a camera movement is initiated.
@@ -2342,6 +2299,7 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
   Widget _mapW(bool isDark) {
     return RepaintBoundary(
       child: GoogleMap(
+        style: isDark ? MapStyles.dark : MapStyles.light,
         initialCameraPosition: CameraPosition(
           target: _pos,
           zoom: 15.5,
@@ -2351,10 +2309,6 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
         onMapCreated: (c) {
           _map = c;
           _lastStyleDark = isDark;
-          try {
-            // ignore: deprecated_member_use
-            c.setMapStyle(isDark ? MapStyles.dark : MapStyles.light);
-          } catch (_) {}
           // Immediately move to correct searching-phase camera
           c.moveCamera(
             CameraUpdate.newCameraPosition(
@@ -4176,12 +4130,24 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
                   ],
                 ),
               ),
-              _actionBtn(
-                Icons.phone_rounded,
-                () => _snack('Calling $_riderName...'),
-              ),
+              _actionBtn(Icons.phone_rounded, () async {
+                if (_riderPhone.isNotEmpty) {
+                  final uri = Uri(scheme: 'tel', path: _riderPhone);
+                  if (await canLaunchUrl(uri)) await launchUrl(uri);
+                }
+              }),
               const SizedBox(width: 8),
-              _actionBtn(Icons.chat_bubble_rounded, () => _snack('Chat...')),
+              _actionBtn(Icons.chat_bubble_rounded, () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => ChatScreen(
+                      recipientName: _riderName,
+                      recipientPhone: _riderPhone,
+                      tripId: _tripId,
+                    ),
+                  ),
+                );
+              }),
             ],
           ),
           const SizedBox(height: 14),
@@ -4315,9 +4281,24 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
                   ],
                 ),
               ),
-              _actionBtn(Icons.phone_rounded, () => _snack('Calling...')),
+              _actionBtn(Icons.phone_rounded, () async {
+                if (_riderPhone.isNotEmpty) {
+                  final uri = Uri(scheme: 'tel', path: _riderPhone);
+                  if (await canLaunchUrl(uri)) await launchUrl(uri);
+                }
+              }),
               const SizedBox(width: 8),
-              _actionBtn(Icons.chat_bubble_rounded, () => _snack('Chat...')),
+              _actionBtn(Icons.chat_bubble_rounded, () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => ChatScreen(
+                      recipientName: _riderName,
+                      recipientPhone: _riderPhone,
+                      tripId: _tripId,
+                    ),
+                  ),
+                );
+              }),
             ],
           ),
           const SizedBox(height: 14),
@@ -4525,7 +4506,12 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
                   ],
                 ),
               ),
-              _actionBtn(Icons.phone_rounded, () => _snack('Calling...')),
+              _actionBtn(Icons.phone_rounded, () async {
+                if (_riderPhone.isNotEmpty) {
+                  final uri = Uri(scheme: 'tel', path: _riderPhone);
+                  if (await canLaunchUrl(uri)) await launchUrl(uri);
+                }
+              }),
             ],
           ),
           const SizedBox(height: 12),
@@ -4566,6 +4552,8 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
               ),
             ),
           ),
+          const SizedBox(height: 4),
+          _cancelRow(isDark),
         ],
       ),
     );

@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart' show ValueNotifier, kIsWeb;
+import 'local_data_service.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
+import 'security_service.dart';
 
 /// Stores and retrieves the logged-in user's session.
 ///
@@ -21,6 +23,7 @@ class UserSession {
   // ── Save / Read local cache ─────────────────────────
 
   /// Save user data locally (cache after API call).
+  /// SECURITY: Passwords are NEVER stored. Sensitive fields are encrypted.
   static Future<void> saveUser({
     required String firstName,
     required String lastName,
@@ -29,28 +32,40 @@ class UserSession {
     String? photoPath,
     String? gender,
     String? paymentMethod,
-    String? password,
+    String? password, // Accepted but NEVER persisted
     int? userId,
+    String? role,
   }) async {
     final prefs = await SharedPreferences.getInstance();
+    // Encrypt email and phone before storing
+    final encEmail = email.isNotEmpty
+        ? SecurityService.encryptForPrefs(email, 'user_email')
+        : '';
+    final encPhone = (phone != null && phone.isNotEmpty)
+        ? SecurityService.encryptForPrefs(phone, 'user_phone')
+        : '';
     await prefs.setString(
       _key,
       jsonEncode({
         'userId': userId?.toString() ?? '',
         'firstName': firstName,
         'lastName': lastName,
-        'email': email,
-        'phone': phone ?? '',
+        'email': encEmail,
+        'phone': encPhone,
         'photoPath': photoPath ?? '',
         'gender': gender ?? '',
         'paymentMethod': paymentMethod ?? '',
-        'password': password ?? '',
+        // password is INTENTIONALLY omitted — never persisted (L7)
+        'role': role ?? 'rider',
         'createdAt': DateTime.now().toIso8601String(),
+        '_encrypted': 'true', // marker for decrypt logic
       }),
     );
+    SecurityService.logSecurityEvent('user_saved', details: 'userId=$userId');
   }
 
   /// Get the locally cached user, or null if not logged in.
+  /// Automatically decrypts encrypted fields (L6).
   static Future<Map<String, String>?> getUser() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_key);
@@ -58,7 +73,25 @@ class UserSession {
 
     try {
       final map = Map<String, dynamic>.from(jsonDecode(raw) as Map);
-      return map.map((k, v) => MapEntry(k, v?.toString() ?? ''));
+      final result = map.map((k, v) => MapEntry(k, v?.toString() ?? ''));
+
+      // Decrypt encrypted fields if marker present
+      if (result['_encrypted'] == 'true') {
+        final email = result['email'] ?? '';
+        if (email.isNotEmpty) {
+          result['email'] =
+              SecurityService.decryptFromPrefs(email, 'user_email') ?? email;
+        }
+        final phone = result['phone'] ?? '';
+        if (phone.isNotEmpty) {
+          result['phone'] =
+              SecurityService.decryptFromPrefs(phone, 'user_phone') ?? phone;
+        }
+      }
+      // Never return password
+      result.remove('password');
+      result.remove('_encrypted');
+      return result;
     } catch (_) {
       return null;
     }
@@ -94,16 +127,22 @@ class UserSession {
     await prefs.setString(_key, jsonEncode(user));
   }
 
-  // ── Mode persistence (rider / driver) ────────────
+  // ── Role persistence (rider / driver) ────────────
 
   /// Save the current app mode ('rider' or 'driver').
+  /// Also updates the role field inside the user session JSON.
   static Future<void> saveMode(String mode) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_modeKey, mode);
+    // Keep role in sync inside the session JSON
+    await updateField('role', mode);
   }
 
-  /// Get the saved app mode. Defaults to 'rider'.
+  /// Get the saved role. Reads from user session first, falls back to mode key.
   static Future<String> getMode() async {
+    final user = await getUser();
+    final role = user?['role'];
+    if (role != null && role.isNotEmpty) return role;
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_modeKey) ?? 'rider';
   }
@@ -117,6 +156,8 @@ class UserSession {
     await prefs.remove('pending_password');
     await ApiService.clearToken();
     ApiService.clearUserCache();
+    // Clear all user-specific data so accounts are fully independent
+    await LocalDataService.clearAllUserData();
     photoNotifier.value = '';
   }
 

@@ -146,8 +146,22 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
         password: _passwordCtrl.text,
         userId: userId,
         paymentMethod: 'none',
+        role: 'driver',
       );
       await UserSession.saveMode('driver');
+
+      // Save vehicle info to backend
+      try {
+        await ApiService.saveVehicle(
+          make: _makeCtrl.text.trim(),
+          model: _modelCtrl.text.trim(),
+          year: int.tryParse(_yearCtrl.text.trim()) ?? 0,
+          color: _colorCtrl.text.trim(),
+          plate: _plateCtrl.text.trim(),
+        );
+      } catch (_) {
+        // Vehicle save is non-blocking — can be updated later
+      }
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() => _submitting = false);

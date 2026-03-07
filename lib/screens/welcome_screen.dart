@@ -47,31 +47,32 @@ class _WelcomeScreenState extends State<WelcomeScreen>
       parent: _ctrl,
       curve: const Interval(0.55, 1.0, curve: Curves.easeOut),
     );
-    _btnSlide = Tween<Offset>(
-      begin: const Offset(0, 0.3),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _ctrl,
-      curve: const Interval(0.55, 1.0, curve: Curves.easeOutCubic),
-    ));
+    _btnSlide = Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero)
+        .animate(
+          CurvedAnimation(
+            parent: _ctrl,
+            curve: const Interval(0.55, 1.0, curve: Curves.easeOutCubic),
+          ),
+        );
 
     _ctrl.forward();
 
     // Initialise background video (lightweight, no audio track)
-    _videoCtrl = VideoPlayerController.asset(
-      'assets/images/welcome_bg.mp4',
-      videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
-    )
-      ..setLooping(true)
-      ..setVolume(0)
-      ..initialize().then((_) {
-        if (mounted) {
-          _videoW = _videoCtrl.value.size.width;
-          _videoH = _videoCtrl.value.size.height;
-          setState(() => _videoReady = true);
-          _videoCtrl.play();
-        }
-      });
+    _videoCtrl =
+        VideoPlayerController.asset(
+            'assets/images/welcome_bg.mp4',
+            videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
+          )
+          ..setLooping(true)
+          ..setVolume(0)
+          ..initialize().then((_) {
+            if (mounted) {
+              _videoW = _videoCtrl.value.size.width;
+              _videoH = _videoCtrl.value.size.height;
+              setState(() => _videoReady = true);
+              _videoCtrl.play();
+            }
+          });
   }
 
   @override
@@ -202,9 +203,9 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                             shadowColor: _gold.withValues(alpha: 0.3),
                           ),
                           onPressed: () {
-                            Navigator.of(context).push(
-                              slideUpFadeRoute(const LoginScreen()),
-                            );
+                            Navigator.of(
+                              context,
+                            ).push(slideUpFadeRoute(const LoginScreen()));
                           },
                           child: const Text(
                             'Get started',
@@ -227,9 +228,9 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                     child: Center(
                       child: GestureDetector(
                         onTap: () {
-                          Navigator.of(context).push(
-                            slideUpFadeRoute(const LoginPasswordScreen()),
-                          );
+                          Navigator.of(
+                            context,
+                          ).push(slideUpFadeRoute(const LoginPasswordScreen()));
                         },
                         child: RichText(
                           text: TextSpan(
@@ -263,23 +264,27 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                     child: Center(
                       child: GestureDetector(
                         onTap: () {
-                          Navigator.of(context).push(
-                            slideUpFadeRoute(const DriverLoginScreen()),
-                          );
+                          Navigator.of(
+                            context,
+                          ).push(slideUpFadeRoute(const DriverLoginScreen()));
                         },
                         child: Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 20, vertical: 10),
+                            horizontal: 20,
+                            vertical: 10,
+                          ),
                           decoration: BoxDecoration(
-                            border: Border.all(
-                                color: Colors.white24, width: 1),
+                            border: Border.all(color: Colors.white24, width: 1),
                             borderRadius: BorderRadius.circular(24),
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.directions_car_filled_rounded,
-                                  color: _gold, size: 18),
+                              Icon(
+                                Icons.directions_car_filled_rounded,
+                                color: _gold,
+                                size: 18,
+                              ),
                               const SizedBox(width: 8),
                               Text.rich(
                                 TextSpan(
@@ -294,8 +299,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                                       style: TextStyle(
                                         color: _gold,
                                         fontWeight: FontWeight.w700,
-                                        decoration:
-                                            TextDecoration.underline,
+                                        decoration: TextDecoration.underline,
                                         decorationColor: _gold,
                                       ),
                                     ),

@@ -11,21 +11,23 @@ import 'config/app_theme.dart';
 import 'screens/splash_screen.dart';
 import 'services/api_service.dart';
 import 'services/notification_service.dart';
+import 'services/security_service.dart';
 import 'services/user_session.dart';
 import 'services/local_data_service.dart';
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
-  // Catch any Flutter framework errors and log them instead of crashing
-  FlutterError.onError = (FlutterErrorDetails details) {
-    FlutterError.presentError(details);
-    debugPrint('[FlutterError] ${details.exception}\n${details.stack}');
-  };
-
   // Catch all unhandled async Dart errors
   await runZonedGuarded(
     () async {
+      WidgetsFlutterBinding.ensureInitialized();
+
+      // Catch any Flutter framework errors and log them instead of crashing
+      FlutterError.onError = (FlutterErrorDetails details) {
+        FlutterError.presentError(details);
+        debugPrint('[FlutterError] ${details.exception}\n${details.stack}');
+      };
+      // ── Initialize Security Service (10-layer defense) ──
+      await SecurityService.init();
       // ── Load persisted server URL (must run before any ApiService call) ──
       await ApiService.init();
       // Auto-detect best reachable server (local, LAN, tunnel)

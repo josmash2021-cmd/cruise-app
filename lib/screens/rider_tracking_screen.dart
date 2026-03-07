@@ -3,7 +3,6 @@ import 'dart:io' show Platform;
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -13,9 +12,11 @@ import '../config/app_theme.dart';
 import '../config/map_styles.dart';
 import '../config/page_transitions.dart';
 import '../navigation/car_icon_loader.dart';
+import '../services/api_service.dart';
 import '../services/directions_service.dart';
 import '../services/local_data_service.dart';
 import '../services/notification_service.dart';
+import '../services/trip_firestore_service.dart';
 import '../config/api_keys.dart';
 import 'chat_screen.dart';
 import 'home_screen.dart';
@@ -26,17 +27,19 @@ class RiderTrackingScreen extends StatefulWidget {
     required this.pickupLatLng,
     required this.dropoffLatLng,
     this.routePoints,
-    this.driverName = 'Yuniel',
+    this.driverName = 'Driver',
     this.driverRating = 4.9,
-    this.vehicleMake = 'Toyota',
-    this.vehicleModel = 'Camry',
-    this.vehicleColor = 'Gray',
-    this.vehiclePlate = 'ABC-1234',
-    this.vehicleYear = '2022',
+    this.vehicleMake = '',
+    this.vehicleModel = '',
+    this.vehicleColor = '',
+    this.vehiclePlate = '',
+    this.vehicleYear = '',
     this.rideName = 'Fusion',
     this.price = 0,
     this.pickupLabel = '',
     this.dropoffLabel = '',
+    this.tripId,
+    this.firestoreTripId,
     this.onTripComplete,
   });
 
@@ -54,6 +57,8 @@ class RiderTrackingScreen extends StatefulWidget {
   final double price;
   final String pickupLabel;
   final String dropoffLabel;
+  final int? tripId;
+  final String? firestoreTripId;
   final VoidCallback? onTripComplete;
 
   @override
@@ -77,7 +82,7 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
 
   _TrackPhase _phase = _TrackPhase.arriving;
   bool _greetingSent = false;
-  bool _arrivedNotifSent = false;
+  final bool _arrivedNotifSent = false;
   LatLng _driverPos = const LatLng(0, 0);
   LatLng _animPos = const LatLng(0, 0);
   double _driverBearing = 0;
@@ -100,8 +105,6 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
     'Good conversation',
   ];
 
-  Timer? _simTimer;
-  int _simStep = 0;
   int _pickupIdx = 0;
 
   /// Cumulative distance array — _segDist[i] = total meters from start to point i.
@@ -114,7 +117,7 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
 
   /// Target traveled distance (set by sim timer, approached smoothly by interp timer)
   double _tgtTraveledM = 0;
-  double _tgtBrg = 0;
+  final double _tgtBrg = 0;
   Timer? _camTimer;
   bool _userMovedMap = false;
   bool _programmaticCam = false;
@@ -123,6 +126,11 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
   double _camSWLat = 0, _camSWLng = 0, _camNELat = 0, _camNELng = 0;
   double _tgtSWLat = 0, _tgtSWLng = 0, _tgtNELat = 0, _tgtNELng = 0;
   bool _camInitialized = false;
+
+  // ── Real-time tracking via Firestore ──
+  StreamSubscription<LatLng>? _driverLocSub;
+  StreamSubscription<Map<String, dynamic>?>? _tripStatusSub;
+  Timer? _statusPollTimer;
 
   late AnimationController _etaPulse;
 
@@ -146,6 +154,7 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
       const Duration(milliseconds: 16),
       _interpolate,
     );
+    _startRealTimeTracking();
     // Send greeting notification after 3 seconds
     Future.delayed(const Duration(seconds: 3), _sendDriverGreeting);
     // Notify rider that a driver was assigned
@@ -155,11 +164,143 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
     );
   }
 
+  /// Connect to Firestore for real-time driver location and trip status.
+  void _startRealTimeTracking() {
+    final fsId = widget.firestoreTripId;
+    if (fsId != null && fsId.isNotEmpty) {
+      // Watch driver location in real time
+      _driverLocSub = TripFirestoreService.watchDriverLocation(fsId).listen((
+        ll,
+      ) {
+        if (!mounted || _phase == _TrackPhase.completed) return;
+        _onRealDriverLocation(ll);
+      });
+
+      // Watch trip status changes
+      _tripStatusSub = TripFirestoreService.watchTrip(fsId).listen((data) {
+        if (!mounted || data == null) return;
+        _onTripStatusUpdate(data);
+      });
+    }
+
+    // Also poll backend status as fallback
+    final tripId = widget.tripId;
+    if (tripId != null) {
+      _statusPollTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+        if (!mounted || _phase == _TrackPhase.completed) return;
+        try {
+          final status = await ApiService.getTrip(tripId);
+          final st = status['status']?.toString() ?? '';
+          if (st == 'completed') {
+            _statusPollTimer?.cancel();
+            if (mounted && _phase != _TrackPhase.completed) {
+              LocalDataService.clearActiveRide();
+              setState(() => _phase = _TrackPhase.completed);
+            }
+          } else if (st == 'cancelled' || st == 'canceled') {
+            _statusPollTimer?.cancel();
+            if (mounted) {
+              LocalDataService.clearActiveRide();
+              widget.onTripComplete?.call();
+            }
+          }
+        } catch (_) {}
+      });
+    }
+  }
+
+  /// Process real-time driver location from Firestore.
+  void _onRealDriverLocation(LatLng ll) {
+    if (ll.latitude == 0 && ll.longitude == 0) return;
+
+    // Project real driver position onto the route polyline to get _tgtTraveledM
+    // so the interpolation timer smoothly animates the car along the route.
+    if (_segDist.isNotEmpty && _routePts.length >= 2) {
+      _tgtTraveledM = _projectOntoRoute(ll);
+    }
+
+    // Update distance/ETA based on current phase
+    if (_phase == _TrackPhase.arriving) {
+      final dist = _hav(ll, widget.pickupLatLng);
+      _distanceMiles = dist;
+      _etaMinutes = (dist / 0.5).ceil().clamp(1, 99);
+      if (dist < 0.05) {
+        setState(() => _phase = _TrackPhase.arrived);
+        _sendRideNotification(
+          'Your driver has arrived',
+          '${widget.driverName.split(' ').first} is waiting at the pickup spot in a ${widget.vehicleColor} ${widget.vehicleModel}.',
+        );
+      }
+    } else if (_phase == _TrackPhase.onTrip) {
+      final dist = _hav(ll, widget.dropoffLatLng);
+      _distanceMiles = dist;
+      _etaMinutes = (dist / 0.5).ceil().clamp(1, 99);
+    }
+
+    setState(() {});
+    _throttleCam();
+  }
+
+  /// Project a lat/lng onto the nearest point on the route polyline,
+  /// returning the cumulative distance in meters along the route.
+  double _projectOntoRoute(LatLng p) {
+    double bestDist = double.infinity;
+    double bestM = 0;
+
+    for (int i = 0; i + 1 < _routePts.length; i++) {
+      final a = _routePts[i];
+      final b = _routePts[i + 1];
+      final segLen = _segDist[i + 1] - _segDist[i];
+      if (segLen < 0.01) continue;
+
+      // Project p onto segment a→b using simple lat/lng linear approximation
+      final dx = b.longitude - a.longitude;
+      final dy = b.latitude - a.latitude;
+      var t = 0.0;
+      if (dx != 0 || dy != 0) {
+        t =
+            ((p.longitude - a.longitude) * dx +
+                (p.latitude - a.latitude) * dy) /
+            (dx * dx + dy * dy);
+        t = t.clamp(0.0, 1.0);
+      }
+      final projLat = a.latitude + dy * t;
+      final projLng = a.longitude + dx * t;
+
+      final dist = _hav(p, LatLng(projLat, projLng));
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestM = _segDist[i] + segLen * t;
+      }
+    }
+
+    return bestM;
+  }
+
+  /// Process trip status changes from Firestore.
+  void _onTripStatusUpdate(Map<String, dynamic> data) {
+    final status = data['status']?.toString() ?? '';
+    if (status == 'driver_arrived' && _phase == _TrackPhase.arriving) {
+      setState(() => _phase = _TrackPhase.arrived);
+    } else if (status == 'in_progress' &&
+        (_phase == _TrackPhase.arriving || _phase == _TrackPhase.arrived)) {
+      setState(() => _phase = _TrackPhase.onTrip);
+    } else if (status == 'completed' && _phase != _TrackPhase.completed) {
+      LocalDataService.clearActiveRide();
+      setState(() => _phase = _TrackPhase.completed);
+    } else if (status == 'cancelled') {
+      LocalDataService.clearActiveRide();
+      widget.onTripComplete?.call();
+    }
+  }
+
   @override
   void dispose() {
-    _simTimer?.cancel();
     _interpTimer?.cancel();
     _camTimer?.cancel();
+    _driverLocSub?.cancel();
+    _tripStatusSub?.cancel();
+    _statusPollTimer?.cancel();
     _etaPulse.dispose();
     super.dispose();
   }
@@ -419,125 +560,29 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
       tripRoute = [widget.pickupLatLng, widget.dropoffLatLng];
     }
 
-    // 2) Create a simulated driver start ~1.6 km away from pickup
-    //    Pick a random bearing and offset the position
-    final rng = math.Random();
-    final bearing = rng.nextDouble() * 360;
-    const distKm = 1.6;
-    final lat0 = widget.pickupLatLng.latitude;
-    final lng0 = widget.pickupLatLng.longitude;
-    final dLat = (distKm / 111.32) * math.cos(bearing * math.pi / 180);
-    final dLng =
-        (distKm / (111.32 * math.cos(lat0 * math.pi / 180))) *
-        math.sin(bearing * math.pi / 180);
-    final driverStart = LatLng(lat0 + dLat, lng0 + dLng);
-
-    // 3) Fetch approach route (driverStart → pickup) via Directions API
-    List<LatLng> approachRoute = [];
-    try {
-      final ds = DirectionsService(ApiKeys.webServices);
-      final ar = await ds.getRoute(
-        origin: driverStart,
-        destination: widget.pickupLatLng,
-      );
-      if (ar != null) approachRoute = ar.points;
-    } catch (_) {}
-    if (approachRoute.isEmpty) {
-      // Fallback: straight-line interpolation
-      approachRoute = List.generate(30, (i) {
-        final t = i / 29;
-        return LatLng(
-          driverStart.latitude +
-              (widget.pickupLatLng.latitude - driverStart.latitude) * t,
-          driverStart.longitude +
-              (widget.pickupLatLng.longitude - driverStart.longitude) * t,
-        );
-      });
-    }
-
-    // 4) Combine: approach route + trip route
-    //    The pickupIdx is where approach ends and trip starts
-    _pickupIdx = approachRoute.length - 1;
-    _routePts = [...approachRoute, ...tripRoute.skip(1)];
+    // 2) Set up route — driver position comes from Firestore in real time
+    _pickupIdx = 0;
+    _routePts = tripRoute;
 
     // Build cumulative distance array
     _buildSegDist();
 
-    // 5) Driver starts at distance 0
+    // 3) Driver starts at pickup (will be updated by Firestore stream)
     _traveledM = 0;
     _tgtTraveledM = 0;
-    _driverPos = _routePts[0];
+    _driverPos = widget.pickupLatLng;
     _animPos = _driverPos;
-    _simStep = 0;
 
-    // 6) Calculate initial distance from driver to pickup (miles)
+    // 4) Calculate pickup → dropoff distance
     double acc = 0;
-    for (int i = 0; i < _pickupIdx && i + 1 < _routePts.length; i++) {
+    for (int i = 0; i + 1 < _routePts.length; i++) {
       acc += _hav(_routePts[i], _routePts[i + 1]);
     }
     _distanceMiles = acc;
     _etaMinutes = (acc / 0.5).ceil().clamp(1, 99);
 
-    _startSim();
     setState(() {});
     Future.delayed(const Duration(milliseconds: 600), _fitAllPoints);
-  }
-
-  void _startSim() {
-    _simTimer?.cancel();
-    // ~40 km/h → ~11.1 m/s → ~1.3 m per 120ms tick
-    const tickMs = 120;
-    const mPerTick = 1.3;
-
-    final pickupDistM = _pickupIdx < _segDist.length
-        ? _segDist[_pickupIdx]
-        : 0.0;
-    final totalDistM = _segDist.isNotEmpty ? _segDist.last : 0.0;
-
-    _simTimer = Timer.periodic(const Duration(milliseconds: tickMs), (t) {
-      if (!mounted) {
-        t.cancel();
-        return;
-      }
-      if (_phase == _TrackPhase.completed) {
-        t.cancel();
-        return;
-      }
-
-      _tgtTraveledM = math.min(_tgtTraveledM + mPerTick, totalDistM);
-
-      // Phase transitions
-      if (_phase == _TrackPhase.arriving && _tgtTraveledM >= pickupDistM) {
-        setState(() => _phase = _TrackPhase.arrived);
-        if (!_arrivedNotifSent) {
-          _arrivedNotifSent = true;
-          _sendRideNotification(
-            'Your driver has arrived',
-            '${widget.driverName.split(' ').first} is waiting at the pickup spot in a ${widget.vehicleColor} ${widget.vehicleModel}.',
-          );
-        }
-        Timer(const Duration(seconds: 3), () {
-          if (mounted) setState(() => _phase = _TrackPhase.onTrip);
-        });
-      }
-      if (_tgtTraveledM >= totalDistM) {
-        t.cancel();
-        LocalDataService.clearActiveRide();
-        setState(() => _phase = _TrackPhase.completed);
-        return;
-      }
-
-      // Calculate remaining distance for ETA
-      final targetDistM =
-          _phase == _TrackPhase.arriving || _phase == _TrackPhase.arrived
-          ? pickupDistM
-          : totalDistM;
-      final remainingMi =
-          math.max(0.0, (targetDistM - _tgtTraveledM)) / 1609.34;
-      _etaMinutes = (remainingMi / 0.5).ceil().clamp(1, 99);
-      _distanceMiles = remainingMi;
-      _throttleCam();
-    });
   }
 
   void _interpolate(Timer t) {
@@ -734,11 +779,12 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
   /// Returns (position, bearing) at a given distance along the route (meters).
   (LatLng, double) _posAtDist(double distM) {
     if (_routePts.isEmpty) return (const LatLng(0, 0), 0);
-    if (distM <= 0)
+    if (distM <= 0) {
       return (
         _routePts.first,
         _bearing(_routePts[0], _routePts[math.min(1, _routePts.length - 1)]),
       );
+    }
     final totalM = _segDist.last;
     if (distM >= totalM) return (_routePts.last, _driverBearing);
 
@@ -767,7 +813,9 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
     if (lookAhead > _segDist[hi]) {
       llo = hi;
       lhi = math.min(hi + 1, _segDist.length - 1);
-      while (lhi < _segDist.length - 1 && _segDist[lhi] < lookAhead) lhi++;
+      while (lhi < _segDist.length - 1 && _segDist[lhi] < lookAhead) {
+        lhi++;
+      }
     }
     final lt = (_segDist[lhi] - _segDist[llo]) > 0.01
         ? (lookAhead - _segDist[llo]) / (_segDist[lhi] - _segDist[llo])
@@ -826,23 +874,18 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
                       polylines: _applePolylines(),
                     )
                   : GoogleMap(
+                      style: MapStyles.dark,
                       initialCameraPosition: CameraPosition(
                         target: widget.pickupLatLng,
                         zoom: 14,
                       ),
                       onMapCreated: (ctrl) {
                         _map = ctrl;
-                        // On Android apply dark style; skip on iOS to avoid grey tiles
-                        if (!kIsWeb && !Platform.isIOS) {
-                          Future.delayed(const Duration(milliseconds: 150), () {
-                            // ignore: deprecated_member_use
-                            ctrl.setMapStyle(MapStyles.dark);
-                          });
-                        }
                       },
                       onCameraMoveStarted: () {
-                        if (!_programmaticCam)
+                        if (!_programmaticCam) {
                           setState(() => _userMovedMap = true);
+                        }
                       },
                       onCameraIdle: () => _programmaticCam = false,
                       markers: _markers(),
@@ -1044,7 +1087,7 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
           rotation: _animBearing,
           anchor: const Offset(0.5, 0.5),
           flat: true,
-          zIndex: 10,
+          zIndexInt: 10,
         ),
       );
     }
@@ -1053,7 +1096,7 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
         markerId: const MarkerId('pickup'),
         position: widget.pickupLatLng,
         icon: pickupPin,
-        zIndex: 5,
+        zIndexInt: 5,
         infoWindow: const InfoWindow(title: 'Pickup spot'),
       ),
     );
@@ -1063,7 +1106,7 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
         markerId: const MarkerId('drop'),
         position: widget.dropoffLatLng,
         icon: dropoffPin,
-        zIndex: 5,
+        zIndexInt: 5,
       ),
     );
     return m;
@@ -1149,7 +1192,9 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
     // Remaining route (blue) from driver position
     int idx = 0;
     if (_segDist.isNotEmpty) {
-      while (idx < _segDist.length - 1 && _segDist[idx + 1] < _traveledM) idx++;
+      while (idx < _segDist.length - 1 && _segDist[idx + 1] < _traveledM) {
+        idx++;
+      }
     }
     final remaining = [_animPos, ..._routePts.sublist(idx + 1)];
     if (remaining.length >= 2) {
@@ -1501,7 +1546,7 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
     final first = widget.driverName.split(' ').first;
     const gold = Color(0xFFD4A843);
 
-    String _starLabel() {
+    String starLabel() {
       switch (_ratingStars) {
         case 1:
           return 'Poor';
@@ -1592,7 +1637,7 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
 
               // ── Star label ──
               Text(
-                _starLabel(),
+                starLabel(),
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
@@ -1952,8 +1997,8 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
                     // Navigate to rider home with smooth fade
                     Navigator.of(context).pushAndRemoveUntil(
                       PageRouteBuilder(
-                        pageBuilder: (_, __, ___) => const HomeScreen(),
-                        transitionsBuilder: (_, anim, __, child) {
+                        pageBuilder: (_, _, _) => const HomeScreen(),
+                        transitionsBuilder: (_, anim, _, child) {
                           return FadeTransition(opacity: anim, child: child);
                         },
                         transitionDuration: const Duration(milliseconds: 500),

@@ -142,6 +142,17 @@ class _LoginVerifyScreenState extends State<LoginVerifyScreen>
           }
         }
       }
+      // Validate that this account is a rider
+      final backendRole = user['role'] as String? ?? 'rider';
+      if (backendRole == 'driver') {
+        setState(() {
+          _errorText =
+              'This account is registered as a driver. Please use Driver login.';
+          _verifying = false;
+        });
+        return;
+      }
+
       await UserSession.saveUser(
         firstName: user['first_name'] ?? '',
         lastName: user['last_name'] ?? '',
@@ -149,6 +160,7 @@ class _LoginVerifyScreenState extends State<LoginVerifyScreen>
         phone: user['phone'] ?? '',
         photoPath: existingPhoto.isNotEmpty ? existingPhoto : null,
         userId: user['id'] as int?,
+        role: 'rider',
       );
       await UserSession.saveMode('rider');
       await UserSession.initPhotoNotifier();

@@ -201,7 +201,7 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
                           Switch.adaptive(
                             value: _systemEnabled,
                             onChanged: _handleSystemToggle,
-                            activeColor: _gold,
+                            activeThumbColor: _gold,
                           ),
                         ],
                       ),

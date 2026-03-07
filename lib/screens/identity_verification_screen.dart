@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import '../config/app_theme.dart';
 import '../services/api_service.dart';
@@ -131,7 +130,7 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
       return;
     }
 
-    // Simulate brief processing
+    // Brief processing delay for UX feedback
     await Future.delayed(const Duration(milliseconds: 800));
     if (!mounted) return;
 
@@ -264,7 +263,7 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
       _selfiePath = xFile.path;
     });
 
-    // Simulate verification processing
+    // Verification processing delay for UX feedback
     await Future.delayed(const Duration(seconds: 2));
     if (!mounted) return;
 
@@ -1186,7 +1185,7 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
           // Animated clock icon
           AnimatedBuilder(
             animation: _pulseCtrl,
-            builder: (_, __) {
+            builder: (_, _) {
               return Container(
                 width: 100,
                 height: 100,

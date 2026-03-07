@@ -378,6 +378,16 @@ class LocalDataService {
     return prefs.getString(_cardBrandKey);
   }
 
+  static Future<List<String>?> getStringList(String key) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList(key);
+  }
+
+  static Future<void> saveStringList(String key, List<String> value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(key, value);
+  }
+
   /// Detect card brand from the card number (BIN ranges).
   static String detectCardBrand(String cardNumber) {
     final digits = cardNumber.replaceAll(RegExp(r'\s'), '');
@@ -564,6 +574,33 @@ class LocalDataService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_biometricKey, enabled);
   }
+
+  /// Clear ALL user-specific data on logout so accounts are independent.
+  static Future<void> clearAllUserData() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_favoritesKey);
+    await prefs.remove(_tripHistoryKey);
+    await prefs.remove(_usageKey);
+    await prefs.remove(_notificationsKey);
+    await prefs.remove(_promoKey);
+    await prefs.remove(_promoMonthKey);
+    await prefs.remove(_linkedPaymentsKey);
+    await prefs.remove(_cardLast4Key);
+    await prefs.remove(_cardBrandKey);
+    await prefs.remove(_stripePaymentMethodIdKey);
+    await prefs.remove(_activeRideKey);
+    await prefs.remove(_verifiedKey);
+    await prefs.remove(_docTypeKey);
+    await prefs.remove(_biometricKey);
+    await prefs.remove('first_ride_promo_used');
+    await prefs.remove('promo_trips_left');
+    await prefs.remove('notif_ride');
+    await prefs.remove('notif_promo');
+    await prefs.remove('notif_safety');
+    await prefs.remove('notif_payment');
+    await prefs.remove('notif_sounds');
+    await prefs.remove('notif_vibrate');
+  }
 }
 
 /// Persisted info about a ride in progress so the rider can resume it.
@@ -584,6 +621,8 @@ class ActiveRideInfo {
   final String rideName;
   final double price;
   final List<List<double>> routePoints;
+  final int? tripId;
+  final String? firestoreTripId;
 
   const ActiveRideInfo({
     required this.pickupLat,
@@ -602,6 +641,8 @@ class ActiveRideInfo {
     required this.rideName,
     required this.price,
     required this.routePoints,
+    this.tripId,
+    this.firestoreTripId,
   });
 
   Map<String, dynamic> toJson() => {
@@ -621,6 +662,8 @@ class ActiveRideInfo {
     'rideName': rideName,
     'price': price,
     'routePoints': routePoints,
+    'tripId': tripId,
+    'firestoreTripId': firestoreTripId,
   };
 
   static ActiveRideInfo fromJson(Map<String, dynamic> j) => ActiveRideInfo(
@@ -644,5 +687,7 @@ class ActiveRideInfo {
             ?.map((p) => (p as List).map((v) => (v as num).toDouble()).toList())
             .toList() ??
         [],
+    tripId: j['tripId'] as int?,
+    firestoreTripId: j['firestoreTripId'] as String?,
   );
 }

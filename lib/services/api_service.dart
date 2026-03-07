@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'security_service.dart';
 
 /// Communicates with the Cruise Ride backend (FastAPI + PostgreSQL).
 ///
@@ -135,44 +136,103 @@ class ApiService {
   static const String _hmacSecret =
       'qUDmTNu1Dxxg_xo7kaUfRba4XiU_5H1ZhkUMDuVrD2dLQ2ImT8JXZ5FgUyXpSJ5h';
 
-  // ── Token persistence ────────────────────────────────
+  // ── Token persistence (encrypted via Keystore/Keychain) ──
 
   static const String _tokenKey = 'cruise_jwt_token';
+  static const String _refreshTokenKey = 'cruise_refresh_token';
   static String? _cachedToken;
+  static String? _cachedRefreshToken;
+  static bool _isRefreshing = false;
 
   static Future<void> _saveToken(String token) async {
     _cachedToken = token;
+    await SecurityService.storeCredential('jwt', token);
+    final fp = SecurityService.createTokenFingerprint(token);
+    await SecurityService.storeCredential('token_fp', fp);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_tokenKey, token);
+    SecurityService.logSecurityEvent('token_stored');
+  }
+
+  static Future<void> _saveRefreshToken(String token) async {
+    _cachedRefreshToken = token;
+    await SecurityService.storeCredential('refresh_jwt', token);
   }
 
   static Future<String?> getToken() async {
     if (_cachedToken != null) return _cachedToken;
+    final secureToken = await SecurityService.readCredential('jwt');
+    if (secureToken != null && secureToken.isNotEmpty) {
+      _cachedToken = secureToken;
+      return _cachedToken;
+    }
     final prefs = await SharedPreferences.getInstance();
     _cachedToken = prefs.getString(_tokenKey);
+    if (_cachedToken != null) {
+      await SecurityService.storeCredential('jwt', _cachedToken!);
+    }
     return _cachedToken;
+  }
+
+  static Future<String?> _getRefreshToken() async {
+    if (_cachedRefreshToken != null) return _cachedRefreshToken;
+    _cachedRefreshToken = await SecurityService.readCredential('refresh_jwt');
+    return _cachedRefreshToken;
+  }
+
+  /// Attempt to refresh the access token using the refresh token.
+  /// Returns true if successful, false otherwise.
+  static Future<bool> refreshAccessToken() async {
+    if (_isRefreshing) return false;
+    _isRefreshing = true;
+    try {
+      final refreshToken = await _getRefreshToken();
+      if (refreshToken == null) return false;
+      final res = await http
+          .post(
+            Uri.parse('$_baseUrl/auth/refresh'),
+            headers: _jsonHeaders(refreshToken),
+          )
+          .timeout(const Duration(seconds: 10));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        await _saveToken(data['access_token'] as String);
+        if (data['refresh_token'] != null) {
+          await _saveRefreshToken(data['refresh_token'] as String);
+        }
+        SecurityService.logSecurityEvent('token_refreshed');
+        return true;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    } finally {
+      _isRefreshing = false;
+    }
   }
 
   static Future<void> clearToken() async {
     _cachedToken = null;
+    _cachedRefreshToken = null;
+    await SecurityService.deleteCredential('jwt');
+    await SecurityService.deleteCredential('token_fp');
+    await SecurityService.deleteCredential('refresh_jwt');
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_tokenKey);
+    SecurityService.logSecurityEvent('token_cleared');
   }
 
   // ── Helpers ──────────────────────────────────────────
 
-  static final _rng = Random.secure();
+  /// Generate a cryptographically secure 32-char hex nonce (L2: anti-replay).
+  static String _generateNonce() => SecurityService.generateNonce();
 
-  /// Generate a random 16-char hex nonce for anti-replay uniqueness.
-  static String _generateNonce() {
-    final bytes = List<int>.generate(8, (_) => _rng.nextInt(256));
-    return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
-  }
-
-  /// Compute HMAC-SHA256 signature: HMAC(secret, "{apiKey}:{timestamp}:{nonce}")
+  /// Compute HMAC-SHA256 signature: HMAC(secret, "{apiKey}:{timestamp}:{nonce}:{fingerprint}")
+  /// Includes device fingerprint for request binding (L3).
   static String _computeSignature(String timestamp, String nonce) {
     final key = utf8.encode(_hmacSecret);
-    final data = utf8.encode('$_apiKey:$timestamp:$nonce');
+    final fp = SecurityService.deviceFingerprint;
+    final data = utf8.encode('$_apiKey:$timestamp:$nonce:$fp');
     final hmacSha256 = Hmac(sha256, key);
     return hmacSha256.convert(data).toString();
   }
@@ -188,6 +248,8 @@ class ApiService {
       'X-Timestamp': timestamp,
       'X-Nonce': nonce,
       'X-Signature': signature,
+      'X-Device-FP': SecurityService.deviceFingerprint.substring(0, 16),
+      'X-Client-Version': '1.0.0',
       if (token != null) 'Authorization': 'Bearer $token',
     };
   }
@@ -200,7 +262,19 @@ class ApiService {
 
   /// Parse response — returns decoded JSON map.
   /// Throws [ApiException] on non-2xx.
+  /// Verifies response integrity via X-Checksum header (L8).
   static Map<String, dynamic> _parse(http.Response res) {
+    // L8: Verify response integrity if checksum header present
+    final checksum = res.headers['x-response-checksum'];
+    if (checksum != null &&
+        !SecurityService.verifyResponseIntegrity(res.body, checksum)) {
+      SecurityService.logSecurityEvent(
+        'integrity_violation',
+        details: 'Response tampered: ${res.request?.url.path}',
+      );
+      throw const ApiException(0, 'Response integrity check failed');
+    }
+
     final body = jsonDecode(res.body);
     if (res.statusCode >= 200 && res.statusCode < 300) {
       return body is Map<String, dynamic> ? body : {'data': body};
@@ -304,6 +378,9 @@ class ApiService {
     final data = _parse(res);
     final token = data['access_token'] as String;
     await _saveToken(token);
+    if (data['refresh_token'] != null) {
+      await _saveRefreshToken(data['refresh_token'] as String);
+    }
     // Clear stale user cache so getCurrentUserId fetches fresh data
     _cachedUser = data['user'] as Map<String, dynamic>?;
     debugPrint('✅ Login complete — user ${data['user']['id']}');
@@ -321,11 +398,23 @@ class ApiService {
           .get(Uri.parse('$_baseUrl/auth/me'), headers: _jsonHeaders(token))
           .timeout(const Duration(seconds: 5));
       if (res.statusCode == 200) return jsonDecode(res.body);
-      // Never auto-clear token — session persists until explicit sign-out
+      // Auto-refresh on 401
+      if (res.statusCode == 401) {
+        final refreshed = await refreshAccessToken();
+        if (refreshed) {
+          final newToken = await getToken();
+          final retry = await http
+              .get(
+                Uri.parse('$_baseUrl/auth/me'),
+                headers: _jsonHeaders(newToken),
+              )
+              .timeout(const Duration(seconds: 5));
+          if (retry.statusCode == 200) return jsonDecode(retry.body);
+        }
+      }
       return null;
     } catch (e) {
-      // Network errors / timeouts — keep the token, user is still logged in
-      debugPrint('⚠️  getMe failed (offline?): $e');
+      debugPrint('\u26a0\ufe0f  getMe failed (offline?): $e');
       return null;
     }
   }
@@ -1022,6 +1111,239 @@ class ApiService {
       }
     } catch (_) {}
     return 0;
+  }
+
+  // ═══════════════════════════════════════════════════════
+  //  VEHICLE  ENDPOINTS
+  // ═══════════════════════════════════════════════════════
+
+  /// Get the driver's vehicle info.
+  static Future<Map<String, dynamic>?> getVehicle() async {
+    final h = await _authHeaders();
+    final res = await http
+        .get(Uri.parse('$_baseUrl/drivers/vehicle'), headers: h)
+        .timeout(const Duration(seconds: 8));
+    final data = _parse(res);
+    return data['vehicle'] as Map<String, dynamic>?;
+  }
+
+  /// Create or update the driver's vehicle.
+  static Future<Map<String, dynamic>> saveVehicle({
+    required String make,
+    required String model,
+    required int year,
+    String? color,
+    required String plate,
+    String? vin,
+    String? vehicleType,
+  }) async {
+    final h = await _authHeaders();
+    final res = await http
+        .post(
+          Uri.parse('$_baseUrl/drivers/vehicle'),
+          headers: h,
+          body: jsonEncode({
+            'make': make,
+            'model': model,
+            'year': year,
+            'color': ?color,
+            'plate': plate,
+            'vin': ?vin,
+            'vehicle_type': ?vehicleType,
+          }),
+        )
+        .timeout(const Duration(seconds: 10));
+    return _parse(res);
+  }
+
+  // ═══════════════════════════════════════════════════════
+  //  DOCUMENT  ENDPOINTS
+  // ═══════════════════════════════════════════════════════
+
+  /// Get all driver documents.
+  static Future<List<Map<String, dynamic>>> getDocuments() async {
+    final h = await _authHeaders();
+    final res = await http
+        .get(Uri.parse('$_baseUrl/drivers/documents'), headers: h)
+        .timeout(const Duration(seconds: 8));
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      final list = jsonDecode(res.body) as List;
+      return list.cast<Map<String, dynamic>>();
+    }
+    return [];
+  }
+
+  /// Upload a document (base64 photo).
+  static Future<Map<String, dynamic>> uploadDocument({
+    required String docType,
+    String? photoBase64,
+    String? docNumber,
+    String? expiryDate,
+  }) async {
+    final h = await _authHeaders();
+    final res = await http
+        .post(
+          Uri.parse('$_baseUrl/drivers/documents'),
+          headers: h,
+          body: jsonEncode({
+            'doc_type': docType,
+            'photo': ?photoBase64,
+            'doc_number': ?docNumber,
+            'expiry_date': ?expiryDate,
+          }),
+        )
+        .timeout(const Duration(seconds: 30));
+    return _parse(res);
+  }
+
+  // ═══════════════════════════════════════════════════════
+  //  RATING  ENDPOINTS
+  // ═══════════════════════════════════════════════════════
+
+  /// Submit a rating for a trip.
+  static Future<Map<String, dynamic>> rateTrip({
+    required int tripId,
+    required int stars,
+    String? comment,
+    double tipAmount = 0.0,
+  }) async {
+    final h = await _authHeaders();
+    final res = await http
+        .post(
+          Uri.parse('$_baseUrl/trips/$tripId/rate'),
+          headers: h,
+          body: jsonEncode({
+            'stars': stars,
+            'comment': ?comment,
+            'tip_amount': tipAmount,
+          }),
+        )
+        .timeout(const Duration(seconds: 10));
+    return _parse(res);
+  }
+
+  /// Get ratings for a user.
+  static Future<Map<String, dynamic>> getUserRatings(int userId) async {
+    final h = await _authHeaders();
+    final res = await http
+        .get(Uri.parse('$_baseUrl/users/$userId/ratings'), headers: h)
+        .timeout(const Duration(seconds: 8));
+    return _parse(res);
+  }
+
+  // ═══════════════════════════════════════════════════════
+  //  CHAT  ENDPOINTS
+  // ═══════════════════════════════════════════════════════
+
+  /// Send a chat message during a trip.
+  static Future<Map<String, dynamic>> sendChatMessage({
+    required int tripId,
+    required String message,
+  }) async {
+    final h = await _authHeaders();
+    final res = await http
+        .post(
+          Uri.parse('$_baseUrl/trips/$tripId/chat'),
+          headers: h,
+          body: jsonEncode({'message': message}),
+        )
+        .timeout(const Duration(seconds: 8));
+    return _parse(res);
+  }
+
+  /// Get chat messages for a trip.
+  static Future<List<Map<String, dynamic>>> getChatMessages(int tripId) async {
+    final h = await _authHeaders();
+    final res = await http
+        .get(Uri.parse('$_baseUrl/trips/$tripId/chat'), headers: h)
+        .timeout(const Duration(seconds: 8));
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      final list = jsonDecode(res.body) as List;
+      return list.cast<Map<String, dynamic>>();
+    }
+    return [];
+  }
+
+  // ═══════════════════════════════════════════════════════
+  //  NOTIFICATION  ENDPOINTS
+  // ═══════════════════════════════════════════════════════
+
+  /// Get user notifications.
+  static Future<List<Map<String, dynamic>>> getNotifications() async {
+    final h = await _authHeaders();
+    final res = await http
+        .get(Uri.parse('$_baseUrl/notifications'), headers: h)
+        .timeout(const Duration(seconds: 8));
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      final list = jsonDecode(res.body) as List;
+      return list.cast<Map<String, dynamic>>();
+    }
+    return [];
+  }
+
+  /// Mark a notification as read.
+  static Future<void> markNotificationRead(int notifId) async {
+    final h = await _authHeaders();
+    await http
+        .patch(Uri.parse('$_baseUrl/notifications/$notifId/read'), headers: h)
+        .timeout(const Duration(seconds: 5));
+  }
+
+  /// Mark all notifications as read.
+  static Future<void> markAllNotificationsRead() async {
+    final h = await _authHeaders();
+    await http
+        .post(Uri.parse('$_baseUrl/notifications/read-all'), headers: h)
+        .timeout(const Duration(seconds: 5));
+  }
+
+  // ═══════════════════════════════════════════════════════
+  //  FORGOT PASSWORD
+  // ═══════════════════════════════════════════════════════
+
+  /// Request a password reset code.
+  static Future<Map<String, dynamic>> forgotPassword(String identifier) async {
+    final res = await http
+        .post(
+          Uri.parse('$_baseUrl/auth/forgot-password'),
+          headers: _jsonHeaders(),
+          body: jsonEncode({'identifier': identifier}),
+        )
+        .timeout(const Duration(seconds: 10));
+    return _parse(res);
+  }
+
+  /// Reset password with the code received.
+  static Future<Map<String, dynamic>> resetPassword({
+    required String code,
+    required String newPassword,
+  }) async {
+    final res = await http
+        .post(
+          Uri.parse('$_baseUrl/auth/reset-password'),
+          headers: _jsonHeaders(),
+          body: jsonEncode({'code': code, 'new_password': newPassword}),
+        )
+        .timeout(const Duration(seconds: 10));
+    return _parse(res);
+  }
+
+  // ═══════════════════════════════════════════════════════
+  //  PROMO CODE
+  // ═══════════════════════════════════════════════════════
+
+  /// Validate and redeem a promo code.
+  /// Returns `{"code": "...", "discount_percent": 15, "message": "..."}`.
+  static Future<Map<String, dynamic>> validatePromoCode(String code) async {
+    final h = await _authHeaders();
+    final res = await http
+        .post(
+          Uri.parse('$_baseUrl/promo/validate'),
+          headers: h,
+          body: jsonEncode({'code': code}),
+        )
+        .timeout(const Duration(seconds: 8));
+    return _parse(res);
   }
 }
 

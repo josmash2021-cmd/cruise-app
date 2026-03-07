@@ -11,6 +11,7 @@ import '../services/local_data_service.dart';
 import '../services/sms_service.dart';
 import '../services/user_session.dart';
 import 'login_verify_screen.dart';
+import 'forgot_password_screen.dart';
 import 'map_screen.dart';
 
 /// Screen for users who already have an account — enter email/phone + password.
@@ -32,6 +33,7 @@ class _LoginPasswordScreenState extends State<LoginPasswordScreen> {
   bool _loading = false;
   String? _errorText;
   bool _biometricAvailable = false;
+  BiometricIconType _biometricType = BiometricIconType.faceId;
 
   @override
   void initState() {
@@ -48,7 +50,14 @@ class _LoginPasswordScreenState extends State<LoginPasswordScreen> {
     final canCheck =
         await auth.canCheckBiometrics || await auth.isDeviceSupported();
     if (mounted && canCheck) {
-      setState(() => _biometricAvailable = true);
+      final types = await auth.getAvailableBiometrics();
+      final isFace = types.contains(BiometricType.face);
+      setState(() {
+        _biometricAvailable = true;
+        _biometricType = isFace
+            ? BiometricIconType.faceId
+            : BiometricIconType.fingerprint;
+      });
     }
   }
 
@@ -69,11 +78,12 @@ class _LoginPasswordScreenState extends State<LoginPasswordScreen> {
         ),
       );
       if (!ok) {
-        if (mounted)
+        if (mounted) {
           setState(() {
             _loading = false;
             _errorText = 'Biometric authentication failed';
           });
+        }
         return;
       }
       // Biometric passed — check if user session still exists
@@ -96,11 +106,12 @@ class _LoginPasswordScreenState extends State<LoginPasswordScreen> {
         });
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _loading = false;
           _errorText = 'Biometric error: $e';
         });
+      }
     }
   }
 
@@ -119,36 +130,6 @@ class _LoginPasswordScreenState extends State<LoginPasswordScreen> {
         _errorText = null;
       });
     }
-  }
-
-  /// Bypass all security and login directly as a dev rider.
-  Future<void> _bypassLogin() async {
-    setState(() {
-      _loading = true;
-      _errorText = null;
-    });
-    try {
-      // Offline-first: save a mock dev session without hitting the backend.
-      await UserSession.saveUser(
-        firstName: 'Rider',
-        lastName: 'Dev',
-        email: 'rider@cruise.app',
-        userId: 1,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _errorText = 'Quick access failed: $e';
-      });
-      return;
-    }
-    await UserSession.saveMode('rider');
-    if (!mounted) return;
-    setState(() => _loading = false);
-    Navigator.of(
-      context,
-    ).pushAndRemoveUntil(slideFromRightRoute(const MapScreen()), (_) => false);
   }
 
   String _generateCode() {
@@ -569,6 +550,25 @@ class _LoginPasswordScreenState extends State<LoginPasswordScreen> {
                       )
                     : const SizedBox.shrink(),
               ),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerRight,
+                child: GestureDetector(
+                  onTap: () {
+                    Navigator.of(
+                      context,
+                    ).push(slideFromRightRoute(const ForgotPasswordScreen()));
+                  },
+                  child: const Text(
+                    'Forgot password?',
+                    style: TextStyle(
+                      color: _gold,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
               const SizedBox(height: 28),
 
               // ── Sign in button ──
@@ -634,9 +634,15 @@ class _LoginPasswordScreenState extends State<LoginPasswordScreen> {
                         ),
                       ),
                       onPressed: _loading ? null : _loginWithBiometric,
-                      icon: const AnimatedBiometricIcon(size: 24, color: _gold),
-                      label: const Text(
-                        'Sign in with Face ID / Fingerprint',
+                      icon: AnimatedBiometricIcon(
+                        size: 24,
+                        color: _gold,
+                        type: _biometricType,
+                      ),
+                      label: Text(
+                        _biometricType == BiometricIconType.faceId
+                            ? 'Sign in with Face ID'
+                            : 'Sign in with Fingerprint',
                         style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
@@ -646,19 +652,7 @@ class _LoginPasswordScreenState extends State<LoginPasswordScreen> {
                   ),
                 ),
 
-              // ── Quick Access (Dev) ──
-              Center(
-                child: TextButton.icon(
-                  onPressed: _loading ? null : _bypassLogin,
-                  icon: const Icon(Icons.bolt_rounded, size: 18),
-                  label: const Text(
-                    'Quick Access (Dev)',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                  ),
-                  style: TextButton.styleFrom(foregroundColor: c.textTertiary),
-                ),
-              ),
-
+              // ── Quick Access removed (production) ──
               const Spacer(),
             ],
           ),

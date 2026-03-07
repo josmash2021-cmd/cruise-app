@@ -19,10 +19,9 @@ class DriverNavigationPage extends StatefulWidget {
     super.key,
     required this.pickupLatLng,
     required this.dropoffLatLng,
-    this.tripId = 'demo-trip',
+    this.tripId = '',
     this.initialDriverPos,
     this.routePoints,
-    this.demoMode = false,
     this.riderName = 'Rider',
     this.vehiclePlate = '',
     this.speedLimitMph = 35,
@@ -33,7 +32,6 @@ class DriverNavigationPage extends StatefulWidget {
   final String tripId;
   final LatLng? initialDriverPos;
   final List<LatLng>? routePoints;
-  final bool demoMode;
   final String riderName;
   final String vehiclePlate;
   final int speedLimitMph;
@@ -66,8 +64,6 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
   int _etaMinutes = 0;
 
   StreamSubscription? _gpsSub;
-  Timer? _demoTimer;
-  int _demoIdx = 0;
   bool _muted = false;
   BitmapDescriptor? _arrowIcon;
 
@@ -108,7 +104,6 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
   @override
   void dispose() {
     _gpsSub?.cancel();
-    _demoTimer?.cancel();
     _reFollowTimer?.cancel();
     _motion.dispose();
     _sm.dispose();
@@ -132,7 +127,7 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
       }
     }
     if (mounted) setState(() {});
-    widget.demoMode ? _startDemo() : _startGPS();
+    _startGPS();
   }
 
   void _startGPS() {
@@ -146,27 +141,6 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
           if (!mounted) return;
           _onRawPosition(LatLng(pos.latitude, pos.longitude), pos.heading);
         });
-  }
-
-  void _startDemo() {
-    if (_routePts.length < 2) return;
-    _demoIdx = 0;
-    _demoTimer = Timer.periodic(const Duration(milliseconds: 1200), (_) {
-      if (!mounted) return;
-      _demoIdx = (_demoIdx + 1).clamp(0, _routePts.length - 1);
-      final pt = _routePts[_demoIdx];
-      final prev = _routePts[(_demoIdx - 1).clamp(0, _routePts.length - 1)];
-      final bearing = SmoothMotion.computeBearing(prev, pt);
-      _onRawPosition(pt, bearing);
-      if (_demoIdx >= _routePts.length - 1) {
-        _demoTimer?.cancel();
-        if (_sm.phase == TripPhase.toPickup) {
-          _sm.arriveAtPickup();
-        } else if (_sm.phase == TripPhase.onTrip) {
-          _sm.arriveAtDropoff();
-        }
-      }
-    });
   }
 
   void _onRawPosition(LatLng raw, double rawBearing) {
@@ -235,19 +209,11 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
       _navService.startNavigation(route);
       _snapIdx = 0;
       setState(() {});
-      if (widget.demoMode) {
-        _demoTimer?.cancel();
-        _startDemo();
-      }
     } else if (mounted) {
       _routePts = _makeStraightRoute(_pos, widget.dropoffLatLng);
       _displayRoutePts = List.of(_routePts);
       _snapIdx = 0;
       setState(() {});
-      if (widget.demoMode) {
-        _demoTimer?.cancel();
-        _startDemo();
-      }
     }
   }
 

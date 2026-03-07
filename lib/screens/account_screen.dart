@@ -23,7 +23,7 @@ import 'about_screen.dart';
 import 'ride_history_screen.dart';
 import 'promo_code_screen.dart';
 import 'scheduled_rides_screen.dart';
-import 'driver/driver_home_screen.dart';
+import 'driver/driver_home_screen.dart'; // unused but keep for potential future use
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({super.key});
@@ -272,7 +272,6 @@ class _AccountScreenState extends State<AccountScreen> {
       _MenuItem(Icons.shield_outlined, 'Safety'),
       _MenuItem(Icons.mail_outline_rounded, 'Inbox'),
       _MenuItem(Icons.settings_outlined, 'Settings'),
-      _MenuItem(Icons.directions_car_filled_rounded, 'Drive'),
     ];
 
     return Wrap(
@@ -320,49 +319,28 @@ class _AccountScreenState extends State<AccountScreen> {
               case 'Settings':
                 _openSettings();
                 break;
-              case 'Drive':
-                await UserSession.saveMode('driver');
-                if (!context.mounted) return;
-                // ignore: use_build_context_synchronously
-                Navigator.of(context).pushAndRemoveUntil(
-                  slideFromRightRoute(const DriverHomeScreen()),
-                  (_) => false,
-                );
-                break;
             }
           },
           child: Container(
             width: (MediaQuery.of(context).size.width - 48 - 12) / 2,
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
             decoration: BoxDecoration(
-              color: item.label == 'Drive'
-                  ? _gold.withValues(alpha: 0.10)
-                  : (c.surface),
+              color: c.surface,
               borderRadius: BorderRadius.circular(16),
-              border: item.label == 'Drive'
-                  ? Border.all(color: _gold.withValues(alpha: 0.30))
-                  : (c.isDark
-                        ? null
-                        : Border.all(
-                            color: Colors.black.withValues(alpha: 0.06),
-                          )),
+              border: c.isDark
+                  ? null
+                  : Border.all(color: Colors.black.withValues(alpha: 0.06)),
             ),
             child: Row(
               children: [
-                Icon(
-                  item.icon,
-                  color: item.label == 'Drive' ? _gold : c.textPrimary,
-                  size: 24,
-                ),
+                Icon(item.icon, color: c.textPrimary, size: 24),
                 const SizedBox(width: 14),
                 Text(
                   item.label,
                   style: TextStyle(
                     fontSize: 16,
-                    fontWeight: item.label == 'Drive'
-                        ? FontWeight.w700
-                        : FontWeight.w600,
-                    color: item.label == 'Drive' ? _gold : c.textPrimary,
+                    fontWeight: FontWeight.w600,
+                    color: c.textPrimary,
                   ),
                 ),
               ],
@@ -483,6 +461,7 @@ class _SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<_SettingsScreen> {
   bool _biometricEnabled = false;
   bool _biometricAvailable = false;
+  BiometricIconType _biometricType = BiometricIconType.faceId;
 
   @override
   void initState() {
@@ -495,10 +474,15 @@ class _SettingsScreenState extends State<_SettingsScreen> {
     final canCheck =
         await auth.canCheckBiometrics || await auth.isDeviceSupported();
     final enabled = await LocalDataService.isBiometricLoginEnabled();
+    final types = await auth.getAvailableBiometrics();
+    final isFace = types.contains(BiometricType.face);
     if (mounted) {
       setState(() {
         _biometricAvailable = canCheck;
         _biometricEnabled = enabled;
+        _biometricType = isFace
+            ? BiometricIconType.faceId
+            : BiometricIconType.fingerprint;
       });
     }
   }
@@ -616,11 +600,17 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                     ),
                     child: Row(
                       children: [
-                        AnimatedBiometricIcon(size: 24, color: c.textPrimary),
+                        AnimatedBiometricIcon(
+                          size: 24,
+                          color: c.textPrimary,
+                          type: _biometricType,
+                        ),
                         const SizedBox(width: 14),
                         Expanded(
                           child: Text(
-                            'Face ID / Fingerprint',
+                            _biometricType == BiometricIconType.faceId
+                                ? 'Face ID'
+                                : 'Fingerprint',
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
@@ -630,7 +620,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                         ),
                         Switch.adaptive(
                           value: _biometricEnabled,
-                          activeColor: const Color(0xFFE8C547),
+                          activeThumbColor: const Color(0xFFE8C547),
                           onChanged: _toggleBiometric,
                         ),
                       ],

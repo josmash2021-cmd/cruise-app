@@ -2,7 +2,6 @@
 import 'dart:convert';
 import 'dart:io' show Platform;
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
@@ -207,6 +206,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   String _driverPlate = '';
   double _driverRating = 4.9;
   String _driverEta = '...';
+  String _driverPhone = '';
   String _tripStatus =
       'driver_en_route'; // tracks current trip phase for rider UI
 
@@ -543,12 +543,12 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   Future<void> _loadPinIcons() async {
     _goldPinIconBytes = await _buildGoldPinBytes(isPickup: true);
-    _goldPinIcon = BitmapDescriptor.fromBytes(_goldPinIconBytes!);
+    _goldPinIcon = BitmapDescriptor.bytes(_goldPinIconBytes!);
     _dropoffPinIconBytes = await _buildGoldPinBytes(
       withHouse: true,
       isPickup: false,
     );
-    _dropoffPinIcon = BitmapDescriptor.fromBytes(_dropoffPinIconBytes!);
+    _dropoffPinIcon = BitmapDescriptor.bytes(_dropoffPinIconBytes!);
     if (!mounted) return;
     setState(() {
       _pickupMarker = _pickupMapMarker(
@@ -1098,15 +1098,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     _mapController = controller;
     if (_currentPosition != null) {
       _centerMapOn(_currentPosition!, zoom: _defaultMapZoom);
-    }
-    // On Android apply dark style; on iOS skip custom style to prevent
-    // tile loading failure (grey map). Tiles load fine on iOS without style.
-    if (!kIsWeb && !Platform.isIOS) {
-      Future.delayed(const Duration(milliseconds: 150), () {
-        if (!mounted) return;
-        // ignore: deprecated_member_use
-        _mapController?.setMapStyle(_mapStyle);
-      });
     }
   }
 
@@ -2542,6 +2533,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     polylines: _applePolylines,
                   )
                 : GoogleMap(
+                    style: _mapStyle,
                     onMapCreated: _onMapCreated,
                     onCameraMove: _onCameraMove,
                     onCameraIdle: _onCameraIdle,
@@ -3793,6 +3785,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                   dispatch['driver_name']?.toString() ?? 'Your Driver';
               _driverCar = dispatch['vehicle_type']?.toString() ?? '';
               _driverPlate = dispatch['driver_plate']?.toString() ?? '';
+              _driverPhone = dispatch['driverPhone']?.toString() ?? '';
               _driverRating =
                   (dispatch['driver_rating'] as num?)?.toDouble() ?? 4.9;
               // Calculate real initial ETA from driver distance
@@ -4583,7 +4576,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         await CarIconLoader.loadForRideBytes(rideName) ??
         await CarIconLoader.loadUberBytes();
     final icon = _driverCarIconBytes != null
-        ? BitmapDescriptor.fromBytes(_driverCarIconBytes!)
+        ? BitmapDescriptor.bytes(_driverCarIconBytes!)
         : await CarIconLoader.loadUber();
     if (mounted) setState(() => _driverCarIcon = icon);
   }
@@ -6506,13 +6499,13 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     ),
                   ),
                   GestureDetector(
-                    onTap: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Calling driver...'),
-                          duration: Duration(seconds: 2),
-                        ),
-                      );
+                    onTap: () async {
+                      if (_driverPhone.isNotEmpty) {
+                        final uri = Uri(scheme: 'tel', path: _driverPhone);
+                        if (await canLaunchUrl(uri)) {
+                          await launchUrl(uri);
+                        }
+                      }
                     },
                     child: Container(
                       width: 42,

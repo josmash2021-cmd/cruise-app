@@ -1,5 +1,9 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
+import '../../services/api_service.dart';
 
 /// Document management screen – driver's license, insurance, registration.
 class DriverDocumentsScreen extends StatefulWidget {
@@ -14,197 +18,295 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
   static const _card = Color(0xFF1C1C1E);
   static const _surface = Color(0xFF141414);
 
-  final _documents = [
+  bool _loading = true;
+  List<Map<String, dynamic>> _documents = [];
+
+  // Required doc types that we always show
+  static const _requiredDocs = [
     {
+      'doc_type': 'drivers_license',
       'title': "Driver's License",
       'icon': Icons.badge_rounded,
-      'status': 'approved',
-      'expiry': 'Mar 15, 2026',
-      'number': 'DL-****-5678',
-      'uploaded': 'Jan 10, 2024',
     },
     {
+      'doc_type': 'insurance',
       'title': 'Vehicle Insurance',
       'icon': Icons.security_rounded,
-      'status': 'approved',
-      'expiry': 'Jun 30, 2025',
-      'number': 'INS-****-9012',
-      'uploaded': 'Jan 10, 2024',
     },
     {
+      'doc_type': 'registration',
       'title': 'Vehicle Registration',
       'icon': Icons.description_rounded,
-      'status': 'approved',
-      'expiry': 'Dec 31, 2025',
-      'number': 'REG-****-3456',
-      'uploaded': 'Jan 10, 2024',
     },
     {
+      'doc_type': 'background_check',
       'title': 'Background Check',
       'icon': Icons.verified_user_rounded,
-      'status': 'approved',
-      'expiry': 'N/A',
-      'number': 'BGC-****-7890',
-      'uploaded': 'Jan 5, 2024',
     },
     {
+      'doc_type': 'profile_photo',
       'title': 'Profile Photo',
       'icon': Icons.camera_alt_rounded,
-      'status': 'approved',
-      'expiry': 'N/A',
-      'number': '',
-      'uploaded': 'Jan 5, 2024',
     },
     {
+      'doc_type': 'vehicle_photos',
       'title': 'Vehicle Photos',
       'icon': Icons.photo_library_rounded,
-      'status': 'pending',
-      'expiry': 'N/A',
-      'number': '',
-      'uploaded': 'Not uploaded',
     },
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _fetchDocuments();
+  }
+
+  Future<void> _fetchDocuments() async {
+    setState(() => _loading = true);
+    try {
+      final docs = await ApiService.getDocuments();
+      if (!mounted) return;
+      // Merge with required doc types
+      final merged = <Map<String, dynamic>>[];
+      for (final req in _requiredDocs) {
+        final existing = docs.firstWhere(
+          (d) => d['doc_type'] == req['doc_type'],
+          orElse: () => <String, dynamic>{},
+        );
+        if (existing.isNotEmpty) {
+          merged.add({...existing, 'title': req['title'], 'icon': req['icon']});
+        } else {
+          merged.add({
+            'doc_type': req['doc_type'],
+            'title': req['title'],
+            'icon': req['icon'],
+            'status': 'not_uploaded',
+          });
+        }
+      }
+      setState(() {
+        _documents = merged;
+        _loading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  IconData _iconForDoc(Map<String, dynamic> doc) {
+    if (doc['icon'] != null && doc['icon'] is IconData) {
+      return doc['icon'] as IconData;
+    }
+    switch (doc['doc_type']) {
+      case 'drivers_license':
+        return Icons.badge_rounded;
+      case 'insurance':
+        return Icons.security_rounded;
+      case 'registration':
+        return Icons.description_rounded;
+      case 'background_check':
+        return Icons.verified_user_rounded;
+      case 'profile_photo':
+        return Icons.camera_alt_rounded;
+      case 'vehicle_photos':
+        return Icons.photo_library_rounded;
+      default:
+        return Icons.insert_drive_file_rounded;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final approvedCount = _documents.where((d) => d['status'] == 'approved').length;
+    final approvedCount = _documents
+        .where((d) => d['status'] == 'approved')
+        .length;
     final total = _documents.length;
-    final progress = approvedCount / total;
+    final progress = total > 0 ? approvedCount / total : 0.0;
 
     return Scaffold(
       backgroundColor: Colors.black,
-      body: CustomScrollView(
-        physics: const BouncingScrollPhysics(),
-        slivers: [
-          SliverAppBar(
-            backgroundColor: _surface,
-            pinned: true,
-            expandedHeight: 110,
-            leading: IconButton(
-              icon: Container(
-                width: 38, height: 38,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.06),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.arrow_back_rounded,
-                    color: Colors.white, size: 20),
-              ),
-              onPressed: () => Navigator.pop(context),
-            ),
-            flexibleSpace: FlexibleSpaceBar(
-              titlePadding: const EdgeInsets.only(left: 56, bottom: 16),
-              title: const Text('Documents',
-                  style: TextStyle(color: Colors.white, fontSize: 20,
-                      fontWeight: FontWeight.w900)),
-            ),
-          ),
-
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // ── Progress card ──
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [_gold.withValues(alpha: 0.15), Colors.transparent],
-                        begin: Alignment.topLeft, end: Alignment.bottomRight,
+      body: _loading
+          ? const Center(
+              child: CircularProgressIndicator(color: _gold, strokeWidth: 2),
+            )
+          : CustomScrollView(
+              physics: const BouncingScrollPhysics(),
+              slivers: [
+                SliverAppBar(
+                  backgroundColor: _surface,
+                  pinned: true,
+                  expandedHeight: 110,
+                  leading: IconButton(
+                    icon: Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.06),
+                        shape: BoxShape.circle,
                       ),
-                      borderRadius: BorderRadius.circular(22),
-                      border: Border.all(color: _gold.withValues(alpha: 0.2)),
+                      child: const Icon(
+                        Icons.arrow_back_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
                     ),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                  flexibleSpace: FlexibleSpaceBar(
+                    titlePadding: const EdgeInsets.only(left: 56, bottom: 16),
+                    title: const Text(
+                      'Documents',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ),
+
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
                     child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          children: [
-                            SizedBox(
-                              width: 56, height: 56,
-                              child: Stack(
-                                alignment: Alignment.center,
+                        // ── Progress card ──
+                        Container(
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                _gold.withValues(alpha: 0.15),
+                                Colors.transparent,
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(22),
+                            border: Border.all(
+                              color: _gold.withValues(alpha: 0.2),
+                            ),
+                          ),
+                          child: Column(
+                            children: [
+                              Row(
                                 children: [
                                   SizedBox(
-                                    width: 56, height: 56,
-                                    child: CircularProgressIndicator(
-                                      value: progress,
-                                      backgroundColor: Colors.white.withValues(alpha: 0.06),
-                                      valueColor: const AlwaysStoppedAnimation<Color>(_gold),
-                                      strokeWidth: 4,
+                                    width: 56,
+                                    height: 56,
+                                    child: Stack(
+                                      alignment: Alignment.center,
+                                      children: [
+                                        SizedBox(
+                                          width: 56,
+                                          height: 56,
+                                          child: CircularProgressIndicator(
+                                            value: progress,
+                                            backgroundColor: Colors.white
+                                                .withValues(alpha: 0.06),
+                                            valueColor:
+                                                const AlwaysStoppedAnimation<
+                                                  Color
+                                                >(_gold),
+                                            strokeWidth: 4,
+                                          ),
+                                        ),
+                                        Text(
+                                          '${(progress * 100).toInt()}%',
+                                          style: const TextStyle(
+                                            color: _gold,
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                  Text(
-                                    '${(progress * 100).toInt()}%',
-                                    style: const TextStyle(color: _gold,
-                                        fontSize: 14, fontWeight: FontWeight.w800),
+                                  const SizedBox(width: 18),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        const Text(
+                                          'Document Status',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 17,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          '$approvedCount of $total documents approved',
+                                          style: TextStyle(
+                                            color: Colors.white.withValues(
+                                              alpha: 0.4,
+                                            ),
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ],
                               ),
-                            ),
-                            const SizedBox(width: 18),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text('Document Status',
-                                      style: TextStyle(color: Colors.white,
-                                          fontSize: 17, fontWeight: FontWeight.w800)),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    '$approvedCount of $total documents approved',
-                                    style: TextStyle(
-                                        color: Colors.white.withValues(alpha: 0.4),
-                                        fontSize: 13),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
+                        const SizedBox(height: 24),
+
+                        // ── Document list ──
+                        ..._documents.map((doc) => _documentCard(doc)),
+                        const SizedBox(height: 24),
+
+                        // ── Upload new ──
+                        SizedBox(
+                          width: double.infinity,
+                          height: 56,
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              HapticFeedback.mediumImpact();
+                              _showUploadSheet();
+                            },
+                            icon: const Icon(
+                              Icons.upload_file_rounded,
+                              size: 20,
+                            ),
+                            label: const Text(
+                              'Upload New Document',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: _gold,
+                              side: BorderSide(
+                                color: _gold.withValues(alpha: 0.3),
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 30),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 24),
-
-                  // ── Document list ──
-                  ..._documents.map((doc) => _documentCard(doc)),
-                  const SizedBox(height: 24),
-
-                  // ── Upload new ──
-                  SizedBox(
-                    width: double.infinity, height: 56,
-                    child: OutlinedButton.icon(
-                      onPressed: () {
-                        HapticFeedback.mediumImpact();
-                        _showUploadSheet();
-                      },
-                      icon: const Icon(Icons.upload_file_rounded, size: 20),
-                      label: const Text('Upload New Document',
-                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: _gold,
-                        side: BorderSide(color: _gold.withValues(alpha: 0.3)),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16)),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 30),
-                ],
-              ),
+                ),
+              ],
             ),
-          ),
-        ],
-      ),
     );
   }
 
   Widget _documentCard(Map<String, dynamic> doc) {
-    final status = doc['status'] as String;
+    final status = (doc['status'] ?? 'not_uploaded') as String;
     final isApproved = status == 'approved';
     final isPending = status == 'pending';
+    final isNotUploaded = status == 'not_uploaded';
 
     Color statusColor;
     String statusText;
@@ -217,11 +319,20 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
       statusColor = const Color(0xFFF5D990);
       statusText = 'Pending';
       statusIcon = Icons.schedule_rounded;
+    } else if (isNotUploaded) {
+      statusColor = Colors.white.withValues(alpha: 0.3);
+      statusText = 'Upload';
+      statusIcon = Icons.upload_rounded;
     } else {
-      statusColor = Colors.white.withValues(alpha: 0.5);
+      statusColor = Colors.red.withValues(alpha: 0.7);
       statusText = 'Rejected';
       statusIcon = Icons.cancel_rounded;
     }
+
+    final icon = _iconForDoc(doc);
+    final title = (doc['title'] ?? doc['doc_type'] ?? 'Document') as String;
+    final expiry = (doc['expiry_date'] ?? doc['expiry'] ?? '') as String;
+    final createdAt = (doc['created_at'] ?? '') as String;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -240,37 +351,60 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
             child: Row(
               children: [
                 Container(
-                  width: 46, height: 46,
+                  width: 46,
+                  height: 46,
                   decoration: BoxDecoration(
                     color: _gold.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(14),
                   ),
-                  child: Icon(doc['icon'] as IconData, color: _gold, size: 22),
+                  child: Icon(icon, color: _gold, size: 22),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(doc['title'] as String,
-                          style: const TextStyle(color: Colors.white,
-                              fontSize: 15, fontWeight: FontWeight.w700)),
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                       const SizedBox(height: 4),
-                      if ((doc['expiry'] as String) != 'N/A')
-                        Text('Expires: ${doc['expiry']}',
-                            style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.35),
-                                fontSize: 12))
+                      if (expiry.isNotEmpty)
+                        Text(
+                          'Expires: $expiry',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.35),
+                            fontSize: 12,
+                          ),
+                        )
+                      else if (createdAt.isNotEmpty)
+                        Text(
+                          'Uploaded: ${_formatShortDate(createdAt)}',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.35),
+                            fontSize: 12,
+                          ),
+                        )
                       else
-                        Text('Uploaded: ${doc['uploaded']}',
-                            style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.35),
-                                fontSize: 12)),
+                        Text(
+                          isNotUploaded ? 'Not uploaded yet' : '',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.35),
+                            fontSize: 12,
+                          ),
+                        ),
                     ],
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
                   decoration: BoxDecoration(
                     color: statusColor.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
@@ -280,9 +414,14 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
                     children: [
                       Icon(statusIcon, size: 13, color: statusColor),
                       const SizedBox(width: 4),
-                      Text(statusText,
-                          style: TextStyle(color: statusColor,
-                              fontSize: 11, fontWeight: FontWeight.w700)),
+                      Text(
+                        statusText,
+                        style: TextStyle(
+                          color: statusColor,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -294,7 +433,33 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
     );
   }
 
+  String _formatShortDate(String raw) {
+    final dt = DateTime.tryParse(raw);
+    if (dt == null) return raw;
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
+  }
+
   void _showDocDetails(Map<String, dynamic> doc) {
+    final icon = _iconForDoc(doc);
+    final title = (doc['title'] ?? doc['doc_type'] ?? 'Document') as String;
+    final docNumber = (doc['doc_number'] ?? '') as String;
+    final expiry = (doc['expiry_date'] ?? doc['expiry'] ?? 'N/A') as String;
+    final status = (doc['status'] ?? 'not_uploaded') as String;
+    final createdAt = (doc['created_at'] ?? 'N/A') as String;
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -309,29 +474,40 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 36, height: 4,
+                width: 36,
+                height: 4,
                 decoration: BoxDecoration(
-                    color: Colors.white12, borderRadius: BorderRadius.circular(2)),
+                  color: Colors.white12,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
               const SizedBox(height: 24),
               Container(
-                width: 64, height: 64,
+                width: 64,
+                height: 64,
                 decoration: BoxDecoration(
                   color: _gold.withValues(alpha: 0.12),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(doc['icon'] as IconData, color: _gold, size: 30),
+                child: Icon(icon, color: _gold, size: 30),
               ),
               const SizedBox(height: 16),
-              Text(doc['title'] as String,
-                  style: const TextStyle(color: Colors.white, fontSize: 20,
-                      fontWeight: FontWeight.w900)),
+              Text(
+                title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
               const SizedBox(height: 20),
-              if ((doc['number'] as String).isNotEmpty)
-                _detailRow('Document #', doc['number'] as String),
-              _detailRow('Expiry', doc['expiry'] as String),
-              _detailRow('Uploaded', doc['uploaded'] as String),
-              _detailRow('Status', (doc['status'] as String).toUpperCase()),
+              if (docNumber.isNotEmpty) _detailRow('Document #', docNumber),
+              _detailRow('Expiry', expiry.isNotEmpty ? expiry : 'N/A'),
+              _detailRow(
+                'Uploaded',
+                createdAt != 'N/A' ? _formatShortDate(createdAt) : 'N/A',
+              ),
+              _detailRow('Status', status.toUpperCase()),
               const SizedBox(height: 20),
               Row(
                 children: [
@@ -341,16 +517,19 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
                       child: OutlinedButton.icon(
                         onPressed: () {
                           Navigator.pop(ctx);
-                          _showUploadSheet();
+                          _showUploadSheet(docType: doc['doc_type'] as String?);
                         },
                         icon: const Icon(Icons.refresh_rounded, size: 18),
-                        label: const Text('Update',
-                            style: TextStyle(fontWeight: FontWeight.w700)),
+                        label: const Text(
+                          'Update',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: _gold,
                           side: BorderSide(color: _gold.withValues(alpha: 0.3)),
                           shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14)),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
                         ),
                       ),
                     ),
@@ -365,10 +544,13 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
                           backgroundColor: _gold,
                           foregroundColor: Colors.black,
                           shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14)),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
                         ),
-                        child: const Text('Close',
-                            style: TextStyle(fontWeight: FontWeight.w800)),
+                        child: const Text(
+                          'Close',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
                       ),
                     ),
                   ),
@@ -388,18 +570,28 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label,
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.4),
-                  fontSize: 14)),
-          Text(value,
-              style: const TextStyle(color: Colors.white, fontSize: 14,
-                  fontWeight: FontWeight.w700)),
+          Text(
+            label,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.4),
+              fontSize: 14,
+            ),
+          ),
+          Text(
+            value,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
         ],
       ),
     );
   }
 
-  void _showUploadSheet() {
+  void _showUploadSheet({String? docType}) {
+    final picker = ImagePicker();
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -414,29 +606,62 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 36, height: 4,
+                width: 36,
+                height: 4,
                 decoration: BoxDecoration(
-                    color: Colors.white12, borderRadius: BorderRadius.circular(2)),
+                  color: Colors.white12,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
               const SizedBox(height: 24),
-              const Text('Upload Document',
-                  style: TextStyle(color: Colors.white, fontSize: 20,
-                      fontWeight: FontWeight.w900)),
+              const Text(
+                'Upload Document',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
               const SizedBox(height: 24),
-              _uploadOption(ctx, Icons.camera_alt_rounded, 'Take Photo',
-                  'Use your camera'),
+              _uploadOption(
+                ctx,
+                Icons.camera_alt_rounded,
+                'Take Photo',
+                'Use your camera',
+                () async {
+                  Navigator.pop(ctx);
+                  final img = await picker.pickImage(
+                    source: ImageSource.camera,
+                    imageQuality: 80,
+                  );
+                  if (img != null) _uploadFile(img.path, docType ?? 'other');
+                },
+              ),
               const SizedBox(height: 12),
-              _uploadOption(ctx, Icons.photo_library_rounded, 'Choose from Gallery',
-                  'Select from photos'),
-              const SizedBox(height: 12),
-              _uploadOption(ctx, Icons.insert_drive_file_rounded, 'Upload File',
-                  'PDF, JPG, PNG'),
+              _uploadOption(
+                ctx,
+                Icons.photo_library_rounded,
+                'Choose from Gallery',
+                'Select from photos',
+                () async {
+                  Navigator.pop(ctx);
+                  final img = await picker.pickImage(
+                    source: ImageSource.gallery,
+                    imageQuality: 80,
+                  );
+                  if (img != null) _uploadFile(img.path, docType ?? 'other');
+                },
+              ),
               const SizedBox(height: 20),
               TextButton(
                 onPressed: () => Navigator.pop(ctx),
-                child: Text('Cancel',
-                    style: TextStyle(color: Colors.white.withValues(alpha: 0.4),
-                        fontWeight: FontWeight.w600)),
+                child: Text(
+                  'Cancel',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.4),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
             ],
           ),
@@ -445,44 +670,91 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
     );
   }
 
-  Widget _uploadOption(BuildContext ctx, IconData icon, String title,
-      String subtitle) {
+  Future<void> _uploadFile(String path, String docType) async {
+    HapticFeedback.mediumImpact();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Uploading document...'),
+        backgroundColor: _gold,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+    try {
+      final bytes = await File(path).readAsBytes();
+      final base64Photo = base64Encode(bytes);
+      await ApiService.uploadDocument(
+        docType: docType,
+        photoBase64: base64Photo,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Document uploaded successfully!'),
+          backgroundColor: _gold,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      );
+      _fetchDocuments();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Upload failed: $e'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Widget _uploadOption(
+    BuildContext ctx,
+    IconData icon,
+    String title,
+    String subtitle,
+    VoidCallback onTap,
+  ) {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.04),
         borderRadius: BorderRadius.circular(16),
       ),
       child: ListTile(
-        onTap: () {
-          Navigator.pop(ctx);
-          HapticFeedback.mediumImpact();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('Document upload coming soon!'),
-              backgroundColor: _gold,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-            ),
-          );
-        },
+        onTap: onTap,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         leading: Container(
-          width: 44, height: 44,
+          width: 44,
+          height: 44,
           decoration: BoxDecoration(
             color: _gold.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(13),
           ),
           child: Icon(icon, color: _gold, size: 22),
         ),
-        title: Text(title,
-            style: const TextStyle(color: Colors.white, fontSize: 15,
-                fontWeight: FontWeight.w700)),
-        subtitle: Text(subtitle,
-            style: TextStyle(color: Colors.white.withValues(alpha: 0.35),
-                fontSize: 12)),
-        trailing: Icon(Icons.chevron_right_rounded,
-            color: Colors.white.withValues(alpha: 0.15)),
+        title: Text(
+          title,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        subtitle: Text(
+          subtitle,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.35),
+            fontSize: 12,
+          ),
+        ),
+        trailing: Icon(
+          Icons.chevron_right_rounded,
+          color: Colors.white.withValues(alpha: 0.15),
+        ),
       ),
     );
   }

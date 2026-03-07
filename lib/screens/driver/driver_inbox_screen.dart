@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../services/api_service.dart';
 
 /// Driver Inbox – tabs: All, Messages, Alerts, Updates, Deals
 class DriverInboxScreen extends StatefulWidget {
@@ -15,87 +16,90 @@ class _DriverInboxScreenState extends State<DriverInboxScreen>
   static const _card = Color(0xFF1C1C1E);
 
   late final TabController _tabCtrl;
-
-  // Simulated inbox items
-  final _items = <_InboxItem>[
-    _InboxItem(
-      type: InboxType.alert,
-      title: 'New earning opportunity',
-      body: 'Surge pricing is active in your area. Go online to earn more!',
-      time: '10 min ago',
-      icon: Icons.trending_up_rounded,
-      iconColor: Color(0xFF4CAF50),
-      unread: true,
-    ),
-    _InboxItem(
-      type: InboxType.message,
-      title: 'Support',
-      body: 'Your document verification has been approved. You\'re all set!',
-      time: '2h ago',
-      icon: Icons.support_agent_rounded,
-      iconColor: Color(0xFF2196F3),
-      unread: true,
-    ),
-    _InboxItem(
-      type: InboxType.update,
-      title: 'App update available',
-      body: 'Version 2.4.1 includes bug fixes and performance improvements.',
-      time: '5h ago',
-      icon: Icons.system_update_rounded,
-      iconColor: Color(0xFF9C27B0),
-      unread: false,
-    ),
-    _InboxItem(
-      type: InboxType.deal,
-      title: 'Fuel discount unlocked',
-      body: 'Save 5% at participating stations with your Cruise Level rewards.',
-      time: 'Yesterday',
-      icon: Icons.local_gas_station_rounded,
-      iconColor: Color(0xFFFF9800),
-      unread: false,
-    ),
-    _InboxItem(
-      type: InboxType.alert,
-      title: 'Weekly summary',
-      body: 'You completed 23 trips and earned \$487.50 this week. Great job!',
-      time: 'Mon',
-      icon: Icons.bar_chart_rounded,
-      iconColor: Color(0xFFE8C547),
-      unread: false,
-    ),
-    _InboxItem(
-      type: InboxType.message,
-      title: 'Cruise Team',
-      body: 'Welcome to Cruise! Check out driver tips to maximize your earnings.',
-      time: 'Last week',
-      icon: Icons.campaign_rounded,
-      iconColor: Color(0xFF00BCD4),
-      unread: false,
-    ),
-    _InboxItem(
-      type: InboxType.update,
-      title: 'New feature: Cruise Level',
-      body: 'Earn points on every trip and unlock exclusive rewards. Tap to learn more.',
-      time: 'Last week',
-      icon: Icons.workspace_premium_rounded,
-      iconColor: Color(0xFFE8C547),
-      unread: false,
-    ),
-    _InboxItem(
-      type: InboxType.deal,
-      title: 'Refer a friend',
-      body: 'Invite friends to drive and earn \$100 for each referral who completes 25 trips.',
-      time: '2 weeks ago',
-      icon: Icons.card_giftcard_rounded,
-      iconColor: Color(0xFFE91E63),
-      unread: false,
-    ),
-  ];
+  bool _loading = true;
+  List<_InboxItem> _items = [];
 
   @override
   void initState() {
     super.initState();
     _tabCtrl = TabController(length: 5, vsync: this);
+    _fetchNotifications();
+  }
+
+  Future<void> _fetchNotifications() async {
+    setState(() => _loading = true);
+    try {
+      final notifs = await ApiService.getNotifications();
+      if (!mounted) return;
+      setState(() {
+        _items = notifs.map((n) {
+          final type = _typeFromString((n['notif_type'] ?? 'alert') as String);
+          return _InboxItem(
+            id: (n['id'] as num?)?.toInt() ?? 0,
+            type: type,
+            title: (n['title'] ?? '') as String,
+            body: (n['body'] ?? '') as String,
+            time: _formatTime((n['created_at'] ?? '') as String),
+            icon: _iconForType(type),
+            iconColor: _colorForType(type),
+            unread: n['is_read'] != true,
+          );
+        }).toList();
+        _loading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  InboxType _typeFromString(String s) {
+    switch (s) {
+      case 'message':
+        return InboxType.message;
+      case 'update':
+        return InboxType.update;
+      case 'deal':
+        return InboxType.deal;
+      default:
+        return InboxType.alert;
+    }
+  }
+
+  IconData _iconForType(InboxType t) {
+    switch (t) {
+      case InboxType.message:
+        return Icons.support_agent_rounded;
+      case InboxType.alert:
+        return Icons.trending_up_rounded;
+      case InboxType.update:
+        return Icons.system_update_rounded;
+      case InboxType.deal:
+        return Icons.card_giftcard_rounded;
+    }
+  }
+
+  Color _colorForType(InboxType t) {
+    switch (t) {
+      case InboxType.message:
+        return const Color(0xFF2196F3);
+      case InboxType.alert:
+        return const Color(0xFF4CAF50);
+      case InboxType.update:
+        return const Color(0xFF9C27B0);
+      case InboxType.deal:
+        return const Color(0xFFFF9800);
+    }
+  }
+
+  String _formatTime(String raw) {
+    final dt = DateTime.tryParse(raw);
+    if (dt == null) return raw;
+    final diff = DateTime.now().difference(dt);
+    if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays == 1) return 'Yesterday';
+    if (diff.inDays < 7) return '${diff.inDays} days ago';
+    return 'Last week';
   }
 
   @override
@@ -106,11 +110,16 @@ class _DriverInboxScreenState extends State<DriverInboxScreen>
 
   List<_InboxItem> _filtered(int tabIndex) {
     switch (tabIndex) {
-      case 1: return _items.where((i) => i.type == InboxType.message).toList();
-      case 2: return _items.where((i) => i.type == InboxType.alert).toList();
-      case 3: return _items.where((i) => i.type == InboxType.update).toList();
-      case 4: return _items.where((i) => i.type == InboxType.deal).toList();
-      default: return _items;
+      case 1:
+        return _items.where((i) => i.type == InboxType.message).toList();
+      case 2:
+        return _items.where((i) => i.type == InboxType.alert).toList();
+      case 3:
+        return _items.where((i) => i.type == InboxType.update).toList();
+      case 4:
+        return _items.where((i) => i.type == InboxType.deal).toList();
+      default:
+        return _items;
     }
   }
 
@@ -130,38 +139,58 @@ class _DriverInboxScreenState extends State<DriverInboxScreen>
                   GestureDetector(
                     onTap: () => Navigator.pop(context),
                     child: Container(
-                      width: 40, height: 40,
+                      width: 40,
+                      height: 40,
                       decoration: BoxDecoration(
                         color: Colors.white.withValues(alpha: 0.06),
                         shape: BoxShape.circle,
                       ),
-                      child: const Icon(Icons.arrow_back_rounded,
-                          color: Colors.white, size: 20),
+                      child: const Icon(
+                        Icons.arrow_back_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 14),
-                  const Text('Inbox',
-                      style: TextStyle(color: Colors.white, fontSize: 24,
-                          fontWeight: FontWeight.w900)),
+                  const Text(
+                    'Inbox',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
                   const Spacer(),
                   GestureDetector(
-                    onTap: () {
+                    onTap: () async {
                       HapticFeedback.selectionClick();
                       setState(() {
                         for (final i in _items) {
                           i.unread = false;
                         }
                       });
+                      try {
+                        await ApiService.markAllNotificationsRead();
+                      } catch (_) {}
                     },
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.white.withValues(alpha: 0.06),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: Text('Mark all read',
-                          style: TextStyle(color: Colors.white.withValues(alpha: 0.5),
-                              fontSize: 12, fontWeight: FontWeight.w600)),
+                      child: Text(
+                        'Mark all read',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.5),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -179,8 +208,14 @@ class _DriverInboxScreenState extends State<DriverInboxScreen>
                 tabAlignment: TabAlignment.start,
                 labelColor: Colors.black,
                 unselectedLabelColor: Colors.white.withValues(alpha: 0.5),
-                labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-                unselectedLabelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                labelStyle: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+                unselectedLabelStyle: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
                 indicator: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(20),
@@ -191,10 +226,30 @@ class _DriverInboxScreenState extends State<DriverInboxScreen>
                 labelPadding: const EdgeInsets.symmetric(horizontal: 14),
                 tabs: [
                   _tabChip('All', _items.where((i) => i.unread).length),
-                  _tabChip('Messages', _items.where((i) => i.type == InboxType.message && i.unread).length),
-                  _tabChip('Alerts', _items.where((i) => i.type == InboxType.alert && i.unread).length),
-                  _tabChip('Updates', 0),
-                  _tabChip('Deals', 0),
+                  _tabChip(
+                    'Messages',
+                    _items
+                        .where((i) => i.type == InboxType.message && i.unread)
+                        .length,
+                  ),
+                  _tabChip(
+                    'Alerts',
+                    _items
+                        .where((i) => i.type == InboxType.alert && i.unread)
+                        .length,
+                  ),
+                  _tabChip(
+                    'Updates',
+                    _items
+                        .where((i) => i.type == InboxType.update && i.unread)
+                        .length,
+                  ),
+                  _tabChip(
+                    'Deals',
+                    _items
+                        .where((i) => i.type == InboxType.deal && i.unread)
+                        .length,
+                  ),
                 ],
               ),
             ),
@@ -205,18 +260,31 @@ class _DriverInboxScreenState extends State<DriverInboxScreen>
               child: TabBarView(
                 controller: _tabCtrl,
                 children: List.generate(5, (tabIndex) {
+                  if (_loading) {
+                    return const Center(
+                      child: CircularProgressIndicator(color: _gold),
+                    );
+                  }
                   final items = _filtered(tabIndex);
                   if (items.isEmpty) {
                     return Center(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.inbox_rounded,
-                              color: Colors.white.withValues(alpha: 0.15), size: 56),
+                          Icon(
+                            Icons.inbox_rounded,
+                            color: Colors.white.withValues(alpha: 0.15),
+                            size: 56,
+                          ),
                           const SizedBox(height: 12),
-                          Text('No messages',
-                              style: TextStyle(color: Colors.white.withValues(alpha: 0.3),
-                                  fontSize: 15, fontWeight: FontWeight.w600)),
+                          Text(
+                            'No messages',
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.3),
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ],
                       ),
                     );
@@ -225,7 +293,19 @@ class _DriverInboxScreenState extends State<DriverInboxScreen>
                     physics: const BouncingScrollPhysics(),
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     itemCount: items.length,
-                    itemBuilder: (_, i) => _buildItem(items[i]),
+                    itemBuilder: (_, i) => TweenAnimationBuilder<double>(
+                      tween: Tween(begin: 0, end: 1),
+                      duration: Duration(milliseconds: 300 + (i * 50)),
+                      curve: Curves.easeOut,
+                      builder: (context, value, child) => Opacity(
+                        opacity: value,
+                        child: Transform.translate(
+                          offset: Offset(0, 16 * (1 - value)),
+                          child: child,
+                        ),
+                      ),
+                      child: _buildItem(items[i]),
+                    ),
                   );
                 }),
               ),
@@ -245,15 +325,21 @@ class _DriverInboxScreenState extends State<DriverInboxScreen>
           if (count > 0) ...[
             const SizedBox(width: 6),
             Container(
-              width: 18, height: 18,
+              width: 18,
+              height: 18,
               decoration: const BoxDecoration(
                 color: Color(0xFF2196F3),
                 shape: BoxShape.circle,
               ),
               child: Center(
-                child: Text('$count',
-                    style: const TextStyle(color: Colors.white, fontSize: 10,
-                        fontWeight: FontWeight.w800)),
+                child: Text(
+                  '$count',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
               ),
             ),
           ],
@@ -266,7 +352,12 @@ class _DriverInboxScreenState extends State<DriverInboxScreen>
     return GestureDetector(
       onTap: () {
         HapticFeedback.selectionClick();
-        setState(() => item.unread = false);
+        if (item.unread) {
+          setState(() => item.unread = false);
+          if (item.id > 0) {
+            ApiService.markNotificationRead(item.id).catchError((_) => null);
+          }
+        }
         _showItemDetail(item);
       },
       child: Container(
@@ -276,14 +367,17 @@ class _DriverInboxScreenState extends State<DriverInboxScreen>
           color: item.unread ? Colors.white.withValues(alpha: 0.06) : _card,
           borderRadius: BorderRadius.circular(16),
           border: item.unread
-              ? Border.all(color: const Color(0xFF2196F3).withValues(alpha: 0.2))
+              ? Border.all(
+                  color: const Color(0xFF2196F3).withValues(alpha: 0.2),
+                )
               : null,
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
-              width: 44, height: 44,
+              width: 44,
+              height: 44,
               decoration: BoxDecoration(
                 color: item.iconColor.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(13),
@@ -298,16 +392,23 @@ class _DriverInboxScreenState extends State<DriverInboxScreen>
                   Row(
                     children: [
                       Expanded(
-                        child: Text(item.title,
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 14,
-                                fontWeight: item.unread ? FontWeight.w800 : FontWeight.w600),
-                            maxLines: 1, overflow: TextOverflow.ellipsis),
+                        child: Text(
+                          item.title,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: item.unread
+                                ? FontWeight.w800
+                                : FontWeight.w600,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                       if (item.unread)
                         Container(
-                          width: 8, height: 8,
+                          width: 8,
+                          height: 8,
                           decoration: const BoxDecoration(
                             color: Color(0xFF2196F3),
                             shape: BoxShape.circle,
@@ -316,14 +417,25 @@ class _DriverInboxScreenState extends State<DriverInboxScreen>
                     ],
                   ),
                   const SizedBox(height: 4),
-                  Text(item.body,
-                      style: TextStyle(color: Colors.white.withValues(alpha: 0.45),
-                          fontSize: 13, height: 1.3),
-                      maxLines: 2, overflow: TextOverflow.ellipsis),
+                  Text(
+                    item.body,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.45),
+                      fontSize: 13,
+                      height: 1.3,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                   const SizedBox(height: 6),
-                  Text(item.time,
-                      style: TextStyle(color: Colors.white.withValues(alpha: 0.25),
-                          fontSize: 11, fontWeight: FontWeight.w500)),
+                  Text(
+                    item.time,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.25),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -347,11 +459,18 @@ class _DriverInboxScreenState extends State<DriverInboxScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(width: 36, height: 4, decoration: BoxDecoration(
-                color: Colors.white12, borderRadius: BorderRadius.circular(2))),
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.white12,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
             const SizedBox(height: 24),
             Container(
-              width: 56, height: 56,
+              width: 56,
+              height: 56,
               decoration: BoxDecoration(
                 color: item.iconColor.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(16),
@@ -359,28 +478,50 @@ class _DriverInboxScreenState extends State<DriverInboxScreen>
               child: Icon(item.icon, color: item.iconColor, size: 28),
             ),
             const SizedBox(height: 16),
-            Text(item.title,
-                style: const TextStyle(color: Colors.white, fontSize: 20,
-                    fontWeight: FontWeight.w800),
-                textAlign: TextAlign.center),
+            Text(
+              item.title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+              ),
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: 8),
-            Text(item.time,
-                style: TextStyle(color: Colors.white.withValues(alpha: 0.3), fontSize: 12)),
+            Text(
+              item.time,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.3),
+                fontSize: 12,
+              ),
+            ),
             const SizedBox(height: 16),
-            Text(item.body,
-                style: TextStyle(color: Colors.white.withValues(alpha: 0.6),
-                    fontSize: 15, height: 1.5),
-                textAlign: TextAlign.center),
+            Text(
+              item.body,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.6),
+                fontSize: 15,
+                height: 1.5,
+              ),
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: 28),
             SizedBox(
-              width: double.infinity, height: 50,
+              width: double.infinity,
+              height: 50,
               child: ElevatedButton(
                 onPressed: () => Navigator.pop(ctx),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: _gold, foregroundColor: Colors.black,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  backgroundColor: _gold,
+                  foregroundColor: Colors.black,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
                 ),
-                child: const Text('Got it', style: TextStyle(fontWeight: FontWeight.w700)),
+                child: const Text(
+                  'Got it',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
               ),
             ),
             const SizedBox(height: 8),
@@ -394,6 +535,7 @@ class _DriverInboxScreenState extends State<DriverInboxScreen>
 enum InboxType { message, alert, update, deal }
 
 class _InboxItem {
+  final int id;
   final InboxType type;
   final String title;
   final String body;
@@ -403,6 +545,7 @@ class _InboxItem {
   bool unread;
 
   _InboxItem({
+    required this.id,
     required this.type,
     required this.title,
     required this.body,
