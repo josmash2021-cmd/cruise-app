@@ -10,7 +10,6 @@ workflows:
       vars:
         FLUTTER_XCODE_CODE_SIGNING_ALLOWED: "NO"
         FLUTTER_XCODE_CODE_SIGNING_REQUIRED: "NO"
-        FLUTTER_XCODE_CODE_SIGN_IDENTITY: ""
     scripts:
       - name: Get Flutter packages
         script: |
