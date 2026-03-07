@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show ValueNotifier, kIsWeb;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
@@ -12,6 +12,10 @@ import 'api_service.dart';
 class UserSession {
   static const _key = 'user_session_v1';
   static const _modeKey = 'cruise_app_mode'; // 'rider' or 'driver'
+
+  /// Global notifier for profile photo path changes.
+  /// Screens can listen to this to update in real time.
+  static final ValueNotifier<String> photoNotifier = ValueNotifier<String>('');
 
   // ── Save / Read local cache ─────────────────────────
 
@@ -127,7 +131,10 @@ class UserSession {
   /// Copy a picked image to the app’s permanent documents directory.
   /// Returns the permanent path. On web, returns the original path as-is.
   static Future<String> saveProfilePhoto(String tempPath) async {
-    if (kIsWeb) return tempPath;
+    if (kIsWeb) {
+      photoNotifier.value = tempPath;
+      return tempPath;
+    }
     final dir = await getApplicationDocumentsDirectory();
     final ext = tempPath.contains('.') ? tempPath.split('.').last : 'jpg';
     final permanent = File('${dir.path}/profile_photo.$ext');
@@ -138,6 +145,15 @@ class UserSession {
     await File(tempPath).copy(permanent.path);
     // Update session
     await updateField('photoPath', permanent.path);
+    // Notify all listeners immediately
+    photoNotifier.value = permanent.path;
     return permanent.path;
+  }
+
+  /// Initialize the photo notifier from stored session (call once at startup)
+  static Future<void> initPhotoNotifier() async {
+    final user = await getUser();
+    final path = user?['photoPath'] ?? '';
+    if (path.isNotEmpty) photoNotifier.value = path;
   }
 }

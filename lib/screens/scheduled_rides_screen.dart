@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../config/app_theme.dart';
 import '../services/api_service.dart';
+import '../services/notification_service.dart';
 
 /// Premium Scheduled Rides screen for riders.
 /// Shows upcoming and past scheduled/airport rides with cancel ability.
@@ -63,12 +64,46 @@ class _ScheduledRidesScreenState extends State<ScheduledRidesScreen>
         _loading = false;
       });
       _fadeCtrl.forward(from: 0);
+
+      // Schedule 30-minute reminders for upcoming trips
+      _scheduleReminders(trips);
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _error = e.toString();
         _loading = false;
       });
+    }
+  }
+
+  /// Schedule local 30-minute reminders for all upcoming trips.
+  Future<void> _scheduleReminders(List<Map<String, dynamic>> trips) async {
+    for (final trip in trips) {
+      final status = trip['status'] as String? ?? 'scheduled';
+      if (status != 'scheduled') continue;
+
+      final tripId = trip['id'] as int? ?? 0;
+      if (tripId == 0) continue;
+
+      DateTime? scheduledAt;
+      if (trip['scheduled_at'] != null) {
+        try {
+          scheduledAt = DateTime.parse(trip['scheduled_at'] as String);
+        } catch (_) {
+          continue;
+        }
+      }
+      if (scheduledAt == null || scheduledAt.isBefore(DateTime.now())) continue;
+
+      final pickup = trip['pickup_address'] as String? ?? 'your pickup';
+      final dropoff = trip['dropoff_address'] as String? ?? 'your destination';
+
+      await NotificationService.scheduleRideReminder(
+        tripId: tripId,
+        rideTime: scheduledAt,
+        pickup: pickup,
+        dropoff: dropoff,
+      );
     }
   }
 
@@ -93,7 +128,10 @@ class _ScheduledRidesScreenState extends State<ScheduledRidesScreen>
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Cancel Ride', style: TextStyle(color: Color(0xFFFF5252))),
+            child: const Text(
+              'Cancel Ride',
+              style: TextStyle(color: Color(0xFFFF5252)),
+            ),
           ),
         ],
       ),
@@ -102,6 +140,8 @@ class _ScheduledRidesScreenState extends State<ScheduledRidesScreen>
 
     try {
       await ApiService.cancelTrip(tripId);
+      // Also cancel the scheduled notification reminder
+      await NotificationService.cancelRideReminder(tripId);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -111,7 +151,9 @@ class _ScheduledRidesScreenState extends State<ScheduledRidesScreen>
             style: TextStyle(color: Colors.black, fontWeight: FontWeight.w600),
           ),
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
         ),
       );
       _loadTrips();
@@ -120,7 +162,10 @@ class _ScheduledRidesScreenState extends State<ScheduledRidesScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: const Color(0xFFFF5252),
-          content: Text('Failed to cancel: $e', style: const TextStyle(color: Colors.white)),
+          content: Text(
+            'Failed to cancel: $e',
+            style: const TextStyle(color: Colors.white),
+          ),
         ),
       );
     }
@@ -148,7 +193,11 @@ class _ScheduledRidesScreenState extends State<ScheduledRidesScreen>
                   color: Colors.white.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 18),
+                child: const Icon(
+                  Icons.arrow_back_ios_new_rounded,
+                  color: Colors.white,
+                  size: 18,
+                ),
               ),
             ),
             flexibleSpace: FlexibleSpaceBar(
@@ -159,10 +208,16 @@ class _ScheduledRidesScreenState extends State<ScheduledRidesScreen>
                   Container(
                     padding: const EdgeInsets.all(6),
                     decoration: BoxDecoration(
-                      gradient: const LinearGradient(colors: [_gold, _goldLight]),
+                      gradient: const LinearGradient(
+                        colors: [_gold, _goldLight],
+                      ),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Icon(Icons.schedule_rounded, color: Colors.black87, size: 16),
+                    child: const Icon(
+                      Icons.schedule_rounded,
+                      color: Colors.black87,
+                      size: 16,
+                    ),
                   ),
                   const SizedBox(width: 10),
                   const Text(
@@ -180,10 +235,7 @@ class _ScheduledRidesScreenState extends State<ScheduledRidesScreen>
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [
-                      _gold.withValues(alpha: 0.08),
-                      c.bg,
-                    ],
+                    colors: [_gold.withValues(alpha: 0.08), c.bg],
                   ),
                 ),
               ),
@@ -194,7 +246,10 @@ class _ScheduledRidesScreenState extends State<ScheduledRidesScreen>
           if (_loading)
             const SliverFillRemaining(
               child: Center(
-                child: CircularProgressIndicator(color: _gold, strokeWidth: 2.5),
+                child: CircularProgressIndicator(
+                  color: _gold,
+                  strokeWidth: 2.5,
+                ),
               ),
             )
           else if (_error != null)
@@ -203,7 +258,11 @@ class _ScheduledRidesScreenState extends State<ScheduledRidesScreen>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.error_outline_rounded, color: Colors.white24, size: 48),
+                    Icon(
+                      Icons.error_outline_rounded,
+                      color: Colors.white24,
+                      size: 48,
+                    ),
                     const SizedBox(height: 12),
                     Text(_error!, style: TextStyle(color: c.textSecondary)),
                     const SizedBox(height: 16),
@@ -248,7 +307,11 @@ class _ScheduledRidesScreenState extends State<ScheduledRidesScreen>
               color: _gold.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(24),
             ),
-            child: const Icon(Icons.calendar_today_rounded, color: _gold, size: 36),
+            child: const Icon(
+              Icons.calendar_today_rounded,
+              color: _gold,
+              size: 36,
+            ),
           ),
           const SizedBox(height: 20),
           Text(
@@ -276,7 +339,11 @@ class _ScheduledRidesScreenState extends State<ScheduledRidesScreen>
               ),
               child: const Text(
                 'Schedule a Ride',
-                style: TextStyle(color: Colors.black87, fontWeight: FontWeight.w700, fontSize: 15),
+                style: TextStyle(
+                  color: Colors.black87,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                ),
               ),
             ),
           ),
@@ -294,7 +361,10 @@ class _ScheduledRidesScreenState extends State<ScheduledRidesScreen>
           border: Border.all(color: _gold.withValues(alpha: 0.4)),
           borderRadius: BorderRadius.circular(12),
         ),
-        child: const Text('Retry', style: TextStyle(color: _gold, fontWeight: FontWeight.w600)),
+        child: const Text(
+          'Retry',
+          style: TextStyle(color: _gold, fontWeight: FontWeight.w600),
+        ),
       ),
     );
   }
@@ -307,7 +377,11 @@ class _TripCard extends StatelessWidget {
   final int index;
   final VoidCallback onCancel;
 
-  const _TripCard({required this.trip, required this.index, required this.onCancel});
+  const _TripCard({
+    required this.trip,
+    required this.index,
+    required this.onCancel,
+  });
 
   static const _gold = Color(0xFFE8C547);
 
@@ -363,7 +437,9 @@ class _TripCard extends StatelessWidget {
               color: isAirport
                   ? const Color(0xFF4285F4).withValues(alpha: 0.06)
                   : _gold.withValues(alpha: 0.04),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(20),
+              ),
             ),
             child: Row(
               children: [
@@ -378,7 +454,9 @@ class _TripCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Icon(
-                      isAirport ? Icons.flight_takeoff_rounded : Icons.schedule_rounded,
+                      isAirport
+                          ? Icons.flight_takeoff_rounded
+                          : Icons.schedule_rounded,
                       color: isAirport ? const Color(0xFF4285F4) : _gold,
                       size: 20,
                     ),
@@ -432,7 +510,10 @@ class _TripCard extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: _gold,
                         shape: BoxShape.circle,
-                        border: Border.all(color: _gold.withValues(alpha: 0.3), width: 3),
+                        border: Border.all(
+                          color: _gold.withValues(alpha: 0.3),
+                          width: 3,
+                        ),
                       ),
                     ),
                     Container(width: 1.5, height: 28, color: Colors.white12),
@@ -440,11 +521,16 @@ class _TripCard extends StatelessWidget {
                       width: 10,
                       height: 10,
                       decoration: BoxDecoration(
-                        color: isAirport ? const Color(0xFF4285F4) : Colors.white,
+                        color: isAirport
+                            ? const Color(0xFF4285F4)
+                            : Colors.white,
                         shape: BoxShape.circle,
                         border: Border.all(
-                          color: (isAirport ? const Color(0xFF4285F4) : Colors.white)
-                              .withValues(alpha: 0.3),
+                          color:
+                              (isAirport
+                                      ? const Color(0xFF4285F4)
+                                      : Colors.white)
+                                  .withValues(alpha: 0.3),
                           width: 3,
                         ),
                       ),
@@ -460,14 +546,22 @@ class _TripCard extends StatelessWidget {
                         pickup.isNotEmpty ? pickup : 'Pickup location',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: c.textPrimary, fontSize: 14, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          color: c.textPrimary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                       const SizedBox(height: 18),
                       Text(
                         dropoff.isNotEmpty ? dropoff : 'Dropoff location',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: c.textPrimary, fontSize: 14, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          color: c.textPrimary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ],
                   ),
@@ -484,7 +578,11 @@ class _TripCard extends StatelessWidget {
                 _infoChip(Icons.directions_car_outlined, vehicleType, c),
                 if (fare != null && fare > 0) ...[
                   const SizedBox(width: 8),
-                  _infoChip(Icons.attach_money_rounded, '\$${fare.toStringAsFixed(2)}', c),
+                  _infoChip(
+                    Icons.attach_money_rounded,
+                    '\$${fare.toStringAsFixed(2)}',
+                    c,
+                  ),
                 ],
                 if (terminal != null) ...[
                   const SizedBox(width: 8),
@@ -505,7 +603,11 @@ class _TripCard extends StatelessWidget {
                   Expanded(
                     child: Text(
                       notes,
-                      style: TextStyle(color: c.textSecondary, fontSize: 12, fontStyle: FontStyle.italic),
+                      style: TextStyle(
+                        color: c.textSecondary,
+                        fontSize: 12,
+                        fontStyle: FontStyle.italic,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -527,7 +629,9 @@ class _TripCard extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: const Color(0xFFFF5252).withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFFF5252).withValues(alpha: 0.2)),
+                      border: Border.all(
+                        color: const Color(0xFFFF5252).withValues(alpha: 0.2),
+                      ),
                     ),
                     child: const Center(
                       child: Text(
@@ -550,7 +654,11 @@ class _TripCard extends StatelessWidget {
     );
   }
 
-  Widget _badge({required IconData icon, required String label, required Color color}) {
+  Widget _badge({
+    required IconData icon,
+    required String label,
+    required Color color,
+  }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -562,7 +670,14 @@ class _TripCard extends StatelessWidget {
         children: [
           Icon(icon, size: 12, color: color),
           const SizedBox(width: 4),
-          Text(label, style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w700)),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: color,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
         ],
       ),
     );
@@ -589,7 +704,11 @@ class _TripCard extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w700),
+        style: TextStyle(
+          fontSize: 11,
+          color: color,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }
@@ -606,7 +725,14 @@ class _TripCard extends StatelessWidget {
         children: [
           Icon(icon, size: 13, color: c.textSecondary),
           const SizedBox(width: 4),
-          Text(text, style: TextStyle(fontSize: 12, color: c.textSecondary, fontWeight: FontWeight.w600)),
+          Text(
+            text,
+            style: TextStyle(
+              fontSize: 12,
+              color: c.textSecondary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ],
       ),
     );

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:apple_maps_flutter/apple_maps_flutter.dart' as amap;
 import 'package:geolocator/geolocator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'airport_terminal_sheet.dart';
@@ -40,6 +41,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   late AnimationController _clockRotateCtrl;
   late AnimationController _promoShimmerCtrl;
   bool _promoUsed = false;
+  int _promoTripsLeft = 0; // trips needed to unlock next promo
   bool _rideNow = true;
   bool _driversOnline = false;
   List<FavoritePlace> _favorites = [];
@@ -77,7 +79,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
     _clockRotateCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1500),
+      duration: const Duration(seconds: 6),
     )..repeat();
     _promoShimmerCtrl = AnimationController(
       vsync: this,
@@ -100,6 +102,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       const Duration(seconds: 30),
       (_) => _checkDriversOnline(),
     );
+    UserSession.photoNotifier.addListener(_onPhotoChanged);
   }
 
   @override
@@ -116,6 +119,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    UserSession.photoNotifier.removeListener(_onPhotoChanged);
     _shimmerController.dispose();
     _boltFlashCtrl.dispose();
     _clockRotateCtrl.dispose();
@@ -123,6 +127,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _driverCheckTimer?.cancel();
     _locationSub?.cancel();
     super.dispose();
+  }
+
+  void _onPhotoChanged() {
+    if (!mounted) return;
+    setState(() => _photoPath = UserSession.photoNotifier.value);
   }
 
   Future<void> _fetchCurrentLocation() async {
@@ -216,7 +225,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   Future<void> _loadPromoUsed() async {
     final used = await LocalDataService.getPromoUsed();
-    if (mounted) setState(() => _promoUsed = used);
+    final prefs = await SharedPreferences.getInstance();
+    final tripsLeft = prefs.getInt('promo_trips_left') ?? 0;
+    if (mounted) {
+      setState(() {
+        _promoUsed = used && tripsLeft > 0;
+        _promoTripsLeft = tripsLeft;
+      });
+    }
   }
 
   Future<void> _checkDriversOnline() async {
@@ -316,10 +332,182 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
 
     if (confirmed == true && mounted) {
+      // Mark promo as used and set 3-trip counter for next unlock
+      await LocalDataService.setPromoUsed();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('promo_trips_left', 3);
+      if (mounted) {
+        setState(() {
+          _promoUsed = true;
+          _promoTripsLeft = 3;
+        });
+      }
       Navigator.of(
         context,
       ).push(slideUpFadeRoute(const RideRequestScreen(applyPromo: true)));
     }
+  }
+
+  void _showPromoLockedDialog() {
+    final c = AppColors.of(context);
+    final completed = 3 - _promoTripsLeft;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: c.panel,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        contentPadding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE8C547).withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.lock_rounded,
+                color: Color(0xFFE8C547),
+                size: 28,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Promo Locked',
+              style: TextStyle(
+                color: c.textPrimary,
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Complete ${_promoTripsLeft} more trip${_promoTripsLeft == 1 ? '' : 's'} to unlock your next 10% discount!',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: c.textSecondary,
+                fontSize: 14,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 16),
+            // Progress bar
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: LinearProgressIndicator(
+                value: completed / 3.0,
+                minHeight: 8,
+                backgroundColor: Colors.white.withValues(alpha: 0.08),
+                valueColor: const AlwaysStoppedAnimation<Color>(
+                  Color(0xFFE8C547),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '$completed / 3 trips completed',
+              style: TextStyle(
+                color: c.textTertiary,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              height: 44,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFE8C547),
+                  foregroundColor: Colors.black,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 0,
+                ),
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text(
+                  'Got it',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showFastRideUnavailableDialog() {
+    final c = AppColors.of(context);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: c.panel,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        contentPadding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: Colors.orange.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.bolt_rounded,
+                color: Colors.orange,
+                size: 28,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Fast Ride Unavailable',
+              style: TextStyle(
+                color: c.textPrimary,
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Fast Ride is only available when there are drivers connected nearby. '
+              'Please try again in a few minutes.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: c.textSecondary,
+                fontSize: 14,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              height: 44,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFE8C547),
+                  foregroundColor: Colors.black,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 0,
+                ),
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text(
+                  'OK',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _loadSavedData() async {
@@ -955,22 +1143,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           disabled: !_driversOnline,
           onTap: () {
             if (!_driversOnline) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  backgroundColor: const Color(0xFF2A2A2A),
-                  content: const Text(
-                    'No drivers available right now. Please try again later.',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              );
+              _showFastRideUnavailableDialog();
               return;
             }
             Navigator.of(
@@ -978,24 +1151,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ).push(slideUpFadeRoute(const RideRequestScreen(fastRide: true)));
           },
         ),
-        // Clock — rotates continuously
+        // Clock — real clock animation with ticking hands
         _animatedCircleAction(
           child: AnimatedBuilder(
             animation: _clockRotateCtrl,
             builder: (context, child) {
-              return Transform.rotate(
-                angle: _clockRotateCtrl.value * 2 * 3.14159265,
-                child: ShaderMask(
-                  shaderCallback: (bounds) => const LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [Color(0xFFFBE47A), Color(0xFFE8C547)],
-                  ).createShader(bounds),
-                  child: const Icon(
-                    Icons.schedule_rounded,
-                    color: Colors.white,
-                    size: 26,
-                  ),
+              return SizedBox(
+                width: 26,
+                height: 26,
+                child: CustomPaint(
+                  painter: _ClockPainter(_clockRotateCtrl.value),
                 ),
               );
             },
@@ -1003,18 +1168,50 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           label: 'Schedule',
           onTap: _openScheduleFlow,
         ),
-        // 10% off — shimmer animation, disabled after use
+        // 10% off — shimmer animation, disabled after use, shows trip counter
         _animatedCircleAction(
           child: _promoUsed
-              ? ShaderMask(
-                  shaderCallback: (bounds) => LinearGradient(
-                    colors: [Colors.grey.shade600, Colors.grey.shade500],
-                  ).createShader(bounds),
-                  child: const Icon(
-                    Icons.local_offer_rounded,
-                    color: Colors.white,
-                    size: 26,
-                  ),
+              ? Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    ShaderMask(
+                      shaderCallback: (bounds) => LinearGradient(
+                        colors: [Colors.grey.shade600, Colors.grey.shade500],
+                      ).createShader(bounds),
+                      child: const Icon(
+                        Icons.local_offer_rounded,
+                        color: Colors.white,
+                        size: 26,
+                      ),
+                    ),
+                    // Mini trip counter badge
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: Container(
+                        width: 20,
+                        height: 20,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF2E2E2E),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: const Color(0xFFE8C547),
+                            width: 1.5,
+                          ),
+                        ),
+                        child: Center(
+                          child: Text(
+                            '${3 - _promoTripsLeft}',
+                            style: const TextStyle(
+                              color: Color(0xFFE8C547),
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 )
               : AnimatedBuilder(
                   animation: _promoShimmerCtrl,
@@ -1041,9 +1238,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     );
                   },
                 ),
-          label: _promoUsed ? 'Used' : '10% off',
+          label: _promoUsed ? '${3 - _promoTripsLeft}/3 trips' : '10% off',
           disabled: _promoUsed,
-          onTap: _promoUsed ? () {} : _showPromoWelcomeDialog,
+          onTap: _promoUsed ? _showPromoLockedDialog : _showPromoWelcomeDialog,
         ),
       ],
     );
@@ -1098,7 +1295,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     bool disabled = false,
   }) {
     return GestureDetector(
-      onTap: disabled ? null : onTap,
+      onTap: onTap,
       child: Opacity(
         opacity: disabled ? 0.4 : 1.0,
         child: Column(
@@ -3613,4 +3810,78 @@ class _AddressAutocompleteSheetState extends State<_AddressAutocompleteSheet> {
       ),
     );
   }
+}
+
+/// Custom painter that draws a real analog clock face with ticking hands.
+class _ClockPainter extends CustomPainter {
+  final double progress; // 0.0 to 1.0 (one full cycle = 6 seconds)
+
+  _ClockPainter(this.progress);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2;
+    const goldColor = Color(0xFFE8C547);
+    const goldLight = Color(0xFFFBE47A);
+
+    // Draw clock circle outline
+    final circlePaint = Paint()
+      ..color = goldColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.8;
+    canvas.drawCircle(center, radius - 1, circlePaint);
+
+    // Draw small hour markers
+    final tickPaint = Paint()
+      ..color = goldLight
+      ..strokeWidth = 1.2
+      ..strokeCap = StrokeCap.round;
+    for (int i = 0; i < 12; i++) {
+      final angle = (i * 30.0 - 90) * math.pi / 180;
+      final outer = Offset(
+        center.dx + (radius - 2.5) * math.cos(angle),
+        center.dy + (radius - 2.5) * math.sin(angle),
+      );
+      final inner = Offset(
+        center.dx + (radius - (i % 3 == 0 ? 5.5 : 4.0)) * math.cos(angle),
+        center.dy + (radius - (i % 3 == 0 ? 5.5 : 4.0)) * math.sin(angle),
+      );
+      canvas.drawLine(inner, outer, tickPaint);
+    }
+
+    // Minute hand — 1 full rotation per cycle
+    final minuteAngle = (progress * 360 - 90) * math.pi / 180;
+    final minuteLength = radius * 0.7;
+    final minuteEnd = Offset(
+      center.dx + minuteLength * math.cos(minuteAngle),
+      center.dy + minuteLength * math.sin(minuteAngle),
+    );
+    final minutePaint = Paint()
+      ..color = goldLight
+      ..strokeWidth = 1.8
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(center, minuteEnd, minutePaint);
+
+    // Hour hand — moves 1/12th per cycle
+    final hourAngle = (progress * 30 - 90) * math.pi / 180;
+    final hourLength = radius * 0.45;
+    final hourEnd = Offset(
+      center.dx + hourLength * math.cos(hourAngle),
+      center.dy + hourLength * math.sin(hourAngle),
+    );
+    final hourPaint = Paint()
+      ..color = goldColor
+      ..strokeWidth = 2.2
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(center, hourEnd, hourPaint);
+
+    // Center dot
+    final dotPaint = Paint()..color = goldLight;
+    canvas.drawCircle(center, 1.5, dotPaint);
+  }
+
+  @override
+  bool shouldRepaint(_ClockPainter oldDelegate) =>
+      oldDelegate.progress != progress;
 }

@@ -118,6 +118,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
     // Copy to permanent storage so the photo survives app restarts
     final permanentPath = await UserSession.saveProfilePhoto(xFile.path);
+    // Clear cached image so new photo shows immediately
+    imageCache.clear();
+    imageCache.clearLiveImages();
     setState(() => _photoPath = permanentPath);
   }
 
@@ -436,11 +439,21 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           enabled: !readOnly,
           style: TextStyle(fontSize: 16, color: c.textPrimary),
           decoration: InputDecoration(
-            prefixIcon: Icon(icon, color: readOnly ? c.textTertiary : c.textSecondary, size: 20),
+            prefixIcon: Icon(
+              icon,
+              color: readOnly ? c.textTertiary : c.textSecondary,
+              size: 20,
+            ),
             labelText: label,
             labelStyle: TextStyle(fontSize: 14, color: c.textSecondary),
             border: InputBorder.none,
-            suffixIcon: readOnly ? Icon(Icons.lock_outline_rounded, color: c.textTertiary, size: 16) : null,
+            suffixIcon: readOnly
+                ? Icon(
+                    Icons.lock_outline_rounded,
+                    color: c.textTertiary,
+                    size: 16,
+                  )
+                : null,
           ),
         ),
       ),

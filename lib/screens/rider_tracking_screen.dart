@@ -59,6 +59,8 @@ class RiderTrackingScreen extends StatefulWidget {
 
 enum _TrackPhase { arriving, arrived, onTrip, completed }
 
+enum _PinIcon { house, store, airplane, person }
+
 class _RiderTrackingScreenState extends State<RiderTrackingScreen>
     with TickerProviderStateMixin {
   GoogleMapController? _map;
@@ -164,16 +166,64 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
   }
 
   Future<void> _loadPins() async {
-    _pickupPinBytes = await _renderGoldPin(isPickup: true);
-    _dropoffPinBytes = await _renderGoldPin(isPickup: false);
+    _pickupPinBytes = await _renderGoldPin(
+      isPickup: true,
+      label: widget.pickupLabel,
+    );
+    _dropoffPinBytes = await _renderGoldPin(
+      isPickup: false,
+      label: widget.dropoffLabel,
+    );
     if (mounted) setState(() {});
   }
 
-  /// Renders a gold pin matching the map_screen style.
-  /// Pickup: circle with white person silhouette.
-  /// Dropoff: rounded square with white person silhouette.
-  Future<Uint8List> _renderGoldPin({required bool isPickup}) async {
-    const double size = 80;
+  /// Detect location type from address label for contextual icon
+  _PinIcon _detectPinIcon(String label) {
+    final l = label.toLowerCase();
+    if (l.contains('airport') ||
+        l.contains('terminal') ||
+        RegExp(
+          r'\b(mia|fll|jfk|lax|ord|atl|sfo|dfw|ewr|bos|iah|dca|phl|msp|dtw|sea|den|las|mco|clt)\b',
+        ).hasMatch(l)) {
+      return _PinIcon.airplane;
+    }
+    if (l.contains('store') ||
+        l.contains('shop') ||
+        l.contains('mall') ||
+        l.contains('plaza') ||
+        l.contains('market') ||
+        l.contains('center') ||
+        l.contains('restaurant') ||
+        l.contains('hotel') ||
+        l.contains('bar') ||
+        l.contains('café') ||
+        l.contains('cafe') ||
+        l.contains('gym') ||
+        l.contains('salon') ||
+        l.contains('office') ||
+        l.contains('hospital') ||
+        l.contains('clinic') ||
+        l.contains('bank') ||
+        l.contains('pharmacy')) {
+      return _PinIcon.store;
+    }
+    if (RegExp(r'^\d+\s').hasMatch(l) &&
+        RegExp(
+          r'\b(st|ave|rd|dr|ln|ct|blvd|way|pkwy|pl|cir|ter|loop)\b',
+        ).hasMatch(l)) {
+      return _PinIcon.house;
+    }
+    return _PinIcon.person;
+  }
+
+  /// Renders a gold pin with contextual icon (100px).
+  /// Pickup: circle. Dropoff: rounded square.
+  /// Icon: house, store, airplane, or person based on address.
+  Future<Uint8List> _renderGoldPin({
+    required bool isPickup,
+    String label = '',
+  }) async {
+    const double size = 100;
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, size, size));
     const cx = size / 2;
@@ -181,13 +231,15 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
     const r = size * 0.38;
     const gold = Color(0xFFE8C547);
 
+    final iconType = _detectPinIcon(label);
+
     // Drop shadow
     canvas.drawCircle(
       const Offset(cx, cy + 2),
-      r + 2,
+      r + 3,
       Paint()
         ..color = Colors.black.withValues(alpha: 0.35)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7),
     );
 
     if (isPickup) {
@@ -228,27 +280,94 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
     );
 
-    // White person icon (head + shoulders) matching map_screen
+    // White contextual icon
     final iconPaint = Paint()
       ..color = Colors.white
       ..isAntiAlias = true;
-    const s = size * 0.10;
-    canvas.drawCircle(const Offset(cx, cy - s * 0.6), s * 0.5, iconPaint);
-    canvas.drawRRect(
-      RRect.fromRectAndCorners(
-        const Rect.fromLTRB(
-          cx - s * 0.8,
-          cy + s * 0.1,
-          cx + s * 0.8,
-          cy + s * 0.9,
-        ),
-        topLeft: Radius.circular(s * 0.8),
-        topRight: Radius.circular(s * 0.8),
-        bottomLeft: Radius.circular(s * 0.15),
-        bottomRight: Radius.circular(s * 0.15),
-      ),
-      iconPaint,
-    );
+    const s = size * 0.13;
+
+    switch (iconType) {
+      case _PinIcon.house:
+        final roofPath = Path()
+          ..moveTo(cx, cy - s * 1.1)
+          ..lineTo(cx - s * 1.0, cy - s * 0.15)
+          ..lineTo(cx + s * 1.0, cy - s * 0.15)
+          ..close();
+        canvas.drawPath(roofPath, iconPaint);
+        canvas.drawRect(
+          Rect.fromLTRB(
+            cx - s * 0.7,
+            cy - s * 0.15,
+            cx + s * 0.7,
+            cy + s * 0.8,
+          ),
+          iconPaint,
+        );
+        canvas.drawRect(
+          Rect.fromLTRB(cx - s * 0.2, cy + s * 0.2, cx + s * 0.2, cy + s * 0.8),
+          Paint()..color = gold,
+        );
+        break;
+      case _PinIcon.store:
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTRB(
+              cx - s * 0.9,
+              cy - s * 0.9,
+              cx + s * 0.9,
+              cy - s * 0.2,
+            ),
+            Radius.circular(s * 0.3),
+          ),
+          iconPaint,
+        );
+        canvas.drawRect(
+          Rect.fromLTRB(cx - s * 0.9, cy - s * 0.2, cx + s * 0.9, cy + s * 0.8),
+          iconPaint,
+        );
+        canvas.drawRect(
+          Rect.fromLTRB(cx - s * 0.5, cy + s * 0.0, cx + s * 0.5, cy + s * 0.5),
+          Paint()..color = gold,
+        );
+        break;
+      case _PinIcon.airplane:
+        final planePath = Path()
+          ..moveTo(cx, cy - s * 1.1)
+          ..lineTo(cx - s * 0.15, cy - s * 0.6)
+          ..lineTo(cx - s * 1.0, cy - s * 0.1)
+          ..lineTo(cx - s * 0.15, cy - s * 0.15)
+          ..lineTo(cx - s * 0.15, cy + s * 0.5)
+          ..lineTo(cx - s * 0.55, cy + s * 0.9)
+          ..lineTo(cx - s * 0.15, cy + s * 0.75)
+          ..lineTo(cx, cy + s * 1.0)
+          ..lineTo(cx + s * 0.15, cy + s * 0.75)
+          ..lineTo(cx + s * 0.55, cy + s * 0.9)
+          ..lineTo(cx + s * 0.15, cy + s * 0.5)
+          ..lineTo(cx + s * 0.15, cy - s * 0.15)
+          ..lineTo(cx + s * 1.0, cy - s * 0.1)
+          ..lineTo(cx + s * 0.15, cy - s * 0.6)
+          ..close();
+        canvas.drawPath(planePath, iconPaint);
+        break;
+      case _PinIcon.person:
+        canvas.drawCircle(Offset(cx, cy - s * 0.5), s * 0.5, iconPaint);
+        canvas.drawRRect(
+          RRect.fromRectAndCorners(
+            Rect.fromLTRB(
+              cx - s * 0.8,
+              cy + s * 0.15,
+              cx + s * 0.8,
+              cy + s * 0.9,
+            ),
+            topLeft: Radius.circular(s * 0.8),
+            topRight: Radius.circular(s * 0.8),
+            bottomLeft: Radius.circular(s * 0.15),
+            bottomRight: Radius.circular(s * 0.15),
+          ),
+          iconPaint,
+        );
+        break;
+    }
 
     final picture = recorder.endRecording();
     final img = await picture.toImage(size.toInt(), size.toInt());

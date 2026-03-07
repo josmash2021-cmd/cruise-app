@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:apple_maps_flutter/apple_maps_flutter.dart' as amap;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 import '../config/api_keys.dart';
@@ -4408,6 +4409,18 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           'Your ${completedRide.name} ride to $_dropoffAddress has finished.',
       type: 'ride',
     );
+
+    // Decrement promo trip counter — unlocks 10% off after 3 trips
+    final prefs = await SharedPreferences.getInstance();
+    final tripsLeft = prefs.getInt('promo_trips_left') ?? 0;
+    if (tripsLeft > 0) {
+      final newLeft = tripsLeft - 1;
+      await prefs.setInt('promo_trips_left', newLeft);
+      if (newLeft == 0) {
+        // Unlock promo again
+        await prefs.setBool('first_ride_promo_used', false);
+      }
+    }
 
     if (!mounted) return;
 

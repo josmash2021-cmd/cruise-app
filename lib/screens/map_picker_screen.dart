@@ -29,7 +29,8 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
   bool _loading = false;
   bool _geocodeFailed = false;
   LatLng _center = const LatLng(40.7128, -74.0060);
-  Timer? _iosDebounce;
+  Timer? _debounce;
+  int _geocodeGen = 0; // generation counter to cancel stale requests
 
   @override
   void initState() {
@@ -41,24 +42,31 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
 
   @override
   void dispose() {
-    _iosDebounce?.cancel();
+    _debounce?.cancel();
     super.dispose();
   }
 
+  void _scheduleGeocode() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 500), _onCameraIdle);
+  }
+
   Future<void> _onCameraIdle() async {
+    _debounce?.cancel();
     if (!mounted) return;
-    setState(() {
-      _loading = true;
-      _geocodeFailed = false;
-    });
+    final gen = ++_geocodeGen;
     final snap = LatLng(_center.latitude, _center.longitude);
+    // Only show loading if we don't already have an address
+    if (_address == 'Move the map to pick a location' || _geocodeFailed) {
+      setState(() {
+        _loading = true;
+        _geocodeFailed = false;
+      });
+    }
     String? addr;
-    // Try up to 2 times — native geocoder should resolve on first attempt
     for (int attempt = 0; attempt < 2; attempt++) {
-      if (attempt > 0) {
-        await Future.delayed(const Duration(milliseconds: 800));
-      }
-      if (!mounted) return;
+      if (attempt > 0) await Future.delayed(const Duration(milliseconds: 800));
+      if (!mounted || gen != _geocodeGen) return; // stale
       try {
         addr = await _places.reverseGeocode(
           lat: snap.latitude,
@@ -67,18 +75,17 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
         if (addr != null && addr.isNotEmpty) break;
       } catch (_) {}
     }
-    if (mounted) {
-      setState(() {
-        if (addr != null && addr.isNotEmpty) {
-          _address = addr;
-          _geocodeFailed = false;
-        } else {
-          _address = 'Pinned location';
-          _geocodeFailed = true;
-        }
-        _loading = false;
-      });
-    }
+    if (!mounted || gen != _geocodeGen) return; // stale
+    setState(() {
+      if (addr != null && addr.isNotEmpty) {
+        _address = addr;
+        _geocodeFailed = false;
+      } else {
+        _address = 'Pinned location';
+        _geocodeFailed = true;
+      }
+      _loading = false;
+    });
   }
 
   void _onCameraMove(CameraPosition pos) {
@@ -111,22 +118,16 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
                   ),
                   onMapCreated: (ctrl) {
                     _appleMapCtrl = ctrl;
-                    // Trigger reverse-geocode once map is ready (longer delay for iOS)
                     Future.delayed(
-                      const Duration(milliseconds: 1200),
+                      const Duration(milliseconds: 1000),
                       _onCameraIdle,
                     );
                   },
                   onCameraMove: (pos) {
                     _center = LatLng(pos.target.latitude, pos.target.longitude);
-                    // Debounce: trigger geocode if onCameraIdle doesn't fire
-                    _iosDebounce?.cancel();
-                    _iosDebounce = Timer(
-                      const Duration(milliseconds: 600),
-                      _onCameraIdle,
-                    );
+                    _scheduleGeocode();
                   },
-                  onCameraIdle: _onCameraIdle,
+                  onCameraIdle: _scheduleGeocode,
                   myLocationEnabled: true,
                   myLocationButtonEnabled: false,
                   mapType: amap.MapType.standard,
@@ -138,14 +139,13 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
                   ),
                   onMapCreated: (ctrl) {
                     _mapCtrl = ctrl;
-                    // Trigger initial geocode after map loads (Android)
                     Future.delayed(
                       const Duration(milliseconds: 800),
                       _onCameraIdle,
                     );
                   },
                   onCameraMove: _onCameraMove,
-                  onCameraIdle: _onCameraIdle,
+                  onCameraIdle: _scheduleGeocode,
                   myLocationEnabled: true,
                   myLocationButtonEnabled: false,
                   zoomControlsEnabled: false,

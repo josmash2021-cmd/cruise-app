@@ -3,12 +3,16 @@ import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_stripe/flutter_stripe.dart';
 import 'firebase_options.dart';
 import 'config/api_keys.dart';
 import 'config/app_theme.dart';
 import 'screens/splash_screen.dart';
 import 'services/api_service.dart';
+import 'services/notification_service.dart';
+import 'services/user_session.dart';
+import 'services/local_data_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,6 +30,8 @@ void main() async {
       await ApiService.init();
       // Auto-detect best reachable server (local, LAN, tunnel)
       await ApiService.probeAndSetBestUrl();
+      // Initialize profile photo notifier for real-time sync
+      await UserSession.initPhotoNotifier();
 
       // ── Stripe — skip if key is still a placeholder ──
       if (!kIsWeb && !ApiKeys.stripePublishableKey.contains('REPLACE')) {
@@ -44,8 +50,46 @@ void main() async {
         await Firebase.initializeApp(
           options: DefaultFirebaseOptions.currentPlatform,
         );
+
+        // ── Firebase Cloud Messaging ──
+        try {
+          final messaging = FirebaseMessaging.instance;
+          await messaging.requestPermission(
+            alert: true,
+            badge: true,
+            sound: true,
+          );
+          final fcmToken = await messaging.getToken();
+          debugPrint('[FCM] token: $fcmToken');
+
+          // Handle foreground messages
+          FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+            final title = message.notification?.title ?? 'Cruise';
+            final body = message.notification?.body ?? '';
+            NotificationService.show(
+              id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+              title: title,
+              body: body,
+            );
+            // Also save to local inbox
+            LocalDataService.addNotification(
+              title: title,
+              message: body,
+              type: 'push',
+            );
+          });
+        } catch (e) {
+          debugPrint('[FCM] init error: $e');
+        }
       } catch (e) {
         debugPrint('[Firebase] init error: $e');
+      }
+
+      // ── Local Notifications ──
+      try {
+        await NotificationService.init();
+      } catch (e) {
+        debugPrint('[NotificationService] init error: $e');
       }
 
       SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);

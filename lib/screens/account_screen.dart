@@ -41,6 +41,18 @@ class _AccountScreenState extends State<AccountScreen> {
   void initState() {
     super.initState();
     _loadUser();
+    UserSession.photoNotifier.addListener(_onPhotoChanged);
+  }
+
+  @override
+  void dispose() {
+    UserSession.photoNotifier.removeListener(_onPhotoChanged);
+    super.dispose();
+  }
+
+  void _onPhotoChanged() {
+    if (!mounted) return;
+    _loadUser();
   }
 
   Future<void> _loadUser() async {
