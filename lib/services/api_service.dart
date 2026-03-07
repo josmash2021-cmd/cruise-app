@@ -228,11 +228,12 @@ class ApiService {
   static String _generateNonce() => SecurityService.generateNonce();
 
   /// Compute HMAC-SHA256 signature: HMAC(secret, "{apiKey}:{timestamp}:{nonce}:{fingerprint}")
-  /// Includes device fingerprint for request binding (L3).
+  /// Uses the truncated fingerprint (first 16 chars) to match X-Device-FP header.
   static String _computeSignature(String timestamp, String nonce) {
     final key = utf8.encode(_hmacSecret);
     final fp = SecurityService.deviceFingerprint;
-    final data = utf8.encode('$_apiKey:$timestamp:$nonce:$fp');
+    final truncatedFp = fp.length >= 16 ? fp.substring(0, 16) : fp;
+    final data = utf8.encode('$_apiKey:$timestamp:$nonce:$truncatedFp');
     final hmacSha256 = Hmac(sha256, key);
     return hmacSha256.convert(data).toString();
   }
