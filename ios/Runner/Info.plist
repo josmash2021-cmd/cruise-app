@@ -39,6 +39,8 @@
 	<string>Cruise necesita tu ubicación para rastrear tu viaje.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Cruise necesita la cámara para tomar tu foto de perfil.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Cruise usa Face ID para iniciar sesión de forma segura.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Cruise necesita acceso a tus fotos para tu foto de perfil.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>

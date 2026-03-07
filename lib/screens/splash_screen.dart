@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:local_auth/local_auth.dart';
 import 'welcome_screen.dart';
 import 'home_screen.dart';
 import 'driver/driver_home_screen.dart';
 import '../config/page_transitions.dart';
+import '../services/local_data_service.dart';
 import '../services/user_session.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -23,9 +25,9 @@ class _SplashScreenState extends State<SplashScreen>
 
   // ── Phase 1: Staggered letter entrance (1200ms total) ──
   late AnimationController _entranceCtrl;
-  late List<Animation<double>> _letterSlide;   // Y offset: 60→0
-  late List<Animation<double>> _letterFade;    // opacity: 0→1
-  late List<Animation<double>> _letterScale;   // scale: 0.3→1
+  late List<Animation<double>> _letterSlide; // Y offset: 60→0
+  late List<Animation<double>> _letterFade; // opacity: 0→1
+  late List<Animation<double>> _letterScale; // scale: 0.3→1
 
   // ── Phase 2: Glow shimmer pulse after all letters land ──
   late AnimationController _glowCtrl;
@@ -41,12 +43,14 @@ class _SplashScreenState extends State<SplashScreen>
   void initState() {
     super.initState();
 
-    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.light,
-      systemNavigationBarColor: _bg,
-      systemNavigationBarIconBrightness: Brightness.light,
-    ));
+    SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        systemNavigationBarColor: _bg,
+        systemNavigationBarIconBrightness: Brightness.light,
+      ),
+    );
 
     _setupEntranceAnimations();
     _setupGlowAnimation();
@@ -74,25 +78,31 @@ class _SplashScreenState extends State<SplashScreen>
       final end = (start + 0.45).clamp(0.0, 1.0);
 
       final curveInterval = Interval(start, end, curve: Curves.elasticOut);
-      final fadeInterval = Interval(start, (start + 0.25).clamp(0.0, 1.0),
-          curve: Curves.easeOut);
+      final fadeInterval = Interval(
+        start,
+        (start + 0.25).clamp(0.0, 1.0),
+        curve: Curves.easeOut,
+      );
 
       _letterSlide.add(
-        Tween<double>(begin: 60.0, end: 0.0).animate(
-          CurvedAnimation(parent: _entranceCtrl, curve: curveInterval),
-        ),
+        Tween<double>(
+          begin: 60.0,
+          end: 0.0,
+        ).animate(CurvedAnimation(parent: _entranceCtrl, curve: curveInterval)),
       );
 
       _letterFade.add(
-        Tween<double>(begin: 0.0, end: 1.0).animate(
-          CurvedAnimation(parent: _entranceCtrl, curve: fadeInterval),
-        ),
+        Tween<double>(
+          begin: 0.0,
+          end: 1.0,
+        ).animate(CurvedAnimation(parent: _entranceCtrl, curve: fadeInterval)),
       );
 
       _letterScale.add(
-        Tween<double>(begin: 0.3, end: 1.0).animate(
-          CurvedAnimation(parent: _entranceCtrl, curve: curveInterval),
-        ),
+        Tween<double>(
+          begin: 0.3,
+          end: 1.0,
+        ).animate(CurvedAnimation(parent: _entranceCtrl, curve: curveInterval)),
       );
     }
   }
@@ -109,12 +119,14 @@ class _SplashScreenState extends State<SplashScreen>
       vsync: this,
       duration: const Duration(milliseconds: 600),
     );
-    _exitFade = Tween<double>(begin: 1.0, end: 0.0).animate(
-      CurvedAnimation(parent: _exitCtrl, curve: Curves.easeInQuart),
-    );
-    _exitScale = Tween<double>(begin: 1.0, end: 1.35).animate(
-      CurvedAnimation(parent: _exitCtrl, curve: Curves.easeIn),
-    );
+    _exitFade = Tween<double>(
+      begin: 1.0,
+      end: 0.0,
+    ).animate(CurvedAnimation(parent: _exitCtrl, curve: Curves.easeInQuart));
+    _exitScale = Tween<double>(
+      begin: 1.0,
+      end: 1.35,
+    ).animate(CurvedAnimation(parent: _exitCtrl, curve: Curves.easeIn));
   }
 
   // ═══════════════════════════════════════════════════════
@@ -154,6 +166,37 @@ class _SplashScreenState extends State<SplashScreen>
 
     Widget destination;
     if (loggedIn) {
+      // ── Biometric gate ──
+      final biometricOn = await LocalDataService.isBiometricLoginEnabled();
+      if (biometricOn && mounted) {
+        final auth = LocalAuthentication();
+        final canCheck =
+            await auth.canCheckBiometrics || await auth.isDeviceSupported();
+        if (canCheck) {
+          try {
+            final ok = await auth.authenticate(
+              localizedReason: 'Sign in to Cruise',
+              options: const AuthenticationOptions(
+                stickyAuth: true,
+                biometricOnly: true,
+              ),
+            );
+            if (!ok) {
+              // Failed — sign out and go to welcome
+              await UserSession.logout();
+              if (!mounted) return;
+              destination = const WelcomeScreen();
+              Navigator.of(
+                context,
+              ).pushReplacement(smoothFadeRoute(destination, durationMs: 400));
+              return;
+            }
+          } catch (_) {
+            // Biometric error — fall through to normal login
+          }
+        }
+      }
+      if (!mounted) return;
       final mode = await UserSession.getMode();
       destination = mode == 'driver'
           ? const DriverHomeScreen()
@@ -163,9 +206,9 @@ class _SplashScreenState extends State<SplashScreen>
     }
 
     if (!mounted) return;
-    Navigator.of(context).pushReplacement(
-      smoothFadeRoute(destination, durationMs: 400),
-    );
+    Navigator.of(
+      context,
+    ).pushReplacement(smoothFadeRoute(destination, durationMs: 400));
   }
 
   @override
@@ -243,7 +286,9 @@ class _SplashScreenState extends State<SplashScreen>
                                   blurRadius: 24,
                                 ),
                                 Shadow(
-                                  color: _goldBright.withValues(alpha: shadowOpacity * 0.5),
+                                  color: _goldBright.withValues(
+                                    alpha: shadowOpacity * 0.5,
+                                  ),
                                   blurRadius: 48,
                                 ),
                               ],

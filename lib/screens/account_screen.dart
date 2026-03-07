@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io' if (dart.library.html) 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:local_auth/local_auth.dart';
 import '../config/api_keys.dart';
 import '../config/app_theme.dart';
 import '../config/page_transitions.dart';
@@ -36,6 +37,7 @@ class _AccountScreenState extends State<AccountScreen> {
   Map<String, String>? _user;
   List<FavoritePlace> _favorites = [];
   bool _loading = true;
+  bool _isVerified = false;
 
   @override
   void initState() {
@@ -58,10 +60,12 @@ class _AccountScreenState extends State<AccountScreen> {
   Future<void> _loadUser() async {
     final user = await UserSession.getUser();
     final favs = await LocalDataService.getFavorites();
+    final verified = await LocalDataService.isIdentityVerified();
     if (!mounted) return;
     setState(() {
       _user = user;
       _favorites = favs;
+      _isVerified = verified;
       _loading = false;
     });
   }
@@ -122,16 +126,39 @@ class _AccountScreenState extends State<AccountScreen> {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  // Name
+                  // Name + verified badge
                   Expanded(
-                    child: Text(
-                      fullName,
-                      style: TextStyle(
-                        fontSize: 34,
-                        fontWeight: FontWeight.w800,
-                        color: c.textPrimary,
-                        letterSpacing: -0.5,
-                      ),
+                    child: Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            fullName,
+                            style: TextStyle(
+                              fontSize: 34,
+                              fontWeight: FontWeight.w800,
+                              color: c.textPrimary,
+                              letterSpacing: -0.5,
+                            ),
+                          ),
+                        ),
+                        if (_isVerified) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.all(2),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: const Color(
+                                0xFF4CAF50,
+                              ).withValues(alpha: 0.15),
+                            ),
+                            child: const Icon(
+                              Icons.verified_rounded,
+                              color: Color(0xFF4CAF50),
+                              size: 22,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                   // Profile photo
@@ -445,7 +472,55 @@ class _MenuItem {
 // ─────────────────────────────────────────────
 // Settings Screen with Sign Out
 // ─────────────────────────────────────────────
-class _SettingsScreen extends StatelessWidget {
+class _SettingsScreen extends StatefulWidget {
+  const _SettingsScreen();
+  @override
+  State<_SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<_SettingsScreen> {
+  bool _biometricEnabled = false;
+  bool _biometricAvailable = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBiometric();
+  }
+
+  Future<void> _loadBiometric() async {
+    final auth = LocalAuthentication();
+    final canCheck =
+        await auth.canCheckBiometrics || await auth.isDeviceSupported();
+    final enabled = await LocalDataService.isBiometricLoginEnabled();
+    if (mounted) {
+      setState(() {
+        _biometricAvailable = canCheck;
+        _biometricEnabled = enabled;
+      });
+    }
+  }
+
+  Future<void> _toggleBiometric(bool value) async {
+    if (value) {
+      final auth = LocalAuthentication();
+      try {
+        final authenticated = await auth.authenticate(
+          localizedReason: 'Authenticate to enable biometric sign-in',
+          options: const AuthenticationOptions(
+            stickyAuth: true,
+            biometricOnly: true,
+          ),
+        );
+        if (!authenticated) return;
+      } catch (_) {
+        return;
+      }
+    }
+    await LocalDataService.setBiometricLogin(value);
+    if (mounted) setState(() => _biometricEnabled = value);
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
@@ -520,6 +595,50 @@ class _SettingsScreen extends StatelessWidget {
                 },
               ),
               const SizedBox(height: 10),
+              if (_biometricAvailable)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: c.surface,
+                      borderRadius: BorderRadius.circular(14),
+                      border: c.isDark
+                          ? null
+                          : Border.all(
+                              color: Colors.black.withValues(alpha: 0.06),
+                            ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.fingerprint_rounded,
+                          color: c.textPrimary,
+                          size: 22,
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Text(
+                            'Biometric Sign-In',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: c.textPrimary,
+                            ),
+                          ),
+                        ),
+                        Switch.adaptive(
+                          value: _biometricEnabled,
+                          activeColor: const Color(0xFFE8C547),
+                          onChanged: _toggleBiometric,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               _settingsItem(
                 c,
                 icon: Icons.info_outline_rounded,

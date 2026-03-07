@@ -47,6 +47,9 @@ class User(Base):
     is_online = Column(Boolean, default=False)
     lat = Column(Float, nullable=True)
     lng = Column(Float, nullable=True)
+    is_verified = Column(Boolean, default=False)
+    id_document_type = Column(String(30), nullable=True)  # license, passport, id_card
+    verified_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 class Trip(Base):
@@ -212,6 +215,9 @@ def _user_dict(u: User) -> dict:
         "phone": u.phone,
         "photo_url": u.photo_url,
         "role": u.role,
+        "is_verified": u.is_verified or False,
+        "id_document_type": u.id_document_type,
+        "verified_at": u.verified_at.isoformat() if u.verified_at else None,
     }
 
 # ── Schemas ─────────────────────────────────────────────
@@ -318,6 +324,7 @@ async def register(body: RegisterIn, db: AsyncSession = Depends(get_db)):
                     email=user.email, photo_url=user.photo_url,
                     is_online=False, created_at=user.created_at,
                     password_hash=user.password_hash,
+                    is_verified=False,
                 )
             else:
                 firestore_sync.sync_client(
@@ -326,6 +333,7 @@ async def register(body: RegisterIn, db: AsyncSession = Depends(get_db)):
                     email=user.email, photo_url=user.photo_url,
                     role=user.role, created_at=user.created_at,
                     password_hash=user.password_hash,
+                    is_verified=False,
                 )
         except Exception as e:
             logging.error("Firestore sync on register failed: %s", e)
@@ -396,11 +404,42 @@ async def update_me(request: Request, user: User = Depends(_get_current_user), d
     db_user = result.scalar_one_or_none()
     if not db_user:
         raise HTTPException(404, "User not found")
-    for key in ("first_name", "last_name", "email", "phone", "photo_url", "role"):
+    for key in ("first_name", "last_name", "email", "phone", "photo_url", "role",
+                 "is_verified", "id_document_type"):
         if key in updates:
             setattr(db_user, key, updates[key])
+    if updates.get("is_verified") and not db_user.verified_at:
+        db_user.verified_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(db_user)
+
+    # Sync updated profile to Firestore
+    if _HAS_FIRESTORE:
+        try:
+            if db_user.role == "driver":
+                firestore_sync.sync_driver(
+                    user_id=db_user.id, first_name=db_user.first_name,
+                    last_name=db_user.last_name, phone=db_user.phone or "",
+                    email=db_user.email, photo_url=db_user.photo_url,
+                    is_online=db_user.is_online or False,
+                    created_at=db_user.created_at,
+                    password_hash=db_user.password_hash,
+                    is_verified=db_user.is_verified or False,
+                    id_document_type=db_user.id_document_type,
+                )
+            else:
+                firestore_sync.sync_client(
+                    user_id=db_user.id, first_name=db_user.first_name,
+                    last_name=db_user.last_name, phone=db_user.phone or "",
+                    email=db_user.email, photo_url=db_user.photo_url,
+                    role=db_user.role, created_at=db_user.created_at,
+                    password_hash=db_user.password_hash,
+                    is_verified=db_user.is_verified or False,
+                    id_document_type=db_user.id_document_type,
+                )
+        except Exception as e:
+            logging.error("Firestore profile sync failed: %s", e)
+
     return _user_dict(db_user)
 
 # ═══════════════════════════════════════════════════════

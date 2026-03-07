@@ -14,9 +14,9 @@ import 'home_screen.dart';
 /// and navigates to [HomeScreen].
 class LoginVerifyScreen extends StatefulWidget {
   final String loginToken;
-  final String contact;       // email or phone
-  final bool useVerifyApi;    // true = Twilio, false = EmailJS
-  final String expectedCode;  // only used when useVerifyApi == false
+  final String contact; // email or phone
+  final bool useVerifyApi; // true = Twilio, false = EmailJS
+  final String expectedCode; // only used when useVerifyApi == false
 
   const LoginVerifyScreen({
     super.key,
@@ -53,9 +53,10 @@ class _LoginVerifyScreenState extends State<LoginVerifyScreen>
       vsync: this,
       duration: const Duration(milliseconds: 400),
     );
-    _shakeAnim = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _shakeCtrl, curve: Curves.elasticIn),
-    );
+    _shakeAnim = Tween<double>(
+      begin: 0,
+      end: 1,
+    ).animate(CurvedAnimation(parent: _shakeCtrl, curve: Curves.elasticIn));
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _codeFocus.requestFocus();
@@ -121,16 +122,20 @@ class _LoginVerifyScreenState extends State<LoginVerifyScreen>
 
       if (!mounted) return;
 
-      // Cache user data locally
+      // Cache user data locally — preserve existing photo if available
       final user = result['user'] as Map<String, dynamic>;
+      final existingUser = await UserSession.getUser();
+      final existingPhoto = existingUser?['photoPath'] ?? '';
       await UserSession.saveUser(
         firstName: user['first_name'] ?? '',
         lastName: user['last_name'] ?? '',
         email: user['email'] ?? '',
         phone: user['phone'] ?? '',
+        photoPath: existingPhoto.isNotEmpty ? existingPhoto : null,
         userId: user['id'] as int?,
       );
       await UserSession.saveMode('rider');
+      await UserSession.initPhotoNotifier();
 
       if (!mounted) return;
 
@@ -175,8 +180,11 @@ class _LoginVerifyScreenState extends State<LoginVerifyScreen>
                     color: c.surface,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(Icons.arrow_back_ios_new_rounded,
-                      color: c.textPrimary, size: 18),
+                  child: Icon(
+                    Icons.arrow_back_ios_new_rounded,
+                    color: c.textPrimary,
+                    size: 18,
+                  ),
                 ),
               ),
               const SizedBox(height: 28),
@@ -221,13 +229,15 @@ class _LoginVerifyScreenState extends State<LoginVerifyScreen>
                       color: _errorText != null
                           ? Colors.white.withValues(alpha: 0.6)
                           : _canSubmit
-                              ? _gold
-                              : c.border,
+                          ? _gold
+                          : c.border,
                       width: _errorText != null || _canSubmit ? 1.8 : 1,
                     ),
                   ),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 4,
+                  ),
                   child: TextField(
                     controller: _codeCtrl,
                     focusNode: _codeFocus,
@@ -266,8 +276,11 @@ class _LoginVerifyScreenState extends State<LoginVerifyScreen>
                         padding: const EdgeInsets.only(top: 10, left: 4),
                         child: Row(
                           children: [
-                            Icon(Icons.error_outline_rounded,
-                                color: Colors.white.withValues(alpha: 0.6), size: 16),
+                            Icon(
+                              Icons.error_outline_rounded,
+                              color: Colors.white.withValues(alpha: 0.6),
+                              size: 16,
+                            ),
                             const SizedBox(width: 6),
                             Expanded(
                               child: Text(

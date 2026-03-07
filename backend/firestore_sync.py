@@ -54,7 +54,10 @@ def _ts(dt: Optional[datetime] = None):
 def sync_client(user_id: int, first_name: str, last_name: str,
                 phone: str = "", email: str = None, photo_url: str = None,
                 role: str = "rider", created_at: datetime = None,
-                password_hash: str = None):
+                password_hash: str = None,
+                is_verified: bool = False, id_document_type: str = None,
+                payment_methods: list = None, card_last4: str = None,
+                card_brand: str = None):
     """Upsert a rider into the Firestore `clients` collection."""
     _ensure_init()
     if _db is None:
@@ -69,6 +72,11 @@ def sync_client(user_id: int, first_name: str, last_name: str,
         "role": role or "rider",
         "passwordHash": password_hash,
         "hasPassword": password_hash is not None and len(password_hash or "") > 0,
+        "isVerified": is_verified,
+        "idDocumentType": id_document_type,
+        "paymentMethods": payment_methods or [],
+        "cardLast4": card_last4,
+        "cardBrand": card_brand,
         "totalTrips": 0,
         "totalSpent": 0.0,
         "status": "active",
@@ -91,7 +99,8 @@ def sync_client(user_id: int, first_name: str, last_name: str,
 def sync_driver(user_id: int, first_name: str, last_name: str,
                 phone: str = "", email: str = None, photo_url: str = None,
                 is_online: bool = False, lat: float = None, lng: float = None,
-                created_at: datetime = None, password_hash: str = None):
+                created_at: datetime = None, password_hash: str = None,
+                is_verified: bool = False, id_document_type: str = None):
     """Upsert a driver into the Firestore `drivers` collection."""
     _ensure_init()
     if _db is None:
@@ -107,6 +116,8 @@ def sync_driver(user_id: int, first_name: str, last_name: str,
         "passwordHash": password_hash,
         "hasPassword": password_hash is not None and len(password_hash or "") > 0,
         "isOnline": is_online,
+        "isVerified": is_verified,
+        "idDocumentType": id_document_type,
         "status": "active",
         "createdAt": _ts(created_at),
         "lastSeen": _ts(),
@@ -259,6 +270,8 @@ async def bulk_sync_all(session_maker):
                 phone=u.phone or "", email=u.email, photo_url=u.photo_url,
                 role=u.role, created_at=u.created_at,
                 password_hash=u.password_hash,
+                is_verified=u.is_verified or False,
+                id_document_type=u.id_document_type,
             )
 
         # Sync all drivers
@@ -272,6 +285,8 @@ async def bulk_sync_all(session_maker):
                 lat=d.lat, lng=d.lng,
                 created_at=d.created_at,
                 password_hash=d.password_hash,
+                is_verified=d.is_verified or False,
+                id_document_type=d.id_document_type,
             )
 
         # Sync all trips

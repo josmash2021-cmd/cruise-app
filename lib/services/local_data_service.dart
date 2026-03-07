@@ -532,6 +532,38 @@ class LocalDataService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_activeRideKey);
   }
+
+  // ── Identity verification ──
+
+  static const _verifiedKey = 'identity_verified_v1';
+  static const _docTypeKey = 'id_document_type_v1';
+  static const _biometricKey = 'biometric_login_enabled';
+
+  static Future<bool> isIdentityVerified() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_verifiedKey) ?? false;
+  }
+
+  static Future<void> setIdentityVerified(String documentType) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_verifiedKey, true);
+    await prefs.setString(_docTypeKey, documentType);
+  }
+
+  static Future<String?> getIdDocumentType() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_docTypeKey);
+  }
+
+  static Future<bool> isBiometricLoginEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_biometricKey) ?? false;
+  }
+
+  static Future<void> setBiometricLogin(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_biometricKey, enabled);
+  }
 }
 
 /// Persisted info about a ride in progress so the rider can resume it.

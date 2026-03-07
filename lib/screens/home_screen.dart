@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'airport_terminal_sheet.dart';
+import 'identity_verification_screen.dart';
 import 'map_screen.dart';
 import 'ride_request_screen.dart';
 import 'rider_tracking_screen.dart';
@@ -136,6 +137,21 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   void _onPhotoChanged() {
     if (!mounted) return;
     setState(() => _photoPath = UserSession.photoNotifier.value);
+  }
+
+  /// Returns true if the rider is identity-verified.
+  /// If not verified, shows the verification flow and returns false.
+  Future<bool> _ensureVerified() async {
+    final verified = await LocalDataService.isIdentityVerified();
+    if (verified) return true;
+    if (!mounted) return false;
+    final result = await Navigator.of(
+      context,
+    ).push<bool>(slideUpFadeRoute(const IdentityVerificationScreen()));
+    if (result == true) {
+      return true;
+    }
+    return false;
   }
 
   Future<void> _fetchCurrentLocation() async {
@@ -346,6 +362,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           _promoTripsLeft = 3;
         });
       }
+      if (!await _ensureVerified()) return;
       Navigator.of(
         context,
       ).push(slideUpFadeRoute(const RideRequestScreen(applyPromo: true)));
@@ -1058,6 +1075,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           _resumeActiveRide();
           return;
         }
+        if (!await _ensureVerified()) return;
         await Navigator.of(
           context,
         ).push(scaleExpandRoute(const RideRequestScreen()));
@@ -1231,11 +1249,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           ),
           label: 'Fast ride',
           disabled: !_driversOnline,
-          onTap: () {
+          onTap: () async {
             if (!_driversOnline) {
               _showFastRideUnavailableDialog();
               return;
             }
+            if (!await _ensureVerified()) return;
             Navigator.of(
               context,
             ).push(slideUpFadeRoute(const RideRequestScreen(fastRide: true)));
@@ -1588,9 +1607,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             right: 24,
           ),
           child: GestureDetector(
-            onTap: () => Navigator.of(
-              context,
-            ).push(slideFromRightRoute(const RideRequestScreen())),
+            onTap: () async {
+              if (!await _ensureVerified()) return;
+              Navigator.of(
+                context,
+              ).push(slideFromRightRoute(const RideRequestScreen()));
+            },
             child: Container(
               height: 120,
               clipBehavior: Clip.hardEdge,
@@ -2003,11 +2025,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  void _requestRideToAddress(String address) {
+  void _requestRideToAddress(String address) async {
     if (_activeRide != null) {
       _resumeActiveRide();
       return;
     }
+    if (!await _ensureVerified()) return;
     LocalDataService.incrementDestinationUsage(address);
     Navigator.of(context)
         .push(
@@ -2451,6 +2474,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           if (mounted) setState(() => _dockIndex = 0);
           return;
         }
+        if (!await _ensureVerified()) return;
         await Navigator.of(
           context,
         ).push(slideUpFadeRoute(const RideRequestScreen()));
@@ -2554,6 +2578,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       ),
     );
 
+    if (!await _ensureVerified()) return;
+
     Navigator.of(context).push(
       slideUpFadeRoute(
         RideRequestScreen(scheduledAt: scheduledAt, isAirportTrip: isAirport),
@@ -2561,11 +2587,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  void _openMapWithDropoff(String query) {
+  void _openMapWithDropoff(String query) async {
     if (_activeRide != null) {
       _resumeActiveRide();
       return;
     }
+    if (!await _ensureVerified()) return;
     LocalDataService.incrementDestinationUsage(query);
     Navigator.of(context).push(
       slideFromRightRoute(RideRequestScreen(initialDropoffAddress: query)),
