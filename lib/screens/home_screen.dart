@@ -58,6 +58,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // Active ride state
   ActiveRideInfo? _activeRide;
 
+  // Verification state
+  bool _isVerified = false;
+
   // User profile data
   String _firstName = '';
   String _lastName = '';
@@ -143,12 +146,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   /// If not verified, shows the verification flow and returns false.
   Future<bool> _ensureVerified() async {
     final verified = await LocalDataService.isIdentityVerified();
-    if (verified) return true;
+    if (verified) {
+      if (!_isVerified && mounted) setState(() => _isVerified = true);
+      return true;
+    }
     if (!mounted) return false;
     final result = await Navigator.of(
       context,
     ).push<bool>(slideUpFadeRoute(const IdentityVerificationScreen()));
     if (result == true) {
+      if (mounted) setState(() => _isVerified = true);
       return true;
     }
     return false;
@@ -405,7 +412,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ),
             const SizedBox(height: 10),
             Text(
-              'Complete ${_promoTripsLeft} more ride${_promoTripsLeft == 1 ? '' : 's'} to unlock your next 10% discount!',
+              'Complete $_promoTripsLeft more ride${_promoTripsLeft == 1 ? '' : 's'} to unlock your next 10% discount!',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: c.textSecondary,
@@ -551,6 +558,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final user = await UserSession.getUser();
     final hasPromo = await LocalDataService.hasActivePromo();
     final activeRide = await LocalDataService.getActiveRide();
+    final verified = await LocalDataService.isIdentityVerified();
     if (!mounted) return;
     setState(() {
       _favorites = favorites;
@@ -559,6 +567,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       _notifications = notifications;
       _hasActivePromo = hasPromo;
       _activeRide = activeRide;
+      _isVerified = verified;
       _loadingSavedData = false;
       if (user != null) {
         _firstName = user['firstName'] ?? '';
@@ -1069,6 +1078,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // ─── Hero CTA Card ───
   Widget _buildHeroCTA() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final disabled = !_isVerified && _activeRide == null;
     return GestureDetector(
       onTap: () async {
         if (_activeRide != null) {
@@ -1087,125 +1097,171 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           final v = _shimmerController.value;
           // Traveling glow around the border
           final glowAngle = v * 2 * 3.14159265; // ignore: unused_local_variable
-          return Container(
-            height: 140,
-            decoration: BoxDecoration(borderRadius: BorderRadius.circular(28)),
-            child: CustomPaint(
-              painter: _GlowBorderPainter(
-                progress: v,
-                gold: _gold,
-                goldLight: _goldLight,
-                isDark: isDark,
+          return Opacity(
+            opacity: disabled ? 0.55 : 1.0,
+            child: Container(
+              height: 140,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(28),
               ),
-              child: Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  gradient: isDark
-                      ? const LinearGradient(
-                          colors: [Color(0xFF141210), Color(0xFF0C0B09)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        )
-                      : LinearGradient(
-                          colors: [
-                            const Color(0xFF161820),
-                            const Color(0xFF1C1E24),
-                          ],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                  borderRadius: BorderRadius.circular(28),
-                  boxShadow: [
-                    BoxShadow(
-                      color: _gold.withValues(
-                        alpha: 0.06 + 0.08 * ((v * 3.14).clamp(0, 1)),
+              child: CustomPaint(
+                painter: disabled
+                    ? null
+                    : _GlowBorderPainter(
+                        progress: v,
+                        gold: _gold,
+                        goldLight: _goldLight,
+                        isDark: isDark,
                       ),
-                      blurRadius: 30 + 15 * v,
-                      offset: const Offset(0, 10),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            'Where to?',
-                            style: TextStyle(
-                              color: isDark
-                                  ? Colors.white
-                                  : const Color(0xFF1C1C1E),
-                              fontSize: 28,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: -1,
-                            ),
+                child: Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    gradient: isDark
+                        ? const LinearGradient(
+                            colors: [Color(0xFF141210), Color(0xFF0C0B09)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          )
+                        : LinearGradient(
+                            colors: [
+                              const Color(0xFF161820),
+                              const Color(0xFF1C1E24),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
                           ),
-                          const SizedBox(height: 12),
-                          // ── Now / Later toggle ──
-                          GestureDetector(
-                            onTap: () {}, // absorb tap so parent doesn't fire
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.06),
-                                borderRadius: BorderRadius.circular(20),
+                    borderRadius: BorderRadius.circular(28),
+                    boxShadow: [
+                      BoxShadow(
+                        color: _gold.withValues(
+                          alpha: 0.06 + 0.08 * ((v * 3.14).clamp(0, 1)),
+                        ),
+                        blurRadius: 30 + 15 * v,
+                        offset: const Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              'Where to?',
+                              style: TextStyle(
+                                color: disabled
+                                    ? Colors.white.withValues(alpha: 0.25)
+                                    : isDark
+                                    ? Colors.white
+                                    : const Color(0xFF1C1C1E),
+                                fontSize: 28,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -1,
                               ),
-                              padding: const EdgeInsets.all(3),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
+                            ),
+                            const SizedBox(height: 8),
+                            if (disabled)
+                              Row(
                                 children: [
-                                  _nowLaterPill(
-                                    'Now',
-                                    Icons.bolt_rounded,
-                                    _rideNow,
-                                    () {
-                                      if (!_rideNow)
-                                        setState(() => _rideNow = true);
-                                    },
+                                  Icon(
+                                    Icons.lock_rounded,
+                                    color: Colors.white.withValues(alpha: 0.35),
+                                    size: 14,
                                   ),
-                                  _nowLaterPill(
-                                    'Later',
-                                    Icons.schedule_rounded,
-                                    !_rideNow,
-                                    () {
-                                      if (_rideNow) {
-                                        setState(() => _rideNow = false);
-                                        _showScheduleSheet();
-                                      }
-                                    },
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Verify identity to request rides',
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.35,
+                                      ),
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                    ),
                                   ),
                                 ],
+                              )
+                            else ...[
+                              const SizedBox(height: 4),
+                              // ── Now / Later toggle ──
+                              GestureDetector(
+                                onTap:
+                                    () {}, // absorb tap so parent doesn't fire
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.06),
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  padding: const EdgeInsets.all(3),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      _nowLaterPill(
+                                        'Now',
+                                        Icons.bolt_rounded,
+                                        _rideNow,
+                                        () {
+                                          if (!_rideNow) {
+                                            setState(() => _rideNow = true);
+                                          }
+                                        },
+                                      ),
+                                      _nowLaterPill(
+                                        'Later',
+                                        Icons.schedule_rounded,
+                                        !_rideNow,
+                                        () {
+                                          if (_rideNow) {
+                                            setState(() => _rideNow = false);
+                                            _showScheduleSheet();
+                                          }
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      width: 56,
-                      height: 56,
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [_gold, _goldLight],
+                            ],
+                          ],
                         ),
-                        borderRadius: BorderRadius.circular(18),
-                        boxShadow: [
-                          BoxShadow(
-                            color: _gold.withValues(alpha: 0.4),
-                            blurRadius: 16,
-                            offset: const Offset(0, 4),
+                      ),
+                      Container(
+                        width: 56,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: disabled
+                                ? [
+                                    Colors.white.withValues(alpha: 0.08),
+                                    Colors.white.withValues(alpha: 0.04),
+                                  ]
+                                : const [_gold, _goldLight],
                           ),
-                        ],
+                          borderRadius: BorderRadius.circular(18),
+                          boxShadow: disabled
+                              ? []
+                              : [
+                                  BoxShadow(
+                                    color: _gold.withValues(alpha: 0.4),
+                                    blurRadius: 16,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                        ),
+                        child: Icon(
+                          disabled
+                              ? Icons.lock_rounded
+                              : Icons.arrow_forward_rounded,
+                          color: disabled
+                              ? Colors.white.withValues(alpha: 0.25)
+                              : Colors.black87,
+                          size: 26,
+                        ),
                       ),
-                      child: const Icon(
-                        Icons.arrow_forward_rounded,
-                        color: Colors.black87,
-                        size: 26,
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),

@@ -1,8 +1,10 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Communicates with the Cruise Ride backend (FastAPI + PostgreSQL).
@@ -16,6 +18,9 @@ class ApiService {
 
   /// Android emulator loopback — maps to host machine localhost.
   static const String _localUrl = 'http://10.0.2.2:8000';
+
+  /// Physical device via ADB reverse — maps to host machine localhost.
+  static const String _adbUrl = 'http://localhost:8000';
 
   /// Local network URL — works for physical devices on same WiFi network
   static const String _localNetworkUrl = 'http://172.20.11.24:8000';
@@ -63,7 +68,7 @@ class ApiService {
   }) async {
     final urls =
         candidates ??
-        [_activeUrl, _defaultTunnelUrl, _localNetworkUrl, _localUrl];
+        [_activeUrl, _defaultTunnelUrl, _adbUrl, _localNetworkUrl, _localUrl];
 
     for (final url in urls) {
       try {
@@ -397,6 +402,49 @@ class ApiService {
         .timeout(const Duration(seconds: 5));
     final data = _parse(res);
     return data['status'] as String? ?? 'active';
+  }
+
+  // ═══════════════════════════════════════════════════════
+  //  PHOTO  ENDPOINTS
+  // ═══════════════════════════════════════════════════════
+
+  /// Upload a profile photo (base64) to the server.
+  /// Returns the server-side photo URL path (e.g. "/photos/user_1.jpg").
+  static Future<String> uploadPhoto(String filePath) async {
+    final token = await getToken();
+    if (token == null) throw ApiException(401, 'Not logged in');
+    final bytes = await File(filePath).readAsBytes();
+    final b64 = base64Encode(bytes);
+    final res = await http
+        .post(
+          Uri.parse('$_baseUrl/auth/photo'),
+          headers: _jsonHeaders(token),
+          body: jsonEncode({'photo': b64}),
+        )
+        .timeout(const Duration(seconds: 30));
+    final data = _parse(res);
+    return data['photo_url'] as String? ?? '';
+  }
+
+  /// Download a profile photo from the server and save to local file.
+  /// [photoUrl] is the relative path like "/photos/user_1.jpg".
+  /// Returns the local file path, or empty string on failure.
+  static Future<String> downloadPhoto(String photoUrl) async {
+    try {
+      final url = '$_baseUrl$photoUrl';
+      final res = await http
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 15));
+      if (res.statusCode != 200 || res.bodyBytes.isEmpty) return '';
+      final dir = await getApplicationDocumentsDirectory();
+      final ext = photoUrl.endsWith('.png') ? 'png' : 'jpg';
+      final file = File('${dir.path}/profile_photo.$ext');
+      await file.writeAsBytes(res.bodyBytes);
+      return file.path;
+    } catch (e) {
+      debugPrint('[ApiService] downloadPhoto failed: $e');
+      return '';
+    }
   }
 
   // ═══════════════════════════════════════════════════════

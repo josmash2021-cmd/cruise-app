@@ -1050,14 +1050,14 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         gradient: const LinearGradient(
-                          colors: [Color(0xFF4CAF50), Color(0xFF2E7D32)],
+                          colors: [Color(0xFFE8C547), Color(0xFFB8972E)],
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
                         boxShadow: [
                           BoxShadow(
                             color: const Color(
-                              0xFF4CAF50,
+                              0xFFE8C547,
                             ).withValues(alpha: 0.3),
                             blurRadius: 30,
                             spreadRadius: 5,
@@ -1102,7 +1102,7 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
                   color: c.surface,
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
-                    color: const Color(0xFF4CAF50).withValues(alpha: 0.3),
+                    color: const Color(0xFFE8C547).withValues(alpha: 0.3),
                     width: 1,
                   ),
                 ),
@@ -1113,7 +1113,7 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
                       children: [
                         const Icon(
                           Icons.verified_rounded,
-                          color: Color(0xFF4CAF50),
+                          color: Color(0xFFE8C547),
                           size: 22,
                         ),
                         const SizedBox(width: 8),

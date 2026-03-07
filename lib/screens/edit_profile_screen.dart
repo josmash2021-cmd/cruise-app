@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../config/app_theme.dart';
@@ -118,6 +118,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
     // Copy to permanent storage so the photo survives app restarts
     final permanentPath = await UserSession.saveProfilePhoto(xFile.path);
+    // Upload to server so it persists across devices
+    try {
+      await ApiService.uploadPhoto(permanentPath);
+    } catch (e) {
+      debugPrint('Photo upload failed (saved locally): $e');
+    }
     // Clear cached image so new photo shows immediately
     imageCache.clear();
     imageCache.clearLiveImages();

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:local_auth/local_auth.dart';
 import '../config/app_theme.dart';
+import '../widgets/animated_biometric_icon.dart';
 import '../config/page_transitions.dart';
 import '../services/api_service.dart';
 import '../services/email_service.dart';
@@ -633,7 +634,7 @@ class _LoginPasswordScreenState extends State<LoginPasswordScreen> {
                         ),
                       ),
                       onPressed: _loading ? null : _loginWithBiometric,
-                      icon: const Icon(Icons.fingerprint_rounded, size: 24),
+                      icon: const AnimatedBiometricIcon(size: 24, color: _gold),
                       label: const Text(
                         'Sign in with Face ID / Fingerprint',
                         style: TextStyle(

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:local_auth/local_auth.dart';
 import '../config/api_keys.dart';
 import '../config/app_theme.dart';
+import '../widgets/animated_biometric_icon.dart';
 import '../config/page_transitions.dart';
 import '../services/api_service.dart';
 import '../services/local_data_service.dart';
@@ -148,12 +149,12 @@ class _AccountScreenState extends State<AccountScreen> {
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               color: const Color(
-                                0xFF4CAF50,
+                                0xFFE8C547,
                               ).withValues(alpha: 0.15),
                             ),
                             child: const Icon(
                               Icons.verified_rounded,
-                              color: Color(0xFF4CAF50),
+                              color: Color(0xFFE8C547),
                               size: 22,
                             ),
                           ),
@@ -200,8 +201,9 @@ class _AccountScreenState extends State<AccountScreen> {
                                           frame,
                                           wasSynchronouslyLoaded,
                                         ) {
-                                          if (wasSynchronouslyLoaded)
+                                          if (wasSynchronouslyLoaded) {
                                             return child;
+                                          }
                                           return AnimatedOpacity(
                                             opacity: frame == null ? 0.0 : 1.0,
                                             duration: const Duration(
@@ -614,15 +616,11 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                     ),
                     child: Row(
                       children: [
-                        Icon(
-                          Icons.fingerprint_rounded,
-                          color: c.textPrimary,
-                          size: 22,
-                        ),
+                        AnimatedBiometricIcon(size: 24, color: c.textPrimary),
                         const SizedBox(width: 14),
                         Expanded(
                           child: Text(
-                            'Biometric Sign-In',
+                            'Face ID / Fingerprint',
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
@@ -813,11 +811,12 @@ class _FavoriteAddressSheetState extends State<_FavoriteAddressSheet> {
     _debounce = Timer(const Duration(milliseconds: 400), () async {
       try {
         final results = await _places.autocomplete(query);
-        if (mounted)
+        if (mounted) {
           setState(() {
             _suggestions = results;
             _loading = false;
           });
+        }
       } catch (_) {
         if (mounted) setState(() => _loading = false);
       }

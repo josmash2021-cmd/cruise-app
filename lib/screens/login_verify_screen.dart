@@ -1,9 +1,11 @@
+import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../config/app_theme.dart';
 import '../config/page_transitions.dart';
 import '../services/api_service.dart';
+import '../services/local_data_service.dart';
 import '../services/sms_service.dart';
 import '../services/user_session.dart';
 import 'home_screen.dart';
@@ -130,6 +132,16 @@ class _LoginVerifyScreenState extends State<LoginVerifyScreen>
       if (existingPhoto.isEmpty) {
         existingPhoto = await UserSession.getPersistedPhotoPath();
       }
+      // Fallback: download photo from server (works across devices)
+      if (existingPhoto.isEmpty || !await File(existingPhoto).exists()) {
+        final serverPhotoUrl = user['photo_url'] as String?;
+        if (serverPhotoUrl != null && serverPhotoUrl.isNotEmpty) {
+          final downloaded = await ApiService.downloadPhoto(serverPhotoUrl);
+          if (downloaded.isNotEmpty) {
+            existingPhoto = downloaded;
+          }
+        }
+      }
       await UserSession.saveUser(
         firstName: user['first_name'] ?? '',
         lastName: user['last_name'] ?? '',
@@ -140,6 +152,13 @@ class _LoginVerifyScreenState extends State<LoginVerifyScreen>
       );
       await UserSession.saveMode('rider');
       await UserSession.initPhotoNotifier();
+
+      // Restore verification status from backend
+      final vStatus = user['verification_status'] as String?;
+      if (vStatus == 'approved') {
+        final docType = user['id_document_type'] as String? ?? 'id_card';
+        await LocalDataService.setIdentityVerified(docType);
+      }
 
       if (!mounted) return;
 

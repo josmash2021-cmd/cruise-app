@@ -1,15 +1,19 @@
 """Cruise Ride — FastAPI Backend
 Complete implementation matching the Flutter client's ApiService endpoints.
+Hardened with 8 layers of security protection.
 """
 
-import os, time, hmac, hashlib, math, secrets, logging
+import os, time, hmac, hashlib, math, secrets, logging, collections, re
 from datetime import datetime, timedelta, timezone
 from contextlib import asynccontextmanager
 from typing import Optional, List
 
+import base64
 from fastapi import FastAPI, Depends, HTTPException, Header, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, field_validator
 from jose import jwt, JWTError
 from passlib.context import CryptContext
 from sqlalchemy import (
@@ -124,34 +128,149 @@ async def lifespan(app: FastAPI):
             logging.error("Bulk Firestore sync failed: %s", e)
     yield
 
-app = FastAPI(title="Cruise Ride API", lifespan=lifespan)
+app = FastAPI(title="Cruise Ride API", lifespan=lifespan, docs_url=None, redoc_url=None)
+
+# ═══════════════════════════════════════════════════════
+#  8 LAYERS OF SECURITY PROTECTION
+# ═══════════════════════════════════════════════════════
+
+# ── LAYER 1: CORS — Only allow app origins ─────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:8000", "http://127.0.0.1:8000"],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_headers=["Authorization", "Content-Type", "X-Api-Key", "X-Timestamp", "X-Nonce", "X-Signature"],
 )
 
-# ── Rate Limiter (in-memory, per-IP) ───────────────────
-import collections
+# ── LAYER 2: Security Headers ─────────────────────────
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
+    response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    # Hide server identity
+    if "server" in response.headers:
+        del response.headers["server"]
+    return response
+
+# ── LAYER 3: Rate Limiting (per-IP, anti-DDoS) ────────
 _rate_buckets: dict[str, collections.deque] = {}
 _RATE_LIMIT = 60          # max requests …
-_RATE_WINDOW  = 60        # … per this many seconds
+_RATE_WINDOW = 60         # … per this many seconds
 
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
     client_ip = request.client.host if request.client else "unknown"
     now = time.monotonic()
     bucket = _rate_buckets.setdefault(client_ip, collections.deque())
-    # Purge old entries
     while bucket and bucket[0] < now - _RATE_WINDOW:
         bucket.popleft()
     if len(bucket) >= _RATE_LIMIT:
-        from fastapi.responses import JSONResponse
         return JSONResponse({"detail": "Rate limit exceeded"}, status_code=429)
     bucket.append(now)
     return await call_next(request)
+
+# ── LAYER 4: Request Size Limit (anti-payload bomb) ───
+_MAX_BODY_SIZE = 5 * 1024 * 1024  # 5 MB max (photos are ~1-2MB base64)
+
+@app.middleware("http")
+async def request_size_limit_middleware(request: Request, call_next):
+    content_length = request.headers.get("content-length")
+    if content_length and int(content_length) > _MAX_BODY_SIZE:
+        return JSONResponse({"detail": "Request body too large"}, status_code=413)
+    return await call_next(request)
+
+# ── LAYER 5: Brute Force Protection (login) ───────────
+_login_attempts: dict[str, list] = {}  # ip -> [(timestamp, count)]
+_LOGIN_MAX_ATTEMPTS = 5
+_LOGIN_LOCKOUT_SECONDS = 300  # 5 minutes lockout
+
+def _check_login_throttle(client_ip: str) -> bool:
+    """Returns True if login is BLOCKED for this IP."""
+    now = time.monotonic()
+    record = _login_attempts.get(client_ip)
+    if not record:
+        return False
+    # Clean old entries
+    _login_attempts[client_ip] = [
+        (ts, cnt) for ts, cnt in record if now - ts < _LOGIN_LOCKOUT_SECONDS
+    ]
+    record = _login_attempts.get(client_ip, [])
+    total = sum(cnt for _, cnt in record)
+    return total >= _LOGIN_MAX_ATTEMPTS
+
+def _record_login_failure(client_ip: str):
+    now = time.monotonic()
+    _login_attempts.setdefault(client_ip, []).append((now, 1))
+
+def _clear_login_failures(client_ip: str):
+    _login_attempts.pop(client_ip, None)
+
+# ── LAYER 6: IP Blacklist (auto-ban suspicious IPs) ───
+_ip_blacklist: set[str] = set()
+_ip_violations: dict[str, int] = {}  # ip -> violation count
+_IP_BAN_THRESHOLD = 20  # violations before auto-ban
+
+@app.middleware("http")
+async def ip_blacklist_middleware(request: Request, call_next):
+    client_ip = request.client.host if request.client else "unknown"
+    if client_ip in _ip_blacklist:
+        return JSONResponse({"detail": "Access denied"}, status_code=403)
+    return await call_next(request)
+
+def _record_violation(client_ip: str):
+    """Record a security violation. Auto-ban after threshold."""
+    _ip_violations[client_ip] = _ip_violations.get(client_ip, 0) + 1
+    if _ip_violations[client_ip] >= _IP_BAN_THRESHOLD:
+        _ip_blacklist.add(client_ip)
+        logging.warning("[BANNED] IP auto-banned: %s (violations: %d)", client_ip, _ip_violations[client_ip])
+
+# ── LAYER 7: Input Sanitization ───────────────────────
+_SQL_INJECTION_PATTERN = re.compile(
+    r"(\b(SELECT|INSERT|UPDATE|DELETE|DROP|UNION|ALTER|CREATE|EXEC)\b.*\b(FROM|INTO|TABLE|SET|WHERE)\b)|"
+    r"(--|;.*--|/\*|\*/|xp_|0x[0-9a-fA-F]{8,})",
+    re.IGNORECASE
+)
+_XSS_PATTERN = re.compile(r"<\s*script|javascript\s*:|on\w+\s*=", re.IGNORECASE)
+
+def _sanitize_string(value: str) -> str:
+    """Strip dangerous characters from input strings."""
+    if not value:
+        return value
+    # Reject SQL injection attempts
+    if _SQL_INJECTION_PATTERN.search(value):
+        raise HTTPException(400, "Invalid input detected")
+    # Reject XSS attempts
+    if _XSS_PATTERN.search(value):
+        raise HTTPException(400, "Invalid input detected")
+    return value.strip()
+
+# ── LAYER 8: Crash Protection & Error Handling ────────
+@app.middleware("http")
+async def crash_protection_middleware(request: Request, call_next):
+    try:
+        response = await call_next(request)
+        return response
+    except Exception as e:
+        client_ip = request.client.host if request.client else "unknown"
+        logging.error("[CRASH] Unhandled error from %s on %s: %s", client_ip, request.url.path, str(e))
+        return JSONResponse(
+            {"detail": "Internal server error"},
+            status_code=500,
+        )
+
+# ── Health check (public, no auth) ────────────────────
+@app.get("/health")
+async def health():
+    return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
 
 # ── Dependencies ────────────────────────────────────────
 async def get_db():
@@ -226,7 +345,7 @@ def _user_dict(u: User) -> dict:
         "status": u.status or "active",
     }
 
-# ── Schemas ─────────────────────────────────────────────
+# ── Schemas (with input validation) ─────────────────────
 class RegisterIn(BaseModel):
     first_name: str
     last_name: str
@@ -235,6 +354,33 @@ class RegisterIn(BaseModel):
     password: str
     photo_url: Optional[str] = None
     role: str = "rider"  # rider | driver
+
+    @field_validator('first_name', 'last_name')
+    @classmethod
+    def validate_name(cls, v):
+        v = v.strip()
+        if len(v) > 100:
+            raise ValueError('Name too long')
+        _sanitize_string(v)
+        return v
+
+    @field_validator('email')
+    @classmethod
+    def validate_email(cls, v):
+        if v is None:
+            return v
+        v = v.strip().lower()
+        if len(v) > 255 or '@' not in v:
+            raise ValueError('Invalid email')
+        _sanitize_string(v)
+        return v
+
+    @field_validator('password')
+    @classmethod
+    def validate_password(cls, v):
+        if len(v) < 6 or len(v) > 128:
+            raise ValueError('Password must be 6-128 characters')
+        return v
 
 class CheckExistsIn(BaseModel):
     identifier: str
@@ -356,8 +502,17 @@ async def check_exists(body: CheckExistsIn, db: AsyncSession = Depends(get_db)):
     return {"exists": result.scalar_one_or_none() is not None}
 
 @app.post("/auth/login", dependencies=[Depends(_verify_api_key)])
-async def login(body: LoginIn, db: AsyncSession = Depends(get_db)):
+async def login(body: LoginIn, request: Request, db: AsyncSession = Depends(get_db)):
+    client_ip = request.client.host if request.client else "unknown"
+
+    # Layer 5: Brute force protection
+    if _check_login_throttle(client_ip):
+        _record_violation(client_ip)
+        raise HTTPException(429, "Too many login attempts. Try again in 5 minutes.")
+
     identifier = body.identifier.strip()
+    _sanitize_string(identifier)
+
     # Normalize phone: if it looks like digits, ensure E.164 format
     cleaned = identifier.replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
     if cleaned.lstrip("+").isdigit() and len(cleaned.lstrip("+")) >= 7:
@@ -370,9 +525,13 @@ async def login(body: LoginIn, db: AsyncSession = Depends(get_db)):
     )
     user = result.scalar_one_or_none()
     if not user or not pwd.verify(body.password, user.password_hash):
+        _record_login_failure(client_ip)
         raise HTTPException(401, "Invalid credentials")
     if (user.status or "active") in ("deleted", "blocked"):
         raise HTTPException(403, f"Account {user.status}")
+
+    # Successful login — clear failures
+    _clear_login_failures(client_ip)
 
     login_token = _create_login_token(user.id)
     return {
@@ -455,6 +614,77 @@ async def update_me(request: Request, user: User = Depends(_get_current_user), d
             logging.error("Firestore profile sync failed: %s", e)
 
     return _user_dict(db_user)
+
+# ── Photo Upload / Serve ──────────────────────────────
+PHOTOS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "photos")
+os.makedirs(PHOTOS_DIR, exist_ok=True)
+
+@app.post("/auth/photo", dependencies=[Depends(_verify_api_key)])
+async def upload_photo(request: Request, user: User = Depends(_get_current_user), db: AsyncSession = Depends(get_db)):
+    """Upload profile photo as base64. Saves file and updates user's photo_url."""
+    body = await request.json()
+    photo_b64 = body.get("photo")
+    if not photo_b64 or not isinstance(photo_b64, str):
+        raise HTTPException(400, "Missing 'photo' field (base64)")
+    # Validate and decode base64
+    try:
+        photo_bytes = base64.b64decode(photo_b64, validate=True)
+    except Exception:
+        raise HTTPException(400, "Invalid base64 data")
+    # Limit decoded size to 3MB
+    if len(photo_bytes) > 3 * 1024 * 1024:
+        raise HTTPException(413, "Photo too large (max 3MB)")
+    # Detect format from magic bytes
+    ext = "jpg"
+    if photo_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+        ext = "png"
+    filename = f"user_{user.id}.{ext}"
+    filepath = os.path.join(PHOTOS_DIR, filename)
+    with open(filepath, "wb") as f:
+        f.write(photo_bytes)
+    # Update user photo_url in DB
+    result = await db.execute(select(User).where(User.id == user.id))
+    db_user = result.scalar_one_or_none()
+    if db_user:
+        db_user.photo_url = f"/photos/{filename}"
+        await db.commit()
+        await db.refresh(db_user)
+        # Sync to Firestore
+        if _HAS_FIRESTORE:
+            try:
+                collection = "drivers" if db_user.role == "driver" else "clients"
+                firestore_sync.sync_client(
+                    user_id=db_user.id, first_name=db_user.first_name,
+                    last_name=db_user.last_name, phone=db_user.phone or "",
+                    email=db_user.email, photo_url=db_user.photo_url,
+                    role=db_user.role, created_at=db_user.created_at,
+                    password_hash=db_user.password_hash,
+                    is_verified=db_user.is_verified or False,
+                ) if collection == "clients" else firestore_sync.sync_driver(
+                    user_id=db_user.id, first_name=db_user.first_name,
+                    last_name=db_user.last_name, phone=db_user.phone or "",
+                    email=db_user.email, photo_url=db_user.photo_url,
+                    is_online=db_user.is_online or False,
+                    created_at=db_user.created_at,
+                    password_hash=db_user.password_hash,
+                    is_verified=db_user.is_verified or False,
+                )
+            except Exception as e:
+                logging.error("Firestore photo sync failed: %s", e)
+    return {"photo_url": f"/photos/{filename}"}
+
+@app.get("/photos/{filename}")
+async def serve_photo(filename: str):
+    """Serve uploaded profile photos. Public endpoint (no auth)."""
+    # Sanitize filename — prevent path traversal
+    safe_name = os.path.basename(filename)
+    if safe_name != filename or ".." in filename:
+        raise HTTPException(400, "Invalid filename")
+    filepath = os.path.join(PHOTOS_DIR, safe_name)
+    if not os.path.isfile(filepath):
+        raise HTTPException(404, "Photo not found")
+    media = "image/jpeg" if safe_name.endswith(".jpg") else "image/png"
+    return FileResponse(filepath, media_type=media)
 
 @app.delete("/auth/me", dependencies=[Depends(_verify_api_key)])
 async def delete_account(user: User = Depends(_get_current_user), db: AsyncSession = Depends(get_db)):
@@ -957,11 +1187,6 @@ async def get_dispatch_status(trip_id: int = Query(...), user: User = Depends(_g
             "trip": _trip_dict(trip),
         }
     return {"status": trip.status, "driver": None, "trip": _trip_dict(trip)}
-
-# ── Health check ────────────────────────────────────────
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
 
 # ── Tunnel URL discovery ───────────────────────────────
 _TUNNEL_URL_FILE = os.path.join(os.path.dirname(__file__), "tunnel_url.txt")

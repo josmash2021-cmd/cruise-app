@@ -156,11 +156,12 @@ class UserSession {
     return permanent.path;
   }
 
-  /// Initialize the photo notifier from stored session (call once at startup)
+  /// Initialize the photo notifier from stored session (call once at startup).
+  /// Falls back to persistent key, then tries downloading from server.
   static Future<void> initPhotoNotifier() async {
     final user = await getUser();
     final path = user?['photoPath'] ?? '';
-    if (path.isNotEmpty) {
+    if (path.isNotEmpty && !kIsWeb && await File(path).exists()) {
       photoNotifier.value = path;
       return;
     }
@@ -171,6 +172,22 @@ class UserSession {
       photoNotifier.value = saved;
       // Also restore into session
       await updateField('photoPath', saved);
+      return;
+    }
+    // Fallback: download from server (works across devices)
+    try {
+      final me = await ApiService.getMe();
+      final serverUrl = me?['photo_url'] as String?;
+      if (serverUrl != null && serverUrl.isNotEmpty) {
+        final localPath = await ApiService.downloadPhoto(serverUrl);
+        if (localPath.isNotEmpty) {
+          photoNotifier.value = localPath;
+          await updateField('photoPath', localPath);
+          await prefs.setString(_photoKey, localPath);
+        }
+      }
+    } catch (_) {
+      // Server unreachable — skip
     }
   }
 
