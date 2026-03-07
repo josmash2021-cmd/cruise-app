@@ -231,6 +231,22 @@ def get_verification_status(user_id: int) -> dict:
     return None
 
 
+def update_field(collection: str, user_id: int, field: str, value):
+    """Update a single field on a Firestore document."""
+    _ensure_init()
+    if _db is None:
+        return
+    doc_id = f"sql_{user_id}"
+    try:
+        _db.collection(collection).document(doc_id).set({
+            field: value,
+            "lastUpdated": _ts(),
+        }, merge=True)
+        log.info("🔄 Updated %s.%s for sql_%s", collection, field, user_id)
+    except Exception as e:
+        log.error("❌ Field update failed for %s in %s: %s", user_id, collection, e)
+
+
 def get_account_status(user_id: int, collection: str = "clients") -> str:
     """Read account status from Firestore (dispatch may have blocked/deleted)."""
     _ensure_init()

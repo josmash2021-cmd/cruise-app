@@ -1505,6 +1505,7 @@ def _doc_dict(d: Document) -> dict:
     return {
         "id": d.id, "user_id": d.user_id, "doc_type": d.doc_type,
         "status": d.status, "doc_number": d.doc_number,
+        "file_path": d.file_path,
         "expiry_date": d.expiry_date.isoformat() if d.expiry_date else None,
         "rejection_reason": d.rejection_reason,
         "created_at": d.created_at.isoformat() if d.created_at else None,
@@ -1891,7 +1892,7 @@ async def admin_update_user_status(user_id: int, status: str = Body(..., embed=T
     if _HAS_FIRESTORE:
         try:
             collection = "drivers" if user.role == "driver" else "clients"
-            firestore_sync.update_field(collection, str(user.id), "status", status)
+            firestore_sync.update_field(collection, user.id, "status", status)
         except Exception as e:
             logging.warning("Firestore status sync failed: %s", e)
     _security_audit_log("ADMIN_STATUS_CHANGE", {"user_id": user_id, "new_status": status})
@@ -2188,3 +2189,133 @@ async def admin_review_verification(user_id: int, request: Request, db: AsyncSes
         "verification_status": user.verification_status,
         "is_verified": user.is_verified,
     }
+
+
+# ═══════════════════════════════════════════════════════════
+#  ADMIN — User Detail, Edit, Delete, Documents, Photos
+# ═══════════════════════════════════════════════════════════
+
+@app.get("/admin/users/{user_id}", dependencies=[Depends(_verify_api_key)])
+async def admin_get_user(user_id: int, db: AsyncSession = Depends(get_db)):
+    """Get full user detail including documents and photo URL."""
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, "User not found")
+    # Get documents
+    docs_result = await db.execute(
+        select(Document).where(Document.user_id == user_id).order_by(Document.created_at.desc())
+    )
+    docs = docs_result.scalars().all()
+    ud = _user_dict(user)
+    ud["documents"] = [_doc_dict(d) for d in docs]
+    ud["has_password"] = user.password_hash is not None and len(user.password_hash) > 0
+    ud["created_at"] = user.created_at.isoformat() if user.created_at else None
+    return ud
+
+
+@app.patch("/admin/users/{user_id}", dependencies=[Depends(_verify_api_key)])
+async def admin_update_user(user_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    """Update user fields from dispatch admin. Syncs changes to Firestore."""
+    body = await request.json()
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, "User not found")
+    # Allowed editable fields
+    for key in ("first_name", "last_name", "email", "phone", "status"):
+        if key in body:
+            _sanitize_string(str(body[key]))
+            setattr(user, key, body[key])
+    # Handle password reset
+    if "password" in body and body["password"]:
+        _sanitize_string(body["password"])
+        user.password_hash = pwd.hash(body["password"])
+    await db.commit()
+    await db.refresh(user)
+    # Sync to Firestore
+    if _HAS_FIRESTORE:
+        try:
+            collection = "drivers" if user.role == "driver" else "clients"
+            if user.role == "driver":
+                firestore_sync.sync_driver(
+                    user_id=user.id, first_name=user.first_name,
+                    last_name=user.last_name, phone=user.phone or "",
+                    email=user.email, photo_url=user.photo_url,
+                    password_hash=user.password_hash,
+                    is_verified=user.is_verified or False,
+                    status=user.status or "active",
+                )
+            else:
+                firestore_sync.sync_client(
+                    user_id=user.id, first_name=user.first_name,
+                    last_name=user.last_name, phone=user.phone or "",
+                    email=user.email, photo_url=user.photo_url,
+                    role=user.role, password_hash=user.password_hash,
+                    is_verified=user.is_verified or False,
+                    status=user.status or "active",
+                )
+        except Exception as e:
+            logging.warning("Firestore user edit sync failed: %s", e)
+    _security_audit_log("ADMIN_USER_EDIT", {"user_id": user_id, "fields": list(body.keys())})
+    return _user_dict(user)
+
+
+@app.delete("/admin/users/{user_id}", dependencies=[Depends(_verify_api_key)])
+async def admin_delete_user(user_id: int, db: AsyncSession = Depends(get_db)):
+    """Permanently delete a user and their documents. Syncs to Firestore."""
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, "User not found")
+    # Delete documents
+    await db.execute(select(Document).where(Document.user_id == user_id))
+    docs_result = await db.execute(select(Document).where(Document.user_id == user_id))
+    for doc in docs_result.scalars().all():
+        # Delete file from disk
+        if doc.file_path:
+            fpath = os.path.join(os.path.dirname(os.path.abspath(__file__)), doc.file_path.lstrip("/"))
+            if os.path.exists(fpath):
+                os.remove(fpath)
+        await db.delete(doc)
+    # Delete photo from disk
+    if user.photo_url:
+        photo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), user.photo_url.lstrip("/"))
+        if os.path.exists(photo_path):
+            os.remove(photo_path)
+    collection = "drivers" if user.role == "driver" else "clients"
+    await db.delete(user)
+    await db.commit()
+    # Sync to Firestore
+    if _HAS_FIRESTORE:
+        try:
+            firestore_sync.delete_user(user_id, collection)
+        except Exception as e:
+            logging.warning("Firestore delete sync failed: %s", e)
+    _security_audit_log("ADMIN_USER_DELETED", {"user_id": user_id})
+    return {"deleted": True}
+
+
+@app.get("/admin/users/{user_id}/documents", dependencies=[Depends(_verify_api_key)])
+async def admin_get_user_documents(user_id: int, db: AsyncSession = Depends(get_db)):
+    """Get all documents for a specific user."""
+    result = await db.execute(
+        select(Document).where(Document.user_id == user_id).order_by(Document.created_at.desc())
+    )
+    docs = result.scalars().all()
+    return [_doc_dict(d) for d in docs]
+
+
+# Serve uploaded documents (similar to photos)
+UPLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
+os.makedirs(os.path.join(UPLOADS_DIR, "documents"), exist_ok=True)
+
+@app.get("/uploads/documents/{filename}")
+async def serve_document(filename: str):
+    """Serve an uploaded document file."""
+    # Prevent path traversal
+    safe_name = os.path.basename(filename)
+    fpath = os.path.join(UPLOADS_DIR, "documents", safe_name)
+    if not os.path.exists(fpath):
+        raise HTTPException(404, "Document not found")
+    return FileResponse(fpath)
