@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:apple_maps_flutter/apple_maps_flutter.dart' as amap;
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
@@ -53,11 +55,47 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
 
   // â”€â”€ Map â”€â”€
   GoogleMapController? _map;
+  amap.AppleMapController? _appleMap;
   LatLng _pos = const LatLng(25.7617, -80.1918);
   Set<Marker> _markers = {};
   Set<Polyline> _polylines = {};
   StreamSubscription<Position>? _posStream;
   bool _lastStyleDark = true;
+
+  /// Animate camera on both platforms.
+  void _animateToPosition(
+    LatLng pos, {
+    double zoom = 15.5,
+    double bearing = 0,
+    double tilt = 0,
+  }) {
+    if (Platform.isIOS) {
+      _appleMap?.animateCamera(
+        amap.CameraUpdate.newCameraPosition(
+          amap.CameraPosition(
+            target: amap.LatLng(pos.latitude, pos.longitude),
+            zoom: zoom,
+          ),
+        ),
+      );
+    } else {
+      _map?.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(target: pos, zoom: zoom, bearing: bearing, tilt: tilt),
+        ),
+      );
+    }
+  }
+
+  void _moveToLatLng(LatLng pos) {
+    if (Platform.isIOS) {
+      _appleMap?.moveCamera(
+        amap.CameraUpdate.newLatLng(amap.LatLng(pos.latitude, pos.longitude)),
+      );
+    } else {
+      _map?.animateCamera(CameraUpdate.newLatLng(pos));
+    }
+  }
 
   // â”€â”€ Trip â”€â”€
   _Phase _phase = _Phase.searching;
@@ -265,7 +303,7 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
       );
       if (!mounted) return;
       setState(() => _pos = LatLng(pos.latitude, pos.longitude));
-      _map?.animateCamera(CameraUpdate.newLatLng(_pos));
+      _moveToLatLng(_pos);
     } catch (_) {}
   }
 
@@ -1048,6 +1086,33 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
       );
     }
     return all;
+  }
+
+  Set<amap.Annotation> get _appleAnnotations {
+    return _allMarkers
+        .map(
+          (m) => amap.Annotation(
+            annotationId: amap.AnnotationId(m.markerId.value),
+            position: amap.LatLng(m.position.latitude, m.position.longitude),
+            anchor: m.anchor,
+          ),
+        )
+        .toSet();
+  }
+
+  Set<amap.Polyline> get _applePolylines {
+    return _polylines
+        .map(
+          (p) => amap.Polyline(
+            polylineId: amap.PolylineId(p.polylineId.value),
+            points: p.points
+                .map((ll) => amap.LatLng(ll.latitude, ll.longitude))
+                .toList(),
+            color: p.color,
+            width: p.width,
+          ),
+        )
+        .toSet();
   }
 
   /// Snap a raw GPS coordinate to the nearest point on the active route polyline.
@@ -2298,42 +2363,78 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
 
   Widget _mapW(bool isDark) {
     return RepaintBoundary(
-      child: GoogleMap(
-        style: isDark ? MapStyles.dark : MapStyles.light,
-        initialCameraPosition: CameraPosition(
-          target: _pos,
-          zoom: 15.5,
-          bearing: 0,
-          tilt: 0,
-        ),
-        onMapCreated: (c) {
-          _map = c;
-          _lastStyleDark = isDark;
-          // Immediately move to correct searching-phase camera
-          c.moveCamera(
-            CameraUpdate.newCameraPosition(
-              CameraPosition(target: _pos, zoom: 15.5, bearing: 0, tilt: 0),
+      child: Platform.isIOS
+          ? amap.AppleMap(
+              initialCameraPosition: amap.CameraPosition(
+                target: amap.LatLng(_pos.latitude, _pos.longitude),
+                zoom: 15.5,
+              ),
+              mapType: amap.MapType.standard,
+              onMapCreated: (c) {
+                _appleMap = c;
+                _lastStyleDark = isDark;
+                c.moveCamera(
+                  amap.CameraUpdate.newCameraPosition(
+                    amap.CameraPosition(
+                      target: amap.LatLng(_pos.latitude, _pos.longitude),
+                      zoom: 15.5,
+                    ),
+                  ),
+                );
+              },
+              myLocationEnabled: false,
+              myLocationButtonEnabled: false,
+              zoomGesturesEnabled: true,
+              rotateGesturesEnabled: true,
+              scrollGesturesEnabled: true,
+              compassEnabled: false,
+              annotations: _appleAnnotations,
+              polylines: _applePolylines,
+              padding: EdgeInsets.only(
+                top: MediaQuery.of(context).padding.top + 70,
+                bottom: _mapBottomPadding,
+              ),
+            )
+          : GoogleMap(
+              style: isDark ? MapStyles.dark : MapStyles.light,
+              initialCameraPosition: CameraPosition(
+                target: _pos,
+                zoom: 15.5,
+                bearing: 0,
+                tilt: 0,
+              ),
+              onMapCreated: (c) {
+                _map = c;
+                _lastStyleDark = isDark;
+                c.moveCamera(
+                  CameraUpdate.newCameraPosition(
+                    CameraPosition(
+                      target: _pos,
+                      zoom: 15.5,
+                      bearing: 0,
+                      tilt: 0,
+                    ),
+                  ),
+                );
+              },
+              markers: _allMarkers,
+              polylines: _polylines,
+              onCameraMoveStarted: _onCameraMoveStarted,
+              myLocationEnabled: false,
+              myLocationButtonEnabled: false,
+              zoomControlsEnabled: false,
+              mapToolbarEnabled: false,
+              compassEnabled: false,
+              buildingsEnabled: true,
+              trafficEnabled:
+                  _phase == _Phase.enRouteToPickup || _phase == _Phase.inTrip,
+              indoorViewEnabled: false,
+              liteModeEnabled: false,
+              padding: EdgeInsets.only(
+                top: MediaQuery.of(context).padding.top + 70,
+                bottom: _mapBottomPadding,
+              ),
             ),
-          );
-        },
-        markers: _allMarkers,
-        polylines: _polylines,
-        onCameraMoveStarted: _onCameraMoveStarted,
-        myLocationEnabled: false,
-        myLocationButtonEnabled: false,
-        zoomControlsEnabled: false,
-        mapToolbarEnabled: false,
-        compassEnabled: false,
-        buildingsEnabled: true,
-        trafficEnabled:
-            _phase == _Phase.enRouteToPickup || _phase == _Phase.inTrip,
-        indoorViewEnabled: false,
-        liteModeEnabled: false,
-        padding: EdgeInsets.only(
-          top: MediaQuery.of(context).padding.top + 70,
-          bottom: _mapBottomPadding,
-        ),
-      ),
     );
   }
 

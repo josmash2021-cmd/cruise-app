@@ -1,11 +1,15 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:apple_maps_flutter/apple_maps_flutter.dart' as amap;
 import 'package:geolocator/geolocator.dart';
 import '../../config/map_styles.dart';
 import '../../config/page_transitions.dart';
 import '../../services/api_service.dart';
+import '../../services/local_data_service.dart';
+import '../identity_verification_screen.dart';
 import 'driver_earnings_screen.dart';
 import 'driver_trip_history_screen.dart';
 import 'driver_menu_screen.dart';
@@ -32,6 +36,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
 
   // ── Map ──
   GoogleMapController? _mapController;
+  amap.AppleMapController? _appleMapController;
   LatLng? _currentLatLng;
   // ignore: unused_field
   bool _mapReady = false;
@@ -146,7 +151,15 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
       );
       if (!mounted) return;
       setState(() => _currentLatLng = LatLng(pos.latitude, pos.longitude));
-      _mapController?.animateCamera(CameraUpdate.newLatLng(_currentLatLng!));
+      if (Platform.isIOS) {
+        _appleMapController?.moveCamera(
+          amap.CameraUpdate.newLatLng(
+            amap.LatLng(_currentLatLng!.latitude, _currentLatLng!.longitude),
+          ),
+        );
+      } else {
+        _mapController?.animateCamera(CameraUpdate.newLatLng(_currentLatLng!));
+      }
     } catch (_) {}
   }
 
@@ -189,9 +202,23 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
   }
 
   // ═══════════════════════════════════════════════════
+  //  IDENTITY VERIFICATION GATE
+  // ═══════════════════════════════════════════════════
+  Future<bool> _ensureVerified() async {
+    final verified = await LocalDataService.isIdentityVerified();
+    if (verified) return true;
+    if (!mounted) return false;
+    final result = await Navigator.of(
+      context,
+    ).push<bool>(slideUpFadeRoute(const IdentityVerificationScreen()));
+    return result == true;
+  }
+
+  // ═══════════════════════════════════════════════════
   //  GO ONLINE — navigate to DriverOnlineScreen
   // ═══════════════════════════════════════════════════
-  void _goOnline() {
+  void _goOnline() async {
+    if (!await _ensureVerified()) return;
     HapticFeedback.heavyImpact();
     Navigator.of(context).push(
       PageRouteBuilder(
@@ -289,23 +316,44 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
     }
 
     return RepaintBoundary(
-      child: GoogleMap(
-        style: MapStyles.dark,
-        initialCameraPosition: CameraPosition(
-          target: _currentLatLng!,
-          zoom: 16,
-        ),
-        onMapCreated: (ctrl) {
-          _mapController = ctrl;
-          setState(() => _mapReady = true);
-        },
-        myLocationEnabled: true,
-        myLocationButtonEnabled: false,
-        zoomControlsEnabled: false,
-        mapToolbarEnabled: false,
-        compassEnabled: false,
-        liteModeEnabled: false,
-      ),
+      child: Platform.isIOS
+          ? amap.AppleMap(
+              initialCameraPosition: amap.CameraPosition(
+                target: amap.LatLng(
+                  _currentLatLng!.latitude,
+                  _currentLatLng!.longitude,
+                ),
+                zoom: 16,
+              ),
+              mapType: amap.MapType.standard,
+              onMapCreated: (c) {
+                _appleMapController = c;
+                setState(() => _mapReady = true);
+              },
+              myLocationEnabled: true,
+              myLocationButtonEnabled: false,
+              zoomGesturesEnabled: true,
+              rotateGesturesEnabled: true,
+              scrollGesturesEnabled: true,
+              compassEnabled: false,
+            )
+          : GoogleMap(
+              style: MapStyles.dark,
+              initialCameraPosition: CameraPosition(
+                target: _currentLatLng!,
+                zoom: 16,
+              ),
+              onMapCreated: (ctrl) {
+                _mapController = ctrl;
+                setState(() => _mapReady = true);
+              },
+              myLocationEnabled: true,
+              myLocationButtonEnabled: false,
+              zoomControlsEnabled: false,
+              mapToolbarEnabled: false,
+              compassEnabled: false,
+              liteModeEnabled: false,
+            ),
     );
   }
 
