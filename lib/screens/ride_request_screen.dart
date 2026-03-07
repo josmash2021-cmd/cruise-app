@@ -826,6 +826,47 @@ class _RideRequestScreenState extends State<RideRequestScreen>
           _goToTracking();
         }
         break;
+      case RiderPhase.cancelled:
+        _searchingShowMap = false;
+        _searchingSplash = false;
+        _searchMapTimer?.cancel();
+        _searchMapTimer = null;
+        _splashTimer?.cancel();
+        _splashTimer = null;
+        // Show cancel reason dialog
+        final reason =
+            s.cancelReason ??
+            'No hay drivers disponibles cerca de tu zona en estos momentos';
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (_) => AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              title: const Row(
+                children: [
+                  Icon(Icons.info_outline, color: Colors.orange, size: 28),
+                  SizedBox(width: 10),
+                  Text('Viaje cancelado'),
+                ],
+              ),
+              content: Text(reason, style: const TextStyle(fontSize: 15)),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    _ctrl.reset();
+                  },
+                  child: const Text('Aceptar'),
+                ),
+              ],
+            ),
+          );
+        });
+        break;
       default:
         _searchingShowMap = false;
         _searchingSplash = false;

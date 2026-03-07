@@ -375,11 +375,26 @@ class _LoginPasswordScreenState extends State<LoginPasswordScreen> {
       }
     } on ApiException catch (e) {
       if (!mounted) return;
+      String msg;
+      if (e.statusCode == 401) {
+        msg = 'Invalid email/phone or password';
+      } else if (e.statusCode == 403) {
+        final detail = e.message.toLowerCase();
+        if (detail.contains('deleted')) {
+          msg = 'This account no longer exists';
+        } else if (detail.contains('blocked')) {
+          msg = 'Your account has been blocked';
+        } else if (detail.contains('deactivated')) {
+          msg = 'Your account has been deactivated';
+        } else {
+          msg = e.message;
+        }
+      } else {
+        msg = e.message;
+      }
       setState(() {
         _loading = false;
-        _errorText = e.statusCode == 401
-            ? 'Invalid email/phone or password'
-            : e.message;
+        _errorText = msg;
       });
       HapticFeedback.mediumImpact();
     } catch (e) {

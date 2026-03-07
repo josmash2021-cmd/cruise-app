@@ -9,7 +9,10 @@ import '../../config/map_styles.dart';
 import '../../config/page_transitions.dart';
 import '../../services/api_service.dart';
 import '../../services/local_data_service.dart';
+import '../../services/user_session.dart';
 import '../identity_verification_screen.dart';
+import '../welcome_screen.dart';
+import '../account_deactivated_screen.dart';
 import 'driver_earnings_screen.dart';
 import 'driver_trip_history_screen.dart';
 import 'driver_menu_screen.dart';
@@ -66,6 +69,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
   // ── Inbox unread count ──
   int _unreadCount = 0;
 
+  // ── Verification ──
+  bool _isVerified = false;
+
   @override
   void initState() {
     super.initState();
@@ -105,6 +111,11 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
 
     _initLocation();
     _loadDriverData();
+    _checkVerification();
+    _accountStatusTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _checkAccountStatus(),
+    );
 
     // Delay entrance animations
     Future.delayed(const Duration(milliseconds: 400), () {
@@ -121,7 +132,36 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
     _statsCtrl.dispose();
     _fabCtrl.dispose();
     _mapController?.dispose();
+    _accountStatusTimer?.cancel();
     super.dispose();
+  }
+
+  // ═══════════════════════════════════════════════════
+  //  ACCOUNT STATUS CHECK
+  // ═══════════════════════════════════════════════════
+  Timer? _accountStatusTimer;
+
+  Future<void> _checkAccountStatus() async {
+    try {
+      final status = await ApiService.getAccountStatus();
+      if (!mounted) return;
+      if (status == 'blocked' || status == 'deleted') {
+        _accountStatusTimer?.cancel();
+        await UserSession.logout();
+        if (!mounted) return;
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const WelcomeScreen()),
+          (_) => false,
+        );
+      } else if (status == 'deactivated') {
+        _accountStatusTimer?.cancel();
+        if (!mounted) return;
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const AccountDeactivatedScreen()),
+          (_) => false,
+        );
+      }
+    } catch (_) {}
   }
 
   // ═══════════════════════════════════════════════════
@@ -204,13 +244,30 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
   // ═══════════════════════════════════════════════════
   //  IDENTITY VERIFICATION GATE
   // ═══════════════════════════════════════════════════
-  Future<bool> _ensureVerified() async {
+  Future<void> _checkVerification() async {
     final verified = await LocalDataService.isIdentityVerified();
-    if (verified) return true;
+    if (mounted) setState(() => _isVerified = verified);
+    if (!verified && mounted) {
+      // Auto-launch verification screen
+      final result = await Navigator.of(
+        context,
+      ).push<bool>(slideUpFadeRoute(const IdentityVerificationScreen()));
+      if (result == true && mounted) setState(() => _isVerified = true);
+    }
+  }
+
+  Future<bool> _ensureVerified() async {
+    if (_isVerified) return true;
+    final verified = await LocalDataService.isIdentityVerified();
+    if (verified) {
+      if (mounted) setState(() => _isVerified = true);
+      return true;
+    }
     if (!mounted) return false;
     final result = await Navigator.of(
       context,
     ).push<bool>(slideUpFadeRoute(const IdentityVerificationScreen()));
+    if (result == true && mounted) setState(() => _isVerified = true);
     return result == true;
   }
 
@@ -338,7 +395,10 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
               compassEnabled: false,
             )
           : GoogleMap(
-              style: MapStyles.dark,
+              style:
+                  MediaQuery.of(context).platformBrightness == Brightness.dark
+                  ? MapStyles.dark
+                  : MapStyles.light,
               initialCameraPosition: CameraPosition(
                 target: _currentLatLng!,
                 zoom: 16,
@@ -351,7 +411,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
               myLocationButtonEnabled: false,
               zoomControlsEnabled: false,
               mapToolbarEnabled: false,
-              compassEnabled: false,
+              compassEnabled: true,
+              buildingsEnabled: false,
+              tiltGesturesEnabled: false,
               liteModeEnabled: false,
             ),
     );
@@ -583,7 +645,11 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
   // ═══════════════════════════════════════════════════
   Widget _buildGoButton() {
     return GestureDetector(
-      onTap: _goOnline,
+      onTap: _isVerified
+          ? _goOnline
+          : () async {
+              await _ensureVerified();
+            },
       child: ListenableBuilder(
         listenable: _pulseAnim,
         builder: (_, _) {
@@ -626,20 +692,23 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
                 ],
               ),
             ),
-            child: const Text(
-              'GO ONLINE',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 1.5,
-                shadows: [
-                  Shadow(
-                    color: Color(0x60000000),
-                    offset: Offset(0, 1),
-                    blurRadius: 2,
-                  ),
-                ],
+            child: Opacity(
+              opacity: _isVerified ? 1.0 : 0.5,
+              child: Text(
+                _isVerified ? 'GO ONLINE' : 'VERIFY TO GO ONLINE',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1.5,
+                  shadows: [
+                    Shadow(
+                      color: Color(0x60000000),
+                      offset: Offset(0, 1),
+                      blurRadius: 2,
+                    ),
+                  ],
+                ),
               ),
             ),
           );

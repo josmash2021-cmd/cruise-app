@@ -112,6 +112,9 @@ class RiderTripState {
   final int? tripId;
   final String? firestoreTripId;
 
+  // Cancel reason from dispatch
+  final String? cancelReason;
+
   const RiderTripState({
     this.phase = RiderPhase.idle,
     this.pickup,
@@ -129,6 +132,7 @@ class RiderTripState {
     this.isAirportTrip = false,
     this.tripId,
     this.firestoreTripId,
+    this.cancelReason,
   });
 
   RiderTripState copyWith({
@@ -148,6 +152,7 @@ class RiderTripState {
     bool? isAirportTrip,
     int? tripId,
     String? firestoreTripId,
+    String? cancelReason,
   }) {
     return RiderTripState(
       phase: phase ?? this.phase,
@@ -166,6 +171,7 @@ class RiderTripState {
       isAirportTrip: isAirportTrip ?? this.isAirportTrip,
       tripId: tripId ?? this.tripId,
       firestoreTripId: firestoreTripId ?? this.firestoreTripId,
+      cancelReason: cancelReason ?? this.cancelReason,
     );
   }
 }
@@ -387,9 +393,20 @@ class RiderTripController extends ChangeNotifier {
           _onDriverMatched(status, tripId);
         } else if (tripStatus == 'cancelled' ||
             tripStatus == 'no_drivers' ||
-            tripStatus == 'expired') {
+            tripStatus == 'expired' ||
+            tripStatus == 'canceled') {
           timer.cancel();
-          _state = _state.copyWith(phase: RiderPhase.cancelled);
+          // Extract cancel reason from trip data
+          final tripData = status['trip'] as Map<String, dynamic>?;
+          final reason = tripData?['cancel_reason']?.toString();
+          _state = _state.copyWith(
+            phase: RiderPhase.cancelled,
+            cancelReason:
+                reason ??
+                (tripStatus == 'no_drivers'
+                    ? 'No hay drivers disponibles cerca de tu zona en estos momentos'
+                    : null),
+          );
           notifyListeners();
         }
         // Otherwise keep polling (status is 'searching' or 'pending')

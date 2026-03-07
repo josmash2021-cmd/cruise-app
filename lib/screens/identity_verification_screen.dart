@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -273,9 +274,32 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
   Future<void> _completeVerification() async {
     final docType = _selectedDocType ?? 'id_card';
 
+    // Build request body with photos as base64
+    final Map<String, dynamic> body = {'id_document_type': docType};
+
+    // Encode ID document photo
+    if (_documentPhotoPath != null) {
+      try {
+        final bytes = await File(_documentPhotoPath!).readAsBytes();
+        body['id_photo'] = base64Encode(bytes);
+      } catch (e) {
+        debugPrint('⚠️ Failed to read document photo: $e');
+      }
+    }
+
+    // Encode selfie photo
+    if (_selfiePath != null) {
+      try {
+        final bytes = await File(_selfiePath!).readAsBytes();
+        body['selfie_photo'] = base64Encode(bytes);
+      } catch (e) {
+        debugPrint('⚠️ Failed to read selfie: $e');
+      }
+    }
+
     // Submit verification request to backend for dispatch review
     try {
-      await ApiService.submitVerification({'id_document_type': docType});
+      await ApiService.submitVerification(body);
     } catch (e) {
       debugPrint('⚠️ Verification submission failed: $e');
     }

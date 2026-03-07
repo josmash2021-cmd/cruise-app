@@ -185,7 +185,9 @@ def delete_user(user_id: int, collection: str = "clients"):
 
 def sync_verification(user_id: int, first_name: str, last_name: str,
                       email: str = None, phone: str = "",
-                      id_document_type: str = "id_card", role: str = "rider"):
+                      id_document_type: str = "id_card", role: str = "rider",
+                      id_photo_url: str = None, selfie_url: str = None,
+                      profile_photo_url: str = None):
     """Create/update a verification request for dispatch to review."""
     _ensure_init()
     if _db is None:
@@ -205,6 +207,12 @@ def sync_verification(user_id: int, first_name: str, last_name: str,
         "reviewedAt": None,
         "source": "cruise_app",
     }
+    if id_photo_url:
+        data["idPhotoUrl"] = id_photo_url
+    if selfie_url:
+        data["selfieUrl"] = selfie_url
+    if profile_photo_url:
+        data["profilePhotoUrl"] = profile_photo_url
     try:
         _db.collection("verifications").document(doc_id).set(data, merge=True)
         log.info("🔍 Verification request synced for sql_%d", user_id)
@@ -320,7 +328,8 @@ def sync_trip(trip_id: int, rider_id: int, rider_name: str, rider_phone: str,
 
 
 def sync_trip_status(trip_id: int, status: str,
-                     driver_id: int = None, driver_name: str = None, driver_phone: str = None):
+                     driver_id: int = None, driver_name: str = None, driver_phone: str = None,
+                     cancel_reason: str = None):
     """Update only the trip status (and optionally driver info) in Firestore."""
     _ensure_init()
     if _db is None:
@@ -348,6 +357,8 @@ def sync_trip_status(trip_id: int, status: str,
             data["driverName"] = driver_name
         if driver_phone:
             data["driverPhone"] = driver_phone
+    if cancel_reason:
+        data["cancelReason"] = cancel_reason
     try:
         _db.collection("trips").document(doc_id).set(data, merge=True)
         log.info("🔄 Synced trip status sql_%d → %s", trip_id, status)

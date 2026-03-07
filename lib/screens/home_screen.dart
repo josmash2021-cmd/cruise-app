@@ -25,6 +25,8 @@ import '../services/api_service.dart';
 import '../services/local_data_service.dart';
 import '../services/places_service.dart';
 import '../services/user_session.dart';
+import 'welcome_screen.dart';
+import 'account_deactivated_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -110,6 +112,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       const Duration(seconds: 30),
       (_) => _checkDriversOnline(),
     );
+    _accountStatusTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _checkAccountStatus(),
+    );
     UserSession.photoNotifier.addListener(_onPhotoChanged);
   }
 
@@ -133,6 +139,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _clockRotateCtrl.dispose();
     _promoShimmerCtrl.dispose();
     _driverCheckTimer?.cancel();
+    _accountStatusTimer?.cancel();
     _locationSub?.cancel();
     super.dispose();
   }
@@ -249,6 +256,30 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Timer? _driverCheckTimer;
+  Timer? _accountStatusTimer;
+
+  Future<void> _checkAccountStatus() async {
+    try {
+      final status = await ApiService.getAccountStatus();
+      if (!mounted) return;
+      if (status == 'blocked' || status == 'deleted') {
+        _accountStatusTimer?.cancel();
+        await UserSession.logout();
+        if (!mounted) return;
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const WelcomeScreen()),
+          (_) => false,
+        );
+      } else if (status == 'deactivated') {
+        _accountStatusTimer?.cancel();
+        if (!mounted) return;
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const AccountDeactivatedScreen()),
+          (_) => false,
+        );
+      }
+    } catch (_) {}
+  }
 
   Future<void> _loadPromoUsed() async {
     final used = await LocalDataService.getPromoUsed();
@@ -1823,21 +1854,23 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           children: [
             Expanded(
               child: _quickAccessTile(
-                Icons.location_on_rounded,
-                'Enterprise',
-                '2930 Pelham Pkwy',
+                Icons.star_rounded,
+                _place1Favorite?.label ?? 'Place 1',
+                _place1Favorite?.address ?? 'Add',
                 _gold,
-                () => _openMapWithDropoff('2930 Pelham Pkwy, Pelham'),
+                _openOrSavePlace1Shortcut,
+                onEdit: _editPlace1Address,
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: _quickAccessTile(
-                Icons.location_on_rounded,
-                '159 Greenwich',
-                'Greenwich Dr, Pelham',
-                Colors.white,
-                () => _openMapWithDropoff('159 Greenwich Dr, Pelham'),
+                Icons.star_rounded,
+                _place2Favorite?.label ?? 'Place 2',
+                _place2Favorite?.address ?? 'Add',
+                _goldLight,
+                _openOrSavePlace2Shortcut,
+                onEdit: _editPlace2Address,
               ),
             ),
           ],
@@ -2710,10 +2743,27 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     return null;
   }
 
+  FavoritePlace? get _place1Favorite {
+    for (final favorite in _favorites) {
+      if (favorite.label.toLowerCase().trim() == 'place 1') {
+        return favorite;
+      }
+    }
+    return null;
+  }
+
+  FavoritePlace? get _place2Favorite {
+    for (final favorite in _favorites) {
+      if (favorite.label.toLowerCase().trim() == 'place 2') {
+        return favorite;
+      }
+    }
+    return null;
+  }
+
   Future<void> _openOrSaveHomeShortcut() async {
     if (_homeFavorite != null) {
-      // Address saved — go to ride request with dropoff
-      _openMapWithDropoff(_homeFavorite!.address);
+      _requestRideToAddress(_homeFavorite!.address);
       return;
     }
     final address = await _showAddressAutocomplete(
@@ -2742,8 +2792,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   Future<void> _openOrSaveWorkShortcut() async {
     if (_workFavorite != null) {
-      // Address saved — go to ride request with dropoff
-      _openMapWithDropoff(_workFavorite!.address);
+      _requestRideToAddress(_workFavorite!.address);
       return;
     }
     final address = await _showAddressAutocomplete(
@@ -2766,6 +2815,62 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     if (address == null || address.isEmpty) return;
     await LocalDataService.saveFavorite(
       FavoritePlace(label: 'Work', address: address),
+    );
+    await _loadSavedData();
+  }
+
+  Future<void> _openOrSavePlace1Shortcut() async {
+    if (_place1Favorite != null) {
+      _requestRideToAddress(_place1Favorite!.address);
+      return;
+    }
+    final address = await _showAddressAutocomplete(
+      title: 'Save Place 1',
+      hint: 'Search an address',
+    );
+    if (address == null || address.isEmpty) return;
+    await LocalDataService.saveFavorite(
+      FavoritePlace(label: 'Place 1', address: address),
+    );
+    await _loadSavedData();
+  }
+
+  Future<void> _editPlace1Address() async {
+    final address = await _showAddressAutocomplete(
+      title: 'Edit Place 1',
+      hint: 'Search an address',
+    );
+    if (address == null || address.isEmpty) return;
+    await LocalDataService.saveFavorite(
+      FavoritePlace(label: 'Place 1', address: address),
+    );
+    await _loadSavedData();
+  }
+
+  Future<void> _openOrSavePlace2Shortcut() async {
+    if (_place2Favorite != null) {
+      _requestRideToAddress(_place2Favorite!.address);
+      return;
+    }
+    final address = await _showAddressAutocomplete(
+      title: 'Save Place 2',
+      hint: 'Search an address',
+    );
+    if (address == null || address.isEmpty) return;
+    await LocalDataService.saveFavorite(
+      FavoritePlace(label: 'Place 2', address: address),
+    );
+    await _loadSavedData();
+  }
+
+  Future<void> _editPlace2Address() async {
+    final address = await _showAddressAutocomplete(
+      title: 'Edit Place 2',
+      hint: 'Search an address',
+    );
+    if (address == null || address.isEmpty) return;
+    await LocalDataService.saveFavorite(
+      FavoritePlace(label: 'Place 2', address: address),
     );
     await _loadSavedData();
   }

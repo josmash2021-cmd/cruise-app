@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:local_auth/local_auth.dart';
 import 'welcome_screen.dart';
+import 'account_deactivated_screen.dart';
 import 'home_screen.dart';
 import 'driver/driver_home_screen.dart';
 import '../config/page_transitions.dart';
@@ -199,16 +200,22 @@ class _SplashScreenState extends State<SplashScreen>
         }
       }
       if (!mounted) return;
-      // ── Check if dispatch blocked/deleted account ──
+      // ── Check if dispatch blocked/deleted/deactivated account ──
       try {
         final status = await ApiService.getAccountStatus();
         if (status == 'blocked' || status == 'deleted') {
           await UserSession.logout();
           if (!mounted) return;
-          destination = const WelcomeScreen();
-          Navigator.of(
-            context,
-          ).pushReplacement(smoothFadeRoute(destination, durationMs: 400));
+          Navigator.of(context).pushReplacement(
+            smoothFadeRoute(const WelcomeScreen(), durationMs: 400),
+          );
+          return;
+        }
+        if (status == 'deactivated') {
+          if (!mounted) return;
+          Navigator.of(context).pushReplacement(
+            smoothFadeRoute(const AccountDeactivatedScreen(), durationMs: 400),
+          );
           return;
         }
       } catch (_) {

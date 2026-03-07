@@ -94,6 +94,7 @@ class Trip(Base):
     terminal = Column(String(50), nullable=True)
     pickup_zone = Column(String(100), nullable=True)  # e.g. 'Terminal A - Door 3'
     notes = Column(Text, nullable=True)  # flight number, special instructions
+    cancel_reason = Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -736,8 +737,13 @@ async def login(body: LoginIn, request: Request, db: AsyncSession = Depends(get_
     if not user or not pwd.verify(body.password, user.password_hash):
         _record_login_failure(client_ip)
         raise HTTPException(401, "Invalid credentials")
-    if (user.status or "active") in ("deleted", "blocked"):
-        raise HTTPException(403, f"Account {user.status}")
+    st = user.status or "active"
+    if st == "deleted":
+        raise HTTPException(403, "Account deleted")
+    if st == "blocked":
+        raise HTTPException(403, "Account blocked")
+    if st == "deactivated":
+        raise HTTPException(403, "Account deactivated")
 
     # Successful login — clear failures
     _clear_login_failures(client_ip)
@@ -788,8 +794,9 @@ async def refresh_token(request: Request, authorization: str = Header(None), db:
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(401, "User not found")
-    if (user.status or "active") in ("deleted", "blocked"):
-        raise HTTPException(403, f"Account {user.status}")
+    st = user.status or "active"
+    if st in ("deleted", "blocked", "deactivated"):
+        raise HTTPException(403, f"Account {st}")
     device_fp = request.headers.get("x-device-fp", "")
     new_access = _create_token(user.id, device_fp)
     new_refresh = _create_refresh_token(user.id)
@@ -951,7 +958,7 @@ async def delete_account(user: User = Depends(_get_current_user), db: AsyncSessi
 
 @app.post("/auth/verify-request", dependencies=[Depends(_verify_api_key)])
 async def submit_verification(request: Request, user: User = Depends(_get_current_user), db: AsyncSession = Depends(get_db)):
-    """Submit identity verification for dispatch review."""
+    """Submit identity verification for dispatch review, with optional ID photo and selfie."""
     body = await request.json()
     result = await db.execute(select(User).where(User.id == user.id))
     db_user = result.scalar_one_or_none()
@@ -963,6 +970,44 @@ async def submit_verification(request: Request, user: User = Depends(_get_curren
     db_user.is_verified = False
     await db.commit()
     await db.refresh(db_user)
+
+    # Save verification photos (ID document + selfie) if provided
+    id_photo_url = None
+    selfie_url = None
+    docs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads", "documents")
+    os.makedirs(docs_dir, exist_ok=True)
+
+    for field, label in [("id_photo", "id_doc"), ("selfie_photo", "selfie")]:
+        b64 = body.get(field)
+        if not b64 or not isinstance(b64, str):
+            continue
+        if len(b64) > 6 * 1024 * 1024:
+            continue  # skip oversized
+        try:
+            decoded = base64.b64decode(b64, validate=True)
+        except Exception:
+            continue
+        if len(decoded) > 4 * 1024 * 1024:
+            continue
+        if decoded[:2] == b'\xff\xd8':
+            ext = "jpg"
+        elif decoded[:8] == b'\x89PNG\r\n\x1a\n':
+            ext = "png"
+        else:
+            continue
+        fname = f"verify_{db_user.id}_{label}_{int(time.time())}.{ext}"
+        fpath = os.path.join(docs_dir, fname)
+        with open(fpath, "wb") as f:
+            f.write(decoded)
+        url = f"/uploads/documents/{fname}"
+        if label == "id_doc":
+            id_photo_url = url
+        else:
+            selfie_url = url
+
+    # Also detect existing profile photo
+    profile_photo_url = db_user.photo_url
+
     # Sync to Firestore so dispatch can review
     if _HAS_FIRESTORE:
         try:
@@ -974,6 +1019,9 @@ async def submit_verification(request: Request, user: User = Depends(_get_curren
                 phone=db_user.phone or "",
                 id_document_type=db_user.id_document_type,
                 role=db_user.role,
+                id_photo_url=id_photo_url,
+                selfie_url=selfie_url,
+                profile_photo_url=profile_photo_url,
             )
         except Exception as e:
             logging.error("Firestore verification sync failed: %s", e)
@@ -1044,6 +1092,7 @@ def _trip_dict(t: Trip) -> dict:
         "terminal": t.terminal,
         "pickup_zone": t.pickup_zone,
         "notes": t.notes,
+        "cancel_reason": t.cancel_reason,
         "created_at": t.created_at.isoformat() if t.created_at else None,
     }
 
@@ -1178,20 +1227,28 @@ async def get_driver_scheduled_trips(driver_id: int, user: User = Depends(_get_c
     return [_trip_dict(t) for t in result.scalars().all()]
 
 @app.post("/trips/{trip_id}/cancel", dependencies=[Depends(_verify_api_key)])
-async def cancel_trip(trip_id: int, user: User = Depends(_get_current_user), db: AsyncSession = Depends(get_db)):
+async def cancel_trip(trip_id: int, request: Request, user: User = Depends(_get_current_user), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Trip).where(Trip.id == trip_id))
     trip = result.scalar_one_or_none()
     if not trip:
         raise HTTPException(404, "Trip not found")
     if trip.status in ("completed", "canceled"):
         raise HTTPException(400, f"Cannot cancel trip with status '{trip.status}'")
+    # Accept optional cancel_reason from body
+    reason = None
+    try:
+        body = await request.json()
+        reason = body.get("cancel_reason") if isinstance(body, dict) else None
+    except Exception:
+        pass
     trip.status = "canceled"
+    trip.cancel_reason = reason
     trip.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(trip)
     if _HAS_FIRESTORE:
         try:
-            firestore_sync.sync_trip_status(trip_id=trip.id, status="canceled")
+            firestore_sync.sync_trip_status(trip_id=trip.id, status="canceled", cancel_reason=reason)
         except Exception as e:
             logging.error("Firestore sync on cancel_trip failed: %s", e)
     return _trip_dict(trip)
@@ -1880,8 +1937,8 @@ async def admin_list_users(
 @app.patch("/admin/users/{user_id}/status", dependencies=[Depends(_verify_api_key)])
 async def admin_update_user_status(user_id: int, status: str = Body(..., embed=True), db: AsyncSession = Depends(get_db)):
     """Update a user's status (active/blocked/deleted). Syncs to Firestore."""
-    if status not in ("active", "blocked", "deleted"):
-        raise HTTPException(400, "Status must be active, blocked, or deleted")
+    if status not in ("active", "blocked", "deleted", "deactivated"):
+        raise HTTPException(400, "Status must be active, blocked, deleted, or deactivated")
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
@@ -1968,14 +2025,17 @@ async def admin_update_trip(trip_id: int, request: Request, db: AsyncSession = D
     trip = result.scalar_one_or_none()
     if not trip:
         raise HTTPException(404, "Trip not found")
-    for key in ("status", "driver_id", "fare", "vehicle_type", "notes"):
+    for key in ("status", "driver_id", "fare", "vehicle_type", "notes", "cancel_reason"):
         if key in body:
             setattr(trip, key, body[key])
     await db.commit()
     await db.refresh(trip)
     if _HAS_FIRESTORE:
         try:
-            firestore_sync.sync_trip(trip)
+            firestore_sync.sync_trip_status(
+                trip_id=trip.id, status=trip.status,
+                cancel_reason=trip.cancel_reason,
+            )
         except Exception as e:
             logging.warning("Firestore trip sync failed: %s", e)
     _security_audit_log("ADMIN_TRIP_UPDATED", {"trip_id": trip_id, "changes": list(body.keys())})
