@@ -29,19 +29,8 @@ workflows:
           echo "CODE_SIGN_IDENTITY=" >> Flutter/Release.xcconfig
       - name: Flutter build iOS (no codesign)
         script: |
-          flutter build ios --release --no-codesign --no-tree-shake-icons 2>&1 || true
           cd ios
-          xcodebuild -workspace Runner.xcworkspace \
-            -scheme Runner \
-            -configuration Release \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            DEVELOPMENT_TEAM="" \
-            COMPILER_INDEX_STORE_ENABLE=NO \
-            -allowProvisioningUpdates 2>&1 | tail -20
+          xcodebuild build -workspace Runner.xcworkspace -scheme Runner -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -allowProvisioningUpdates CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM=""
       - name: Empaquetar .app en .ipa
         script: |
           APP_PATH=$(find build/ios -name "*.app" -type d | head -1)
