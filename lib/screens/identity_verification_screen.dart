@@ -134,7 +134,9 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
 
   void _startPolling() {
     _pollTimer?.cancel();
+    int _pollAttempts = 0;
     _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+      _pollAttempts++;
       try {
         final result = await ApiService.getVerificationStatus();
         final status = result['verification_status'] as String? ?? 'pending';
@@ -162,9 +164,13 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
             _rejectionReason = reason;
             _step = 4; // Rejected
           });
+        } else if (_pollAttempts >= 120) {
+          // Stop after ~10 minutes
+          _pollTimer?.cancel();
         }
       } catch (e) {
         debugPrint('⚠️ Verification poll failed: $e');
+        if (_pollAttempts >= 120) _pollTimer?.cancel();
       }
     });
   }

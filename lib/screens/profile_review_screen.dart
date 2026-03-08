@@ -152,6 +152,18 @@ class _ProfileReviewScreenState extends State<ProfileReviewScreen> {
       permanentPhotoPath = await UserSession.saveProfilePhoto(widget.photoPath!);
     }
 
+    // Upload photo to server so it persists across devices
+    if (permanentPhotoPath != null && permanentPhotoPath.isNotEmpty) {
+      try {
+        final photoUrl = await ApiService.uploadPhoto(permanentPhotoPath);
+        if (photoUrl != null && photoUrl.isNotEmpty) {
+          await ApiService.updateMe({'photo_url': photoUrl});
+        }
+      } catch (e) {
+        debugPrint('⚠️ Photo upload failed: $e');
+      }
+    }
+
     // Save locally too (for offline/quick reads)
     await UserSession.saveUser(
       firstName: widget.firstName,

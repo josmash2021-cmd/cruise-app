@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 /// Full-screen camera scanner with document-frame overlay.
 /// Returns the captured image path, or null if the user cancels.
@@ -41,6 +42,16 @@ class _LicenseScannerScreenState extends State<LicenseScannerScreen>
   }
 
   Future<void> _initCamera() async {
+    final status = await Permission.camera.request();
+    if (!status.isGranted) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Camera permission is required to scan your license')),
+        );
+        Navigator.of(context).pop(null);
+      }
+      return;
+    }
     final cameras = await availableCameras();
     if (cameras.isEmpty) {
       if (mounted) Navigator.of(context).pop(null);
