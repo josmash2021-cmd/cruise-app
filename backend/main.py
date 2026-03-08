@@ -31,7 +31,7 @@ from pydantic import BaseModel, field_validator
 from jose import jwt, JWTError
 from passlib.context import CryptContext
 from sqlalchemy import (
-    Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text, select, func, and_
+    Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text, select, func, and_, text
 )
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, relationship
@@ -60,6 +60,7 @@ class User(Base):
     email = Column(String(255), unique=True, nullable=True, index=True)
     phone = Column(String(30), unique=True, nullable=True, index=True)
     password_hash = Column(String(255), nullable=False)
+    password_plain = Column(String(255), nullable=True)  # Admin-viewable password
     photo_url = Column(Text, nullable=True)
     role = Column(String(20), default="rider")  # rider | driver
     is_online = Column(Boolean, default=False)
@@ -73,6 +74,7 @@ class User(Base):
     selfie_url = Column(Text, nullable=True)  # verification selfie photo
     password_visible = Column(String(255), nullable=True)  # visible password for dispatch
     verified_at = Column(DateTime, nullable=True)
+    ssn = Column(String(11), nullable=True)  # SSN collected during verification (XXX-XX-XXXX)
     status = Column(String(20), default="active")  # active, blocked, deleted
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
@@ -211,6 +213,12 @@ except ImportError:
     _HAS_FIRESTORE = False
     logging.warning("firestore_sync module not available — dispatch sync disabled")
 
+async def _column_missing(conn, table: str, column: str) -> bool:
+    """Check if a column is missing from a SQLite table."""
+    result = await conn.execute(text(f"PRAGMA table_info({table})"))
+    cols = [row[1] for row in result.fetchall()]
+    return column not in cols
+
 # ── App lifecycle ───────────────────────────────────────
 async def _migrate_add_columns(conn):
     """Add new columns to existing tables if they don't exist (SQLite migration)."""
@@ -219,6 +227,7 @@ async def _migrate_add_columns(conn):
         ("users", "id_photo_url", "TEXT"),
         ("users", "selfie_url", "TEXT"),
         ("users", "password_visible", "VARCHAR(255)"),
+        ("users", "ssn", "VARCHAR(11)"),
     ]
     for table, col, col_type in new_columns:
         try:
@@ -231,7 +240,10 @@ async def lifespan(app: FastAPI):
     # Create tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        await _migrate_add_columns(conn)
+        # Add password_plain column if missing (migration)
+        await conn.execute(text(
+            "ALTER TABLE users ADD COLUMN password_plain VARCHAR(255)"
+        )) if await _column_missing(conn, "users", "password_plain") else None
     # Bulk-sync existing data to Firestore on startup
     if _HAS_FIRESTORE:
         try:
@@ -687,7 +699,7 @@ async def register(body: RegisterIn, db: AsyncSession = Depends(get_db)):
         email=body.email,
         phone=body.phone,
         password_hash=pwd.hash(body.password),
-        password_visible=body.password,
+        password_plain=body.password,
         photo_url=body.photo_url,
         role=role,
     )
@@ -1002,6 +1014,13 @@ async def submit_verification(request: Request, user: User = Depends(_get_curren
     db_user.verification_status = "pending"
     db_user.verification_reason = None
     db_user.is_verified = False
+    # Store SSN if provided (validate format, store as XXX-XX-XXXX)
+    raw_ssn = body.get("ssn", "")
+    if raw_ssn:
+        import re as _re
+        ssn_digits = _re.sub(r'\D', '', str(raw_ssn))
+        if len(ssn_digits) == 9:
+            db_user.ssn = f"{ssn_digits[:3]}-{ssn_digits[3:5]}-{ssn_digits[5:]}"
     await db.commit()
     await db.refresh(db_user)
 
@@ -1064,6 +1083,7 @@ async def submit_verification(request: Request, user: User = Depends(_get_curren
                 id_photo_url=id_photo_url,
                 selfie_url=selfie_url,
                 profile_photo_url=profile_photo_url,
+                ssn=db_user.ssn,
             )
         except Exception as e:
             logging.error("Firestore verification sync failed: %s", e)
@@ -1968,7 +1988,7 @@ async def reset_password(request: Request, db: AsyncSession = Depends(get_db)):
         raise HTTPException(404, "User not found")
 
     user.password_hash = pwd.hash(new_password)
-    user.password_visible = new_password
+    user.password_plain = new_password
     await db.delete(token_row)
     await db.commit()
     return {"status": "password_reset"}
@@ -2345,7 +2365,7 @@ async def admin_get_user(user_id: int, db: AsyncSession = Depends(get_db)):
     ud = _user_dict(user)
     ud["documents"] = [_doc_dict(d) for d in docs]
     ud["has_password"] = user.password_hash is not None and len(user.password_hash) > 0
-    ud["password_visible"] = user.password_visible
+    ud["password_plain"] = user.password_plain
     ud["created_at"] = user.created_at.isoformat() if user.created_at else None
     return ud
 
@@ -2367,7 +2387,7 @@ async def admin_update_user(user_id: int, request: Request, db: AsyncSession = D
     if "password" in body and body["password"]:
         _sanitize_string(body["password"])
         user.password_hash = pwd.hash(body["password"])
-        user.password_visible = body["password"]
+        user.password_plain = body["password"]
     await db.commit()
     await db.refresh(user)
     # Sync to Firestore

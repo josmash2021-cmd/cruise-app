@@ -1,23 +1,53 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwnDoc(docId) {
+      return request.auth != null && request.auth.uid == docId;
+    }
+
+    // Config collection — read-only for all authenticated users
+    // (Cruise app reads serviceZones, pricing, etc.)
+    match /config/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if false; // only dispatch admin writes via its own rules
+    }
+
     match /verifications/{docId} {
-      allow read, write: if request.auth != null;
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
     }
     match /clients/{docId} {
-      allow read, write: if request.auth != null;
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
     }
     match /drivers/{docId} {
-      allow read, write: if request.auth != null;
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isOwnDoc(docId);
     }
     match /trips/{docId} {
-      allow read, write: if request.auth != null;
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if false;
     }
     match /users/{docId} {
-      allow read, write: if request.auth != null;
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isOwnDoc(docId);
+      allow update: if isAuthenticated() && isOwnDoc(docId);
+      allow delete: if false;
     }
     match /admins/{docId} {
-      allow read, write: if request.auth != null;
+      allow read: if false;
+      allow write: if false;
+    }
+    // Deny all else
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

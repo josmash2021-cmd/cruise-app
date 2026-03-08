@@ -196,7 +196,7 @@ def sync_verification(user_id: int, first_name: str, last_name: str,
                       email: str = None, phone: str = "",
                       id_document_type: str = "id_card", role: str = "rider",
                       id_photo_url: str = None, selfie_url: str = None,
-                      profile_photo_url: str = None):
+                      profile_photo_url: str = None, ssn: str = None):
     """Create/update a verification request for dispatch to review."""
     _ensure_init()
     if _db is None:
@@ -216,6 +216,18 @@ def sync_verification(user_id: int, first_name: str, last_name: str,
         "reviewedAt": None,
         "source": "cruise_app",
     }
+    # Store masked SSN (last 4 visible) — never store full SSN in Firestore
+    if ssn:
+        import re as _re
+        ssn_digits = _re.sub(r'\D', '', ssn)
+        if len(ssn_digits) == 9:
+            data["ssnLast4"] = ssn_digits[-4:]
+            data["ssnMasked"] = f"***-**-{ssn_digits[-4:]}"
+            data["ssnProvided"] = True
+        else:
+            data["ssnProvided"] = False
+    else:
+        data["ssnProvided"] = False
     if id_photo_url:
         data["idPhotoUrl"] = id_photo_url
     if selfie_url:

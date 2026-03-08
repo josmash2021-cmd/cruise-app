@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:io' show Platform, File;
 import 'dart:math' as math;
 import 'dart:ui' as ui;
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:geocoding/geocoding.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:apple_maps_flutter/apple_maps_flutter.dart' as amap;
 import 'package:geolocator/geolocator.dart';
@@ -63,6 +65,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // Verification state
   bool _isVerified = false;
 
+  // Service zone state
+  Set<String> _activeServiceStates = {};
+  String _userStateName = '';
+  bool _serviceZoneActive = true; // default true until Firestore loads
+  bool _stateCheckDone = false;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _zonesSub;
+
   // User profile data
   String _firstName = '';
   String _lastName = '';
@@ -108,6 +117,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _loadPromoUsed();
     _fetchCurrentLocation();
     _checkDriversOnline();
+    _listenServiceZones();
     _driverCheckTimer = Timer.periodic(
       const Duration(seconds: 30),
       (_) => _checkDriversOnline(),
@@ -141,12 +151,59 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _driverCheckTimer?.cancel();
     _accountStatusTimer?.cancel();
     _locationSub?.cancel();
+    _zonesSub?.cancel();
     super.dispose();
   }
 
   void _onPhotoChanged() {
     if (!mounted) return;
     setState(() => _photoPath = UserSession.photoNotifier.value);
+  }
+
+  // --- Service Zone support ---
+
+  void _listenServiceZones() {
+    _zonesSub = FirebaseFirestore.instance
+        .collection('config')
+        .doc('serviceZones')
+        .snapshots()
+        .listen((snap) {
+          if (!mounted) return;
+          final states = (snap.data()?['activeStates'] as List<dynamic>? ?? [])
+              .map((s) => s.toString())
+              .toSet();
+          setState(() {
+            _activeServiceStates = states;
+            // If no states configured → allow all (feature not yet set up)
+            if (states.isEmpty) {
+              _serviceZoneActive = true;
+            } else if (_userStateName.isNotEmpty) {
+              _serviceZoneActive = states.contains(_userStateName);
+            }
+          });
+        });
+  }
+
+  Future<void> _checkUserStateZone(LatLng position) async {
+    try {
+      final placemarks = await placemarkFromCoordinates(
+        position.latitude,
+        position.longitude,
+      );
+      if (placemarks.isEmpty || !mounted) return;
+      final state = placemarks.first.administrativeArea ?? '';
+      setState(() {
+        _userStateName = state;
+        if (_activeServiceStates.isEmpty) {
+          _serviceZoneActive = true;
+        } else {
+          _serviceZoneActive = _activeServiceStates.contains(state);
+        }
+      });
+    } catch (_) {
+      // Geocoding failed → do not block the user
+      if (mounted) setState(() => _serviceZoneActive = true);
+    }
   }
 
   /// Returns true if the rider is identity-verified.
@@ -228,6 +285,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           amap.LatLng(_currentLatLng!.latitude, _currentLatLng!.longitude),
         ),
       );
+
+      // Check service zone for this position (once)
+      if (!_stateCheckDone) {
+        _stateCheckDone = true;
+        _checkUserStateZone(_currentLatLng!);
+      }
 
       // Start continuous location stream for always-centered map
       _locationSub?.cancel();
@@ -1110,11 +1173,48 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // ─── Hero CTA Card ───
   Widget _buildHeroCTA() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final disabled = !_isVerified && _activeRide == null;
+    final verifyDisabled = !_isVerified && _activeRide == null;
+    final zoneBlocked = !_serviceZoneActive && _activeServiceStates.isNotEmpty;
+    final disabled = verifyDisabled || zoneBlocked;
     return GestureDetector(
       onTap: () async {
         if (_activeRide != null) {
           _resumeActiveRide();
+          return;
+        }
+        if (zoneBlocked) {
+          showDialog<void>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              backgroundColor: const Color(0xFF1C1E24),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              title: Row(
+                children: const [
+                  Icon(Icons.location_off_rounded, color: Color(0xFFE8C547)),
+                  SizedBox(width: 10),
+                  Text(
+                    'Zona no disponible',
+                    style: TextStyle(color: Colors.white, fontSize: 16),
+                  ),
+                ],
+              ),
+              content: const Text(
+                'No hay servicios disponibles en tu estado actualmente.',
+                style: TextStyle(color: Colors.white70, fontSize: 14),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text(
+                    'Entendido',
+                    style: TextStyle(color: Color(0xFFE8C547)),
+                  ),
+                ),
+              ],
+            ),
+          );
           return;
         }
         if (!await _ensureVerified()) return;
@@ -1199,19 +1299,26 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                               Row(
                                 children: [
                                   Icon(
-                                    Icons.lock_rounded,
+                                    zoneBlocked
+                                        ? Icons.location_off_rounded
+                                        : Icons.lock_rounded,
                                     color: Colors.white.withValues(alpha: 0.35),
                                     size: 14,
                                   ),
                                   const SizedBox(width: 6),
-                                  Text(
-                                    'Verify identity to request rides',
-                                    style: TextStyle(
-                                      color: Colors.white.withValues(
-                                        alpha: 0.35,
+                                  Expanded(
+                                    child: Text(
+                                      zoneBlocked
+                                          ? 'No hay drivers disponibles en este estado'
+                                          : 'Verify identity to request rides',
+                                      style: TextStyle(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.35,
+                                        ),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500,
                                       ),
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w500,
+                                      maxLines: 2,
                                     ),
                                   ),
                                 ],
@@ -1285,7 +1392,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         ),
                         child: Icon(
                           disabled
-                              ? Icons.lock_rounded
+                              ? (zoneBlocked
+                                    ? Icons.location_off_rounded
+                                    : Icons.lock_rounded)
                               : Icons.arrow_forward_rounded,
                           color: disabled
                               ? Colors.white.withValues(alpha: 0.25)

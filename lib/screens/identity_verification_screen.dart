@@ -30,7 +30,7 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
   static const _goldDark = Color(0xFFB8972E);
 
   int _step =
-      0; // 0=intro, 1=docType, 2=capture, 3=processing, 4=confirm, 5=pending, 6=rejected
+      0; // 0=intro, 1=docType, 2=ssn, 3=capture, 4=processing, 5=confirm, 6=pending, 7=rejected
   String? _selectedDocType; // 'license', 'passport', 'id_card'
   String? _documentPhotoPath;
   String? _selfiePath;
@@ -38,6 +38,12 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
   bool _verified = false;
   String? _rejectionReason;
   Timer? _pollTimer;
+
+  // SSN step
+  String _ssn = '';
+  final _ssnCtrl = TextEditingController();
+  bool _ssnHasError = false;
+  String? _ssnErrorMsg;
 
   late AnimationController _pulseCtrl;
   late AnimationController _checkCtrl;
@@ -74,6 +80,16 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
       vsync: this,
       duration: const Duration(milliseconds: 800),
     );
+    _ssnCtrl.addListener(() {
+      final formatted = _formatSsnInput(_ssnCtrl.text);
+      if (formatted != _ssnCtrl.text) {
+        _ssnCtrl.value = TextEditingValue(
+          text: formatted,
+          selection: TextSelection.collapsed(offset: formatted.length),
+        );
+      }
+      setState(() => _ssn = formatted);
+    });
   }
 
   @override
@@ -81,7 +97,39 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
     _pollTimer?.cancel();
     _pulseCtrl.dispose();
     _checkCtrl.dispose();
+    _ssnCtrl.dispose();
     super.dispose();
+  }
+
+  /// Auto-formats raw input to XXX-XX-XXXX
+  String _formatSsnInput(String raw) {
+    final digits = raw.replaceAll(RegExp(r'[^\d]'), '');
+    final d = digits.length > 9 ? digits.substring(0, 9) : digits;
+    if (d.length <= 3) return d;
+    if (d.length <= 5) return '${d.substring(0, 3)}-${d.substring(3)}';
+    return '${d.substring(0, 3)}-${d.substring(3, 5)}-${d.substring(5)}';
+  }
+
+  /// Returns null if valid, or an error message if invalid.
+  String? _validateSsn(String val) {
+    final digits = val.replaceAll(RegExp(r'[^\d]'), '');
+    if (digits.length != 9) return 'Must be 9 digits';
+    final area = int.parse(digits.substring(0, 3));
+    final group = int.parse(digits.substring(3, 5));
+    final serial = int.parse(digits.substring(5));
+    if (area == 0) return 'Invalid SSN (area 000)';
+    if (area == 666) return 'Invalid SSN (area 666)';
+    if (area >= 900) return 'Invalid SSN (ITIN not accepted)';
+    if (group == 0) return 'Invalid SSN (group 00)';
+    if (serial == 0) return 'Invalid SSN (serial 0000)';
+    // all same digit
+    if (RegExp(r'^(\d)\1{8}\$').hasMatch(digits)) return 'Invalid SSN';
+    // sequential
+    if (digits == '123456789' || digits == '987654321') return 'Invalid SSN';
+    // known fake SSNs
+    const fakes = ['078051120', '219099999', '457555462'];
+    if (fakes.contains(digits)) return 'Invalid SSN';
+    return null;
   }
 
   Future<void> _captureDocument() async {
@@ -642,7 +690,210 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
   }
 
   // ═══════════════════════════════════════════
-  //  Step 2 — Capture Document Photo
+  //  Step 2 — SSN Entry
+  // ═══════════════════════════════════════════
+  Widget _buildSsn(AppColors c) {
+    final isComplete = _ssn.replaceAll(RegExp(r'[^\d]'), '').length == 9;
+    final errorMsg = _ssnHasError ? _ssnErrorMsg : null;
+
+    return Padding(
+      key: const ValueKey(2),
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 8),
+          GestureDetector(
+            onTap: () => setState(() => _step = 1),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Icon(
+                Icons.arrow_back_rounded,
+                color: c.textPrimary,
+                size: 24,
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'Social Security Number',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w800,
+              color: c.textPrimary,
+              letterSpacing: -0.5,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Required for identity verification and background check. Your SSN is encrypted and never shared.',
+            style: TextStyle(fontSize: 15, color: c.textSecondary, height: 1.4),
+          ),
+          const SizedBox(height: 32),
+          // SSN input field
+          TextField(
+            controller: _ssnCtrl,
+            keyboardType: TextInputType.number,
+            style: TextStyle(
+              color: c.textPrimary,
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 2,
+              fontFamily: 'monospace',
+            ),
+            decoration: InputDecoration(
+              hintText: 'XXX-XX-XXXX',
+              hintStyle: TextStyle(
+                color: c.textTertiary,
+                fontSize: 20,
+                fontWeight: FontWeight.w400,
+                letterSpacing: 2,
+              ),
+              filled: true,
+              fillColor: c.surface,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(
+                  color: errorMsg != null
+                      ? Colors.red
+                      : isComplete
+                      ? _gold
+                      : c.textTertiary.withValues(alpha: 0.3),
+                  width: errorMsg != null || isComplete ? 1.5 : 1,
+                ),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(
+                  color: errorMsg != null
+                      ? Colors.red
+                      : isComplete
+                      ? _gold.withValues(alpha: 0.6)
+                      : c.textTertiary.withValues(alpha: 0.2),
+                  width: 1,
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(
+                  color: errorMsg != null ? Colors.red : _gold,
+                  width: 1.5,
+                ),
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 20,
+                vertical: 20,
+              ),
+              prefixIcon: Padding(
+                padding: const EdgeInsets.only(left: 16, right: 8),
+                child: Icon(
+                  Icons.security_rounded,
+                  color: errorMsg != null ? Colors.red : _gold,
+                  size: 26,
+                ),
+              ),
+              suffixIcon: isComplete
+                  ? const Padding(
+                      padding: EdgeInsets.only(right: 16),
+                      child: Icon(
+                        Icons.check_circle_rounded,
+                        color: _gold,
+                        size: 22,
+                      ),
+                    )
+                  : null,
+              errorText: errorMsg,
+              errorStyle: const TextStyle(color: Colors.red, fontSize: 13),
+            ),
+          ),
+          const SizedBox(height: 20),
+          // Info card
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: _gold.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: _gold.withValues(alpha: 0.15)),
+            ),
+            child: Column(
+              children: [
+                _infoRow2(
+                  c,
+                  Icons.lock_rounded,
+                  'Your SSN is encrypted with AES-256 and stored securely.',
+                ),
+                const SizedBox(height: 10),
+                _infoRow2(
+                  c,
+                  Icons.verified_user_rounded,
+                  'Used only for identity verification and background screening.',
+                ),
+                const SizedBox(height: 10),
+                _infoRow2(
+                  c,
+                  Icons.visibility_off_rounded,
+                  'Only the last 4 digits are visible to dispatch admins.',
+                ),
+              ],
+            ),
+          ),
+          const Spacer(),
+          SizedBox(
+            width: double.infinity,
+            height: 56,
+            child: ElevatedButton(
+              onPressed: isComplete
+                  ? () {
+                      final err = _validateSsn(_ssn);
+                      if (err != null) {
+                        setState(() {
+                          _ssnHasError = true;
+                          _ssnErrorMsg = err;
+                        });
+                        return;
+                      }
+                      setState(() => _step = 3);
+                    }
+                  : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _gold,
+                foregroundColor: Colors.black,
+                disabledBackgroundColor: _gold.withValues(alpha: 0.3),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                elevation: 0,
+              ),
+              child: const Text(
+                'Continue',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoRow2(AppColors c, IconData icon, String text) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, color: _gold, size: 18),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(fontSize: 13, color: c.textSecondary, height: 1.4),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ═══════════════════════════════════════════
+  //  Step 3 — Capture Document Photo
   // ═══════════════════════════════════════════
   Widget _buildCapture(AppColors c) {
     final docLabel =
