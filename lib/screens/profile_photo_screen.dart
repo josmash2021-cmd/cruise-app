@@ -60,7 +60,10 @@ class _ProfilePhotoScreenState extends State<ProfilePhotoScreen> {
   }
 
   Future<void> _choosePhoto() async {
-    final xf = await _picker.pickImage(source: ImageSource.gallery, maxWidth: 600);
+    final xf = await _picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 600,
+    );
     if (xf != null) {
       setState(() => _photoPath = xf.path);
       await _savePhotoPath(xf.path);
@@ -69,7 +72,10 @@ class _ProfilePhotoScreenState extends State<ProfilePhotoScreen> {
   }
 
   Future<void> _takePhoto() async {
-    final xf = await _picker.pickImage(source: ImageSource.camera, maxWidth: 600);
+    final xf = await _picker.pickImage(
+      source: ImageSource.camera,
+      maxWidth: 600,
+    );
     if (xf != null) {
       setState(() => _photoPath = xf.path);
       await _savePhotoPath(xf.path);
@@ -93,21 +99,6 @@ class _ProfilePhotoScreenState extends State<ProfilePhotoScreen> {
         ),
       );
     });
-  }
-
-  void _doThisLater() {
-    Navigator.of(context).push(
-      slideFromRightRoute(
-        ProfileReviewScreen(
-          firstName: widget.firstName,
-          lastName: widget.lastName,
-          email: widget.email,
-          phone: widget.phone,
-          paymentMethod: widget.paymentMethod,
-          photoPath: null,
-        ),
-      ),
-    );
   }
 
   @override
@@ -135,8 +126,11 @@ class _ProfilePhotoScreenState extends State<ProfilePhotoScreen> {
                       color: c.surface,
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Icon(Icons.arrow_back_ios_new_rounded,
-                        color: c.textPrimary, size: 18),
+                    child: Icon(
+                      Icons.arrow_back_ios_new_rounded,
+                      color: c.textPrimary,
+                      size: 18,
+                    ),
                   ),
                 ),
               ),
@@ -172,19 +166,30 @@ class _ProfilePhotoScreenState extends State<ProfilePhotoScreen> {
                                 width: 140,
                                 height: 140,
                                 gaplessPlayback: true,
-                            frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-                              if (wasSynchronouslyLoaded) return child;
-                              return AnimatedOpacity(
-                                opacity: frame == null ? 0.0 : 1.0,
-                                duration: const Duration(milliseconds: 350),
-                                curve: Curves.easeOutCubic,
-                                child: child,
-                              );
-                            },
-                          ),
+                                frameBuilder:
+                                    (
+                                      context,
+                                      child,
+                                      frame,
+                                      wasSynchronouslyLoaded,
+                                    ) {
+                                      if (wasSynchronouslyLoaded) return child;
+                                      return AnimatedOpacity(
+                                        opacity: frame == null ? 0.0 : 1.0,
+                                        duration: const Duration(
+                                          milliseconds: 350,
+                                        ),
+                                        curve: Curves.easeOutCubic,
+                                        child: child,
+                                      );
+                                    },
+                              ),
                       )
-                    : Icon(Icons.person_rounded,
-                        size: 70, color: _gold.withValues(alpha: 0.6)),
+                    : Icon(
+                        Icons.person_rounded,
+                        size: 70,
+                        color: _gold.withValues(alpha: 0.6),
+                      ),
               ),
               const SizedBox(height: 32),
 
@@ -227,8 +232,7 @@ class _ProfilePhotoScreenState extends State<ProfilePhotoScreen> {
                 height: 56,
                 child: Container(
                   decoration: BoxDecoration(
-                    gradient:
-                        const LinearGradient(colors: [_gold, _goldLight]),
+                    gradient: const LinearGradient(colors: [_gold, _goldLight]),
                     borderRadius: BorderRadius.circular(28),
                   ),
                   child: ElevatedButton(
@@ -270,22 +274,6 @@ class _ProfilePhotoScreenState extends State<ProfilePhotoScreen> {
                 ),
               ),
 
-              // ── Do this later ──
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: TextButton(
-                  onPressed: _doThisLater,
-                  child: Text(
-                    'Do this later',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: c.textSecondary,
-                    ),
-                  ),
-                ),
-              ),
               const SizedBox(height: 16),
             ],
           ),

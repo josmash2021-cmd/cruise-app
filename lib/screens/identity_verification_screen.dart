@@ -1,21 +1,21 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import '../config/app_theme.dart';
 import '../services/api_service.dart';
 import '../services/local_data_service.dart';
 import '../services/user_session.dart';
+import 'driver/license_scanner_screen.dart';
 import 'face_liveness_screen.dart';
 
-/// Full identity verification flow:
+/// Rider identity verification flow:
 ///  Step 0 — Intro: "Verify Your Identity"
-///  Step 1 — Choose document type (License / Passport / ID Card)
-///  Step 2 — Capture document photo with quality check
-///  Step 3 — Geometric liveness check (face match)
-///  Step 4 — Verification comparison + confirmed
+///  (launches LicenseScannerScreen → FaceLivenessScreen automatically)
+///  Step 1 — Processing / submitting
+///  Step 2 — Confirmed
+///  Step 3 — Pending dispatch review
+///  Step 4 — Rejected
 class IdentityVerificationScreen extends StatefulWidget {
   const IdentityVerificationScreen({super.key});
 
@@ -29,9 +29,7 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
   static const _gold = Color(0xFFE8C547);
   static const _goldDark = Color(0xFFB8972E);
 
-  int _step =
-      0; // 0=intro, 1=docType, 2=ssn, 3=capture, 4=processing, 5=confirm, 6=pending, 7=rejected
-  String? _selectedDocType; // 'license', 'passport', 'id_card'
+  int _step = 0; // 0=intro, 1=processing, 2=confirmed, 3=pending, 4=rejected
   String? _documentPhotoPath;
   String? _selfiePath;
   bool _processing = false;
@@ -39,35 +37,8 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
   String? _rejectionReason;
   Timer? _pollTimer;
 
-  // SSN step
-  String _ssn = '';
-  final _ssnCtrl = TextEditingController();
-  bool _ssnHasError = false;
-  String? _ssnErrorMsg;
-
   late AnimationController _pulseCtrl;
   late AnimationController _checkCtrl;
-
-  final _docTypes = [
-    {
-      'id': 'license',
-      'label': "Driver's License",
-      'icon': Icons.credit_card_rounded,
-      'desc': 'Front of your valid driver\'s license',
-    },
-    {
-      'id': 'passport',
-      'label': 'Passport',
-      'icon': Icons.menu_book_rounded,
-      'desc': 'Photo page of your passport',
-    },
-    {
-      'id': 'id_card',
-      'label': 'Government ID',
-      'icon': Icons.badge_rounded,
-      'desc': 'Front of your government-issued ID card',
-    },
-  ];
 
   @override
   void initState() {
@@ -80,16 +51,6 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
       vsync: this,
       duration: const Duration(milliseconds: 800),
     );
-    _ssnCtrl.addListener(() {
-      final formatted = _formatSsnInput(_ssnCtrl.text);
-      if (formatted != _ssnCtrl.text) {
-        _ssnCtrl.value = TextEditingValue(
-          text: formatted,
-          selection: TextSelection.collapsed(offset: formatted.length),
-        );
-      }
-      setState(() => _ssn = formatted);
-    });
   }
 
   @override
@@ -97,197 +58,39 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
     _pollTimer?.cancel();
     _pulseCtrl.dispose();
     _checkCtrl.dispose();
-    _ssnCtrl.dispose();
     super.dispose();
   }
 
-  /// Auto-formats raw input to XXX-XX-XXXX
-  String _formatSsnInput(String raw) {
-    final digits = raw.replaceAll(RegExp(r'[^\d]'), '');
-    final d = digits.length > 9 ? digits.substring(0, 9) : digits;
-    if (d.length <= 3) return d;
-    if (d.length <= 5) return '${d.substring(0, 3)}-${d.substring(3)}';
-    return '${d.substring(0, 3)}-${d.substring(3, 5)}-${d.substring(5)}';
-  }
-
-  /// Returns null if valid, or an error message if invalid.
-  String? _validateSsn(String val) {
-    final digits = val.replaceAll(RegExp(r'[^\d]'), '');
-    if (digits.length != 9) return 'Must be 9 digits';
-    final area = int.parse(digits.substring(0, 3));
-    final group = int.parse(digits.substring(3, 5));
-    final serial = int.parse(digits.substring(5));
-    if (area == 0) return 'Invalid SSN (area 000)';
-    if (area == 666) return 'Invalid SSN (area 666)';
-    if (area >= 900) return 'Invalid SSN (ITIN not accepted)';
-    if (group == 0) return 'Invalid SSN (group 00)';
-    if (serial == 0) return 'Invalid SSN (serial 0000)';
-    // all same digit
-    if (RegExp(r'^(\d)\1{8}\$').hasMatch(digits)) return 'Invalid SSN';
-    // sequential
-    if (digits == '123456789' || digits == '987654321') return 'Invalid SSN';
-    // known fake SSNs
-    const fakes = ['078051120', '219099999', '457555462'];
-    if (fakes.contains(digits)) return 'Invalid SSN';
-    return null;
-  }
-
-  Future<void> _captureDocument() async {
-    final picker = ImagePicker();
-    final xFile = await picker.pickImage(
-      source: ImageSource.camera,
-      maxWidth: 1920,
-      imageQuality: 95,
-      preferredCameraDevice: CameraDevice.rear,
+  /// Launch license scanner → biometric liveness → submit verification.
+  Future<void> _startVerification() async {
+    // Step 1: Scan front of license
+    final licensePath = await Navigator.of(context).push<String?>(
+      MaterialPageRoute(
+        builder: (_) => const LicenseScannerScreen(side: 'Front'),
+      ),
     );
-    if (xFile == null || !mounted) return;
+    if (licensePath == null || !mounted) return;
 
-    setState(() => _processing = true);
+    setState(() => _documentPhotoPath = licensePath);
 
-    // Check image quality: file size and dimensions
-    final file = File(xFile.path);
-    final bytes = await file.length();
-    final decoded = await decodeImageFromList(await file.readAsBytes());
-
-    if (decoded.width < 640 || decoded.height < 400) {
-      if (!mounted) return;
-      setState(() => _processing = false);
-      _showQualityError(
-        'Photo is too small. Please hold your phone closer to the document and try again.',
-      );
-      return;
-    }
-
-    if (bytes < 50000) {
-      // Less than 50KB — likely blurry
-      if (!mounted) return;
-      setState(() => _processing = false);
-      _showQualityError(
-        'Photo appears blurry or low quality. Make sure the document is well-lit and in focus.',
-      );
-      return;
-    }
-
-    // Brief processing delay for UX feedback
-    await Future.delayed(const Duration(milliseconds: 800));
-    if (!mounted) return;
-
-    setState(() {
-      _documentPhotoPath = xFile.path;
-      _processing = false;
-    });
-    await _launchLiveness();
-  }
-
-  Future<void> _captureFromGallery() async {
-    final picker = ImagePicker();
-    final xFile = await picker.pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 1920,
-      imageQuality: 95,
-    );
-    if (xFile == null || !mounted) return;
-
-    setState(() => _processing = true);
-
-    final file = File(xFile.path);
-    final bytes = await file.length();
-    final decoded = await decodeImageFromList(await file.readAsBytes());
-
-    if (decoded.width < 640 || decoded.height < 400) {
-      if (!mounted) return;
-      setState(() => _processing = false);
-      _showQualityError(
-        'Photo is too small. Please select a clear, high-resolution image of your document.',
-      );
-      return;
-    }
-
-    if (bytes < 50000) {
-      if (!mounted) return;
-      setState(() => _processing = false);
-      _showQualityError(
-        'Image appears too low quality. Please select a clearer photo.',
-      );
-      return;
-    }
-
-    await Future.delayed(const Duration(milliseconds: 800));
-    if (!mounted) return;
-
-    setState(() {
-      _documentPhotoPath = xFile.path;
-      _processing = false;
-    });
-    await _launchLiveness();
-  }
-
-  /// Launch the real biometric face liveness screen, then submit verification.
-  Future<void> _launchLiveness() async {
-    if (!mounted) return;
+    // Step 2: Biometric liveness check
     final selfiePath = await Navigator.of(context).push<String?>(
       MaterialPageRoute(builder: (_) => const FaceLivenessScreen()),
     );
     if (selfiePath == null || !mounted) return;
+
     setState(() {
       _selfiePath = selfiePath;
-      _step = 3; // Processing / submitting
+      _step = 1; // Processing / submitting
       _processing = true;
     });
     await _completeVerification();
   }
 
-  void _showQualityError(String msg) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            Icon(
-              Icons.warning_amber_rounded,
-              color: Colors.orange[400],
-              size: 28,
-            ),
-            const SizedBox(width: 10),
-            const Text(
-              'Photo Not Accepted',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
-        content: Text(
-          msg,
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.8),
-            fontSize: 15,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text(
-              'Try Again',
-              style: TextStyle(color: _gold, fontWeight: FontWeight.w700),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<void> _completeVerification() async {
-    final docType = _selectedDocType ?? 'id_card';
+    final Map<String, dynamic> body = {'id_document_type': 'license'};
 
-    // Build request body with photos as base64
-    final Map<String, dynamic> body = {'id_document_type': docType};
-
-    // Encode ID document photo
+    // Encode license photo
     if (_documentPhotoPath != null) {
       try {
         final bytes = await File(_documentPhotoPath!).readAsBytes();
@@ -307,12 +110,6 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
       }
     }
 
-    // Include SSN if provided
-    final ssnDigits = _ssn.replaceAll(RegExp(r'[^\d]'), '');
-    if (ssnDigits.length == 9) {
-      body['ssn'] = _ssn;
-    }
-
     // Submit verification request to backend for dispatch review
     try {
       await ApiService.submitVerification(body);
@@ -322,12 +119,12 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
 
     // Update local state to pending
     await UserSession.updateField('verificationStatus', 'pending');
-    await UserSession.updateField('idDocumentType', docType);
+    await UserSession.updateField('idDocumentType', 'license');
 
     if (!mounted) return;
     setState(() {
       _processing = false;
-      _step = 5; // Pending review
+      _step = 3; // Pending review
     });
 
     // Start polling for dispatch decision
@@ -344,17 +141,14 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
 
         if (status == 'approved') {
           _pollTimer?.cancel();
-          // Save verified locally
-          await LocalDataService.setIdentityVerified(
-            _selectedDocType ?? 'id_card',
-          );
+          await LocalDataService.setIdentityVerified('license');
           await UserSession.updateField('isVerified', 'true');
           await UserSession.updateField('verificationStatus', 'approved');
           if (!mounted) return;
           _checkCtrl.forward();
           setState(() {
             _verified = true;
-            _step = 4; // Confirmed
+            _step = 2; // Confirmed
           });
         } else if (status == 'rejected') {
           _pollTimer?.cancel();
@@ -365,7 +159,7 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
           if (!mounted) return;
           setState(() {
             _rejectionReason = reason;
-            _step = 6; // Rejected
+            _step = 4; // Rejected
           });
         }
       } catch (e) {
@@ -395,16 +189,12 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
       case 0:
         return _buildIntro(c);
       case 1:
-        return _buildDocTypeSelection(c);
+        return _buildProcessing(c);
       case 2:
-        return _buildCapture(c);
-      case 3:
-        return _buildLiveness(c);
-      case 4:
         return _buildConfirmed(c);
-      case 5:
+      case 3:
         return _buildPendingReview(c);
-      case 6:
+      case 4:
         return _buildRejected(c);
       default:
         return _buildIntro(c);
@@ -480,7 +270,11 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
           ),
           const SizedBox(height: 40),
           // Steps preview
-          _stepPreview(c, Icons.badge_rounded, 'Upload a valid ID document'),
+          _stepPreview(
+            c,
+            Icons.credit_card_rounded,
+            'Scan your driver\'s license',
+          ),
           const SizedBox(height: 12),
           _stepPreview(c, Icons.face_rounded, 'Quick selfie verification'),
           const SizedBox(height: 12),
@@ -495,7 +289,7 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
             width: double.infinity,
             height: 56,
             child: ElevatedButton(
-              onPressed: () => setState(() => _step = 1),
+              onPressed: _startVerification,
               style: ElevatedButton.styleFrom(
                 backgroundColor: _gold,
                 foregroundColor: Colors.black,
@@ -553,538 +347,11 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
   }
 
   // ═══════════════════════════════════════════
-  //  Step 1 — Document Type Selection
+  //  Step 1 — Processing (submitting to backend)
   // ═══════════════════════════════════════════
-  Widget _buildDocTypeSelection(AppColors c) {
-    return Padding(
-      key: const ValueKey(1),
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: 8),
-          GestureDetector(
-            onTap: () => setState(() => _step = 0),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Icon(
-                Icons.arrow_back_rounded,
-                color: c.textPrimary,
-                size: 24,
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            'Select Document Type',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w800,
-              color: c.textPrimary,
-              letterSpacing: -0.5,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Choose the type of ID you\'d like to use for verification.',
-            style: TextStyle(fontSize: 15, color: c.textSecondary),
-          ),
-          const SizedBox(height: 32),
-          ...List.generate(_docTypes.length, (i) {
-            final doc = _docTypes[i];
-            final selected = _selectedDocType == doc['id'];
-            return Padding(
-              padding: EdgeInsets.only(
-                bottom: i < _docTypes.length - 1 ? 12 : 0,
-              ),
-              child: GestureDetector(
-                onTap: () =>
-                    setState(() => _selectedDocType = doc['id'] as String),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: selected ? _gold.withValues(alpha: 0.08) : c.surface,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: selected
-                          ? _gold.withValues(alpha: 0.5)
-                          : Colors.white.withValues(alpha: 0.06),
-                      width: selected ? 1.5 : 1,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 52,
-                        height: 52,
-                        decoration: BoxDecoration(
-                          color: selected
-                              ? _gold.withValues(alpha: 0.15)
-                              : Colors.white.withValues(alpha: 0.05),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Icon(
-                          doc['icon'] as IconData,
-                          color: selected ? _gold : c.textSecondary,
-                          size: 26,
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              doc['label'] as String,
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                                color: c.textPrimary,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              doc['desc'] as String,
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: c.textTertiary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (selected)
-                        const Icon(
-                          Icons.check_circle_rounded,
-                          color: _gold,
-                          size: 24,
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          }),
-          const Spacer(),
-          SizedBox(
-            width: double.infinity,
-            height: 56,
-            child: ElevatedButton(
-              onPressed: _selectedDocType != null
-                  ? () => setState(() => _step = 2)
-                  : null,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _gold,
-                foregroundColor: Colors.black,
-                disabledBackgroundColor: _gold.withValues(alpha: 0.3),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                elevation: 0,
-              ),
-              child: const Text(
-                'Continue',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-        ],
-      ),
-    );
-  }
-
-  // ═══════════════════════════════════════════
-  //  Step 2 — SSN Entry
-  // ═══════════════════════════════════════════
-  Widget _buildSsn(AppColors c) {
-    final isComplete = _ssn.replaceAll(RegExp(r'[^\d]'), '').length == 9;
-    final errorMsg = _ssnHasError ? _ssnErrorMsg : null;
-
-    return Padding(
-      key: const ValueKey(2),
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: 8),
-          GestureDetector(
-            onTap: () => setState(() => _step = 1),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Icon(
-                Icons.arrow_back_rounded,
-                color: c.textPrimary,
-                size: 24,
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            'Social Security Number',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w800,
-              color: c.textPrimary,
-              letterSpacing: -0.5,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Required for identity verification and background check. Your SSN is encrypted and never shared.',
-            style: TextStyle(fontSize: 15, color: c.textSecondary, height: 1.4),
-          ),
-          const SizedBox(height: 32),
-          // SSN input field
-          TextField(
-            controller: _ssnCtrl,
-            keyboardType: TextInputType.number,
-            style: TextStyle(
-              color: c.textPrimary,
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 2,
-              fontFamily: 'monospace',
-            ),
-            decoration: InputDecoration(
-              hintText: 'XXX-XX-XXXX',
-              hintStyle: TextStyle(
-                color: c.textTertiary,
-                fontSize: 20,
-                fontWeight: FontWeight.w400,
-                letterSpacing: 2,
-              ),
-              filled: true,
-              fillColor: c.surface,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(
-                  color: errorMsg != null
-                      ? Colors.red
-                      : isComplete
-                      ? _gold
-                      : c.textTertiary.withValues(alpha: 0.3),
-                  width: errorMsg != null || isComplete ? 1.5 : 1,
-                ),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(
-                  color: errorMsg != null
-                      ? Colors.red
-                      : isComplete
-                      ? _gold.withValues(alpha: 0.6)
-                      : c.textTertiary.withValues(alpha: 0.2),
-                  width: 1,
-                ),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(
-                  color: errorMsg != null ? Colors.red : _gold,
-                  width: 1.5,
-                ),
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 20,
-                vertical: 20,
-              ),
-              prefixIcon: Padding(
-                padding: const EdgeInsets.only(left: 16, right: 8),
-                child: Icon(
-                  Icons.security_rounded,
-                  color: errorMsg != null ? Colors.red : _gold,
-                  size: 26,
-                ),
-              ),
-              suffixIcon: isComplete
-                  ? const Padding(
-                      padding: EdgeInsets.only(right: 16),
-                      child: Icon(
-                        Icons.check_circle_rounded,
-                        color: _gold,
-                        size: 22,
-                      ),
-                    )
-                  : null,
-              errorText: errorMsg,
-              errorStyle: const TextStyle(color: Colors.red, fontSize: 13),
-            ),
-          ),
-          const SizedBox(height: 20),
-          // Info card
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: _gold.withValues(alpha: 0.05),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: _gold.withValues(alpha: 0.15)),
-            ),
-            child: Column(
-              children: [
-                _infoRow2(
-                  c,
-                  Icons.lock_rounded,
-                  'Your SSN is encrypted with AES-256 and stored securely.',
-                ),
-                const SizedBox(height: 10),
-                _infoRow2(
-                  c,
-                  Icons.verified_user_rounded,
-                  'Used only for identity verification and background screening.',
-                ),
-                const SizedBox(height: 10),
-                _infoRow2(
-                  c,
-                  Icons.visibility_off_rounded,
-                  'Only the last 4 digits are visible to dispatch admins.',
-                ),
-              ],
-            ),
-          ),
-          const Spacer(),
-          SizedBox(
-            width: double.infinity,
-            height: 56,
-            child: ElevatedButton(
-              onPressed: isComplete
-                  ? () {
-                      final err = _validateSsn(_ssn);
-                      if (err != null) {
-                        setState(() {
-                          _ssnHasError = true;
-                          _ssnErrorMsg = err;
-                        });
-                        return;
-                      }
-                      setState(() => _step = 3);
-                    }
-                  : null,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _gold,
-                foregroundColor: Colors.black,
-                disabledBackgroundColor: _gold.withValues(alpha: 0.3),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                elevation: 0,
-              ),
-              child: const Text(
-                'Continue',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-        ],
-      ),
-    );
-  }
-
-  Widget _infoRow2(AppColors c, IconData icon, String text) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, color: _gold, size: 18),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            text,
-            style: TextStyle(fontSize: 13, color: c.textSecondary, height: 1.4),
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ═══════════════════════════════════════════
-  //  Step 3 — Capture Document Photo
-  // ═══════════════════════════════════════════
-  Widget _buildCapture(AppColors c) {
-    final docLabel =
-        _docTypes.firstWhere(
-              (d) => d['id'] == _selectedDocType,
-              orElse: () => _docTypes[0],
-            )['label']
-            as String;
-
-    return Padding(
-      key: const ValueKey(2),
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: 8),
-          GestureDetector(
-            onTap: () => setState(() => _step = 1),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Icon(
-                Icons.arrow_back_rounded,
-                color: c.textPrimary,
-                size: 24,
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            'Capture Your $docLabel',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w800,
-              color: c.textPrimary,
-              letterSpacing: -0.5,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Take a clear, well-lit photo of the front of your document. Make sure all text is legible.',
-            style: TextStyle(fontSize: 15, color: c.textSecondary, height: 1.4),
-          ),
-          const SizedBox(height: 40),
-          // Preview area
-          if (_documentPhotoPath != null)
-            Center(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: Image.file(
-                  File(_documentPhotoPath!),
-                  width: double.infinity,
-                  height: 220,
-                  fit: BoxFit.cover,
-                  filterQuality: FilterQuality.high,
-                ),
-              ),
-            )
-          else
-            Center(
-              child: AnimatedBuilder(
-                animation: _pulseCtrl,
-                builder: (_, _) {
-                  final scale = 1.0 + (_pulseCtrl.value * 0.03);
-                  return Transform.scale(
-                    scale: scale,
-                    child: Container(
-                      width: double.infinity,
-                      height: 220,
-                      decoration: BoxDecoration(
-                        color: c.surface,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: _gold.withValues(alpha: 0.3),
-                          width: 2,
-                          strokeAlign: BorderSide.strokeAlignInside,
-                        ),
-                      ),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.document_scanner_rounded,
-                            size: 48,
-                            color: _gold.withValues(alpha: 0.5),
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            'Position your $docLabel here',
-                            style: TextStyle(
-                              fontSize: 15,
-                              color: c.textTertiary,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          const SizedBox(height: 32),
-          // Tips
-          _tipRow(c, Icons.wb_sunny_rounded, 'Good lighting, no shadows'),
-          const SizedBox(height: 10),
-          _tipRow(c, Icons.crop_free_rounded, 'All edges visible in frame'),
-          const SizedBox(height: 10),
-          _tipRow(
-            c,
-            Icons.center_focus_strong_rounded,
-            'Hold steady, avoid blur',
-          ),
-          const Spacer(),
-          if (_processing)
-            const Center(
-              child: Column(
-                children: [
-                  CircularProgressIndicator(color: _gold),
-                  SizedBox(height: 12),
-                  Text(
-                    'Checking photo quality...',
-                    style: TextStyle(color: Colors.white70, fontSize: 14),
-                  ),
-                ],
-              ),
-            )
-          else ...[
-            SizedBox(
-              width: double.infinity,
-              height: 56,
-              child: ElevatedButton.icon(
-                onPressed: _captureDocument,
-                icon: const Icon(Icons.camera_alt_rounded),
-                label: const Text(
-                  'Take Photo',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _gold,
-                  foregroundColor: Colors.black,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  elevation: 0,
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: TextButton.icon(
-                onPressed: _captureFromGallery,
-                icon: Icon(Icons.photo_library_rounded, color: c.textSecondary),
-                label: Text(
-                  'Upload from Gallery',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: c.textSecondary,
-                  ),
-                ),
-              ),
-            ),
-          ],
-          const SizedBox(height: 24),
-        ],
-      ),
-    );
-  }
-
-  Widget _tipRow(AppColors c, IconData icon, String text) {
-    return Row(
-      children: [
-        Icon(icon, color: _gold.withValues(alpha: 0.7), size: 20),
-        const SizedBox(width: 10),
-        Text(text, style: TextStyle(fontSize: 14, color: c.textSecondary)),
-      ],
-    );
-  }
-
-  // Step 3 — Processing (submitting to backend after liveness done)
-  Widget _buildLiveness(AppColors c) {
+  Widget _buildProcessing(AppColors c) {
     return Center(
-      key: const ValueKey(3),
+      key: const ValueKey(1),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 32),
         child: Column(
@@ -1124,7 +391,7 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
   }
 
   // ═══════════════════════════════════════════
-  //  Step 4 — Confirmed
+  //  Step 2 — Confirmed
   // ═══════════════════════════════════════════
   Widget _buildConfirmed(AppColors c) {
     return FutureBuilder<Map<String, String>?>(
@@ -1135,15 +402,9 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
         final lastName = user?['lastName'] ?? '';
         final email = user?['email'] ?? '';
         final phone = user?['phone'] ?? '';
-        final docLabel =
-            _docTypes.firstWhere(
-                  (d) => d['id'] == _selectedDocType,
-                  orElse: () => _docTypes[0],
-                )['label']
-                as String;
 
         return Padding(
-          key: const ValueKey(4),
+          key: const ValueKey(2),
           padding: const EdgeInsets.symmetric(horizontal: 24),
           child: Column(
             children: [
@@ -1250,7 +511,7 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
                       _detailRow(c, 'Phone', phone),
                       const SizedBox(height: 10),
                     ],
-                    _detailRow(c, 'Document', docLabel),
+                    _detailRow(c, 'Document', "Driver's License"),
                     const SizedBox(height: 10),
                     _detailRow(c, 'Status', 'Verified ✓'),
                   ],
@@ -1285,11 +546,11 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
   }
 
   // ═══════════════════════════════════════════
-  //  Step 5 — Pending Dispatch Review
+  //  Step 3 — Pending Dispatch Review
   // ═══════════════════════════════════════════
   Widget _buildPendingReview(AppColors c) {
     return Padding(
-      key: const ValueKey(5),
+      key: const ValueKey(3),
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Column(
         children: [
@@ -1349,11 +610,11 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
   }
 
   // ═══════════════════════════════════════════
-  //  Step 6 — Rejected
+  //  Step 4 — Rejected
   // ═══════════════════════════════════════════
   Widget _buildRejected(AppColors c) {
     return Padding(
-      key: const ValueKey(6),
+      key: const ValueKey(4),
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Column(
         children: [
@@ -1438,10 +699,9 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
             height: 56,
             child: ElevatedButton(
               onPressed: () {
-                // Reset and go back to document type selection
+                // Reset and go back to intro
                 setState(() {
-                  _step = 1;
-                  _selectedDocType = null;
+                  _step = 0;
                   _documentPhotoPath = null;
                   _selfiePath = null;
                   _rejectionReason = null;
