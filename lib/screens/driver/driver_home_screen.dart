@@ -12,6 +12,7 @@ import '../../services/local_data_service.dart';
 import '../../services/user_session.dart';
 import '../identity_verification_screen.dart';
 import '../welcome_screen.dart';
+import 'driver_pending_review_screen.dart';
 import '../account_deactivated_screen.dart';
 import 'driver_earnings_screen.dart';
 import 'driver_trip_history_screen.dart';
@@ -245,30 +246,28 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
   //  IDENTITY VERIFICATION GATE
   // ═══════════════════════════════════════════════════
   Future<void> _checkVerification() async {
-    final verified = await LocalDataService.isIdentityVerified();
-    if (mounted) setState(() => _isVerified = verified);
-    if (!verified && mounted) {
-      // Auto-launch verification screen
-      final result = await Navigator.of(
-        context,
-      ).push<bool>(slideUpFadeRoute(const IdentityVerificationScreen()));
-      if (result == true && mounted) setState(() => _isVerified = true);
+    final status = await LocalDataService.getDriverApprovalStatus();
+    if (status == 'approved') {
+      if (mounted) setState(() => _isVerified = true);
+      return;
+    }
+    // Not yet approved by dispatch — redirect to pending review gate
+    if (mounted) {
+      Navigator.of(context).pushAndRemoveUntil(
+        slideFromRightRoute(const DriverPendingReviewScreen()),
+        (_) => false,
+      );
     }
   }
 
   Future<bool> _ensureVerified() async {
     if (_isVerified) return true;
-    final verified = await LocalDataService.isIdentityVerified();
-    if (verified) {
+    final status = await LocalDataService.getDriverApprovalStatus();
+    if (status == 'approved') {
       if (mounted) setState(() => _isVerified = true);
       return true;
     }
-    if (!mounted) return false;
-    final result = await Navigator.of(
-      context,
-    ).push<bool>(slideUpFadeRoute(const IdentityVerificationScreen()));
-    if (result == true && mounted) setState(() => _isVerified = true);
-    return result == true;
+    return false;
   }
 
   // ═══════════════════════════════════════════════════
@@ -276,6 +275,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
   // ═══════════════════════════════════════════════════
   void _goOnline() async {
     if (!await _ensureVerified()) return;
+    if (!mounted) return;
     HapticFeedback.heavyImpact();
     Navigator.of(context).push(
       PageRouteBuilder(

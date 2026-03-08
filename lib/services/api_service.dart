@@ -481,6 +481,34 @@ class ApiService {
     return _parse(res);
   }
 
+  /// Driver approval status from dispatch (pending/approved/rejected).
+  static Future<Map<String, dynamic>> getDriverApprovalStatus() async {
+    final token = await getToken();
+    if (token == null) throw ApiException(401, 'Not logged in');
+    final res = await http
+        .get(
+          Uri.parse('$_baseUrl/auth/driver-approval-status'),
+          headers: _jsonHeaders(token),
+        )
+        .timeout(const Duration(seconds: 5));
+    return _parse(res);
+  }
+
+  /// Initiate a Checkr background check with the driver's SSN.
+  static Future<Map<String, dynamic>> initiateCheckrBackgroundCheck({
+    required String ssn,
+  }) async {
+    final h = await _authHeaders();
+    final res = await http
+        .post(
+          Uri.parse('$_baseUrl/auth/checkr/initiate'),
+          headers: h,
+          body: jsonEncode({'ssn': ssn}),
+        )
+        .timeout(const Duration(seconds: 15));
+    return _parse(res);
+  }
+
   /// Check account status (dispatch may have blocked/deleted).
   static Future<String> getAccountStatus() async {
     final token = await getToken();
