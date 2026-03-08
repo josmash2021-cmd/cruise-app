@@ -3617,7 +3617,34 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         final riderId = await ApiService.getCurrentUserId();
         final pickupPos = _pickupMarker?.position ?? _currentPosition;
         final dropoffPos = _dropoffMarker?.position;
-        if (riderId != null && pickupPos != null && dropoffPos != null) {
+
+        // Guard: require both addresses before saving
+        if (riderId == null) throw Exception('Not logged in');
+        if (pickupPos == null) throw Exception('Pickup location not set');
+        if (dropoffPos == null || _dropoffAddress.isEmpty) {
+          if (mounted) {
+            _setStage(RideStage.plan);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                backgroundColor: const Color(0xFFFF5252),
+                content: const Text(
+                  'Enter pickup and destination addresses first',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            );
+          }
+          return;
+        }
+
+        {
           final fareStr = _rides[_selectedRide].price
               .replaceAll('\$', '')
               .replaceAll(',', '');
