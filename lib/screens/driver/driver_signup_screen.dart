@@ -11,6 +11,7 @@ import '../../services/local_data_service.dart';
 import '../../services/user_session.dart';
 import '../face_liveness_screen.dart';
 import 'driver_pending_review_screen.dart';
+import 'license_scanner_screen.dart';
 
 /// Multi-step driver sign-up + verification flow.
 ///
@@ -687,27 +688,39 @@ class _DriverSignupScreenState extends State<DriverSignupScreen>
 
           _docTile(
             title: "Driver's License — FRONT",
-            subtitle: 'Photo of the front side of your license',
+            subtitle: 'Tap to scan the front of your license',
             icon: Icons.credit_card_rounded,
             filePath: _licenseFrontPath,
             required_: true,
-            onTap: () => _showPickOptions(
-              "Driver's License — Front",
-              (p) => setState(() => _licenseFrontPath = p),
-            ),
+            onTap: () async {
+              final path = await Navigator.of(context).push<String?>(
+                MaterialPageRoute(
+                  builder: (_) => const LicenseScannerScreen(side: 'Front'),
+                ),
+              );
+              if (path != null && mounted) {
+                setState(() => _licenseFrontPath = path);
+              }
+            },
           ),
           const SizedBox(height: 10),
 
           _docTile(
             title: "Driver's License — BACK",
-            subtitle: 'Photo of the back side of your license',
+            subtitle: 'Tap to scan the back of your license',
             icon: Icons.credit_card_outlined,
             filePath: _licenseBackPath,
             required_: true,
-            onTap: () => _showPickOptions(
-              "Driver's License — Back",
-              (p) => setState(() => _licenseBackPath = p),
-            ),
+            onTap: () async {
+              final path = await Navigator.of(context).push<String?>(
+                MaterialPageRoute(
+                  builder: (_) => const LicenseScannerScreen(side: 'Back'),
+                ),
+              );
+              if (path != null && mounted) {
+                setState(() => _licenseBackPath = path);
+              }
+            },
           ),
           const SizedBox(height: 10),
 

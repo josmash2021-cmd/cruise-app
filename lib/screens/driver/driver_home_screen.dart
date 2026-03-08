@@ -654,61 +654,65 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
         listenable: _pulseAnim,
         builder: (_, _) {
           final p = _pulseAnim.value;
-          return Container(
-            padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 16),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(32),
-              border: Border.all(
-                color: _goldLight.withValues(alpha: 0.25 + 0.15 * p),
-                width: 1.5,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: _gold.withValues(alpha: 0.2 * p),
-                  blurRadius: 18,
-                  spreadRadius: 2,
-                ),
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.35),
-                  blurRadius: 14,
-                  spreadRadius: 1,
-                ),
-              ],
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Color.lerp(
-                    const Color(0xFFF5D990),
-                    const Color(0xFFFFEBB4),
-                    p,
-                  )!,
-                  const Color(0xFFE8C547),
-                  Color.lerp(
-                    const Color(0xFFA3823A),
-                    const Color(0xFFBF9B3E),
-                    p,
-                  )!,
+          return Opacity(
+            opacity: _isVerified ? 1.0 : 0.55,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 13),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(30),
+                boxShadow: [
+                  BoxShadow(
+                    color: _gold.withValues(alpha: 0.3 + 0.15 * p),
+                    blurRadius: 16 + 8 * p,
+                    spreadRadius: 0,
+                    offset: const Offset(0, 3),
+                  ),
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.28),
+                    blurRadius: 10,
+                    offset: const Offset(0, 2),
+                  ),
                 ],
-              ),
-            ),
-            child: Opacity(
-              opacity: _isVerified ? 1.0 : 0.5,
-              child: Text(
-                _isVerified ? 'GO ONLINE' : 'VERIFY TO GO ONLINE',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 1.5,
-                  shadows: [
-                    Shadow(
-                      color: Color(0x60000000),
-                      offset: Offset(0, 1),
-                      blurRadius: 2,
-                    ),
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Color.lerp(
+                      const Color(0xFFF0D060),
+                      const Color(0xFFF5DC7A),
+                      p,
+                    )!,
+                    const Color(0xFFD4A800),
                   ],
                 ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.power_settings_new_rounded,
+                      color: Colors.black87,
+                      size: 16,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    _isVerified ? 'GO ONLINE' : 'VERIFY FIRST',
+                    style: const TextStyle(
+                      color: Colors.black87,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                ],
               ),
             ),
           );

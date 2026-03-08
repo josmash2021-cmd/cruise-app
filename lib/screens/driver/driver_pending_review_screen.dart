@@ -8,6 +8,7 @@ import '../../services/local_data_service.dart';
 import '../../services/user_session.dart';
 import '../welcome_screen.dart';
 import 'driver_home_screen.dart';
+import 'driver_signup_screen.dart';
 
 /// Shown after a driver submits their application.
 /// Polls the backend every 5 seconds for dispatch approval.
@@ -23,6 +24,7 @@ class DriverPendingReviewScreen extends StatefulWidget {
 class _DriverPendingReviewScreenState extends State<DriverPendingReviewScreen>
     with TickerProviderStateMixin {
   static const _gold = Color(0xFFE8C547);
+  static const _green = Color(0xFF4CAF50);
 
   Timer? _pollTimer;
   String _status = 'pending'; // pending | approved | rejected
@@ -30,6 +32,8 @@ class _DriverPendingReviewScreenState extends State<DriverPendingReviewScreen>
 
   late AnimationController _pulseCtrl;
   late AnimationController _dotCtrl;
+  late AnimationController _approvedCtrl;
+  late Animation<double> _approvedScale;
 
   @override
   void initState() {
@@ -45,6 +49,15 @@ class _DriverPendingReviewScreenState extends State<DriverPendingReviewScreen>
       duration: const Duration(milliseconds: 900),
     )..repeat();
 
+    _approvedCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+    _approvedScale = CurvedAnimation(
+      parent: _approvedCtrl,
+      curve: Curves.elasticOut,
+    );
+
     _startPolling();
   }
 
@@ -53,6 +66,7 @@ class _DriverPendingReviewScreenState extends State<DriverPendingReviewScreen>
     _pollTimer?.cancel();
     _pulseCtrl.dispose();
     _dotCtrl.dispose();
+    _approvedCtrl.dispose();
     super.dispose();
   }
 
@@ -72,12 +86,7 @@ class _DriverPendingReviewScreenState extends State<DriverPendingReviewScreen>
           await LocalDataService.setDriverApprovalStatus('approved');
           if (!mounted) return;
           setState(() => _status = 'approved');
-          await Future.delayed(const Duration(milliseconds: 1500));
-          if (!mounted) return;
-          Navigator.of(context).pushAndRemoveUntil(
-            slideFromRightRoute(const DriverHomeScreen()),
-            (_) => false,
-          );
+          _approvedCtrl.forward();
         } else if (status == 'rejected') {
           _pollTimer?.cancel();
           final reason =
@@ -95,6 +104,26 @@ class _DriverPendingReviewScreenState extends State<DriverPendingReviewScreen>
         // Silently retry
       }
     });
+  }
+
+  Future<void> _enterApp() async {
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      slideFromRightRoute(const DriverHomeScreen()),
+      (_) => false,
+    );
+  }
+
+  /// Rejected: clear all data and let them register again from scratch
+  Future<void> _tryAgain() async {
+    await LocalDataService.setDriverApprovalStatus('none');
+    await UserSession.logout();
+    await ApiService.clearToken();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const DriverSignupScreen()),
+      (_) => false,
+    );
   }
 
   Future<void> _logout() async {
@@ -124,8 +153,7 @@ class _DriverPendingReviewScreenState extends State<DriverPendingReviewScreen>
     );
   }
 
-  // ── Pending ──────────────────────────────────────────────────────────────
-
+  // ── Pending ─────────────────────────────────────────────────────────────
   Widget _buildPending() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 28),
@@ -194,7 +222,7 @@ class _DriverPendingReviewScreenState extends State<DriverPendingReviewScreen>
           // Status steps
           _statusRow(
             icon: Icons.check_circle_rounded,
-            iconColor: const Color(0xFF4CAF50),
+            iconColor: _green,
             title: 'Application submitted',
             subtitle: 'All documents received',
             done: true,
@@ -204,7 +232,7 @@ class _DriverPendingReviewScreenState extends State<DriverPendingReviewScreen>
             icon: Icons.shield_rounded,
             iconColor: _gold,
             title: 'Background check',
-            subtitle: 'Checkr verification in progress',
+            subtitle: 'Identity documents verified',
             done: false,
             active: true,
           ),
@@ -291,7 +319,7 @@ class _DriverPendingReviewScreenState extends State<DriverPendingReviewScreen>
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: done
-                ? const Color(0xFF4CAF50).withValues(alpha: 0.15)
+                ? _green.withValues(alpha: 0.15)
                 : active
                 ? _gold.withValues(alpha: 0.12)
                 : Colors.white.withValues(alpha: 0.05),
@@ -340,32 +368,41 @@ class _DriverPendingReviewScreenState extends State<DriverPendingReviewScreen>
     );
   }
 
-  // ── Approved ──────────────────────────────────────────────────────────────
-
+  // ── Approved ────────────────────────────────────────────────────────────
   Widget _buildApproved() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 28),
       child: Column(
         children: [
-          const Spacer(flex: 2),
-          Container(
-            width: 110,
-            height: 110,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: const Color(0xFF4CAF50).withValues(alpha: 0.15),
-              border: Border.all(
-                color: const Color(0xFF4CAF50).withValues(alpha: 0.4),
-                width: 2,
+          const SizedBox(height: 40),
+
+          // Big check icon
+          ScaleTransition(
+            scale: _approvedScale,
+            child: Container(
+              width: 110,
+              height: 110,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: _green.withValues(alpha: 0.15),
+                border: Border.all(
+                  color: _green.withValues(alpha: 0.45),
+                  width: 2,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: _green.withValues(alpha: 0.25),
+                    blurRadius: 30,
+                    spreadRadius: 4,
+                  ),
+                ],
               ),
-            ),
-            child: const Icon(
-              Icons.check_circle_rounded,
-              color: Color(0xFF4CAF50),
-              size: 52,
+              child: const Icon(Icons.check_rounded, color: _green, size: 54),
             ),
           ),
+
           const SizedBox(height: 32),
+
           const Text(
             'You\'re Approved!',
             style: TextStyle(
@@ -374,7 +411,9 @@ class _DriverPendingReviewScreenState extends State<DriverPendingReviewScreen>
               fontWeight: FontWeight.w800,
             ),
           ),
-          const SizedBox(height: 16),
+
+          const SizedBox(height: 12),
+
           Text(
             'Welcome to the Cruise driver team. You can now go online and start accepting rides.',
             textAlign: TextAlign.center,
@@ -384,19 +423,100 @@ class _DriverPendingReviewScreenState extends State<DriverPendingReviewScreen>
               height: 1.5,
             ),
           ),
-          const SizedBox(height: 16),
-          const CircularProgressIndicator(
-            color: Color(0xFF4CAF50),
-            strokeWidth: 2.5,
+
+          const SizedBox(height: 36),
+
+          // All steps checked
+          _doneRow(
+            Icons.check_circle_rounded,
+            'Application submitted',
+            'All documents received',
           ),
-          const Spacer(flex: 3),
+          const SizedBox(height: 16),
+          _doneRow(
+            Icons.shield_rounded,
+            'Background check',
+            'Identity verified ✓',
+          ),
+          const SizedBox(height: 16),
+          _doneRow(
+            Icons.verified_rounded,
+            'Final review',
+            'Approved by dispatch ✓',
+          ),
+
+          const Spacer(),
+
+          // Next button
+          SizedBox(
+            width: double.infinity,
+            height: 56,
+            child: ElevatedButton(
+              onPressed: _enterApp,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _gold,
+                foregroundColor: Colors.black,
+                elevation: 4,
+                shadowColor: _gold.withValues(alpha: 0.4),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+              ),
+              child: const Text(
+                'Next',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.3,
+                ),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 32),
         ],
       ),
     );
   }
 
-  // ── Rejected ──────────────────────────────────────────────────────────────
+  Widget _doneRow(IconData icon, String title, String subtitle) {
+    return Row(
+      children: [
+        Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: _green.withValues(alpha: 0.15),
+          ),
+          child: Icon(icon, color: _green, size: 20),
+        ),
+        const SizedBox(width: 14),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            Text(
+              subtitle,
+              style: TextStyle(
+                color: _green.withValues(alpha: 0.8),
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
 
+  // ── Rejected ────────────────────────────────────────────────────────────
   Widget _buildRejected() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 28),
@@ -422,7 +542,7 @@ class _DriverPendingReviewScreenState extends State<DriverPendingReviewScreen>
           ),
           const SizedBox(height: 32),
           const Text(
-            'Application Not Approved',
+            'Application Rejected',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: Colors.white,
@@ -432,7 +552,17 @@ class _DriverPendingReviewScreenState extends State<DriverPendingReviewScreen>
             ),
           ),
           const SizedBox(height: 16),
-          if (_rejectionReason != null)
+          Text(
+            'Tu aplicación fue rechazada. Por favor revisa los detalles y vuelve a intentarlo.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.6),
+              fontSize: 15,
+              height: 1.5,
+            ),
+          ),
+          if (_rejectionReason != null) ...[
+            const SizedBox(height: 20),
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -450,32 +580,45 @@ class _DriverPendingReviewScreenState extends State<DriverPendingReviewScreen>
                 ),
               ),
             ),
-          const SizedBox(height: 32),
-          Text(
-            'You may contact support or reapply with updated documents.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.4),
-              fontSize: 13,
-              height: 1.4,
-            ),
-          ),
+          ],
           const Spacer(flex: 3),
+          // Try again — clears data and goes to signup form
           SizedBox(
             width: double.infinity,
             height: 54,
             child: ElevatedButton(
-              onPressed: _logout,
+              onPressed: _tryAgain,
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white10,
-                foregroundColor: Colors.white,
+                backgroundColor: _gold,
+                foregroundColor: Colors.black,
+                elevation: 4,
+                shadowColor: _gold.withValues(alpha: 0.4),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              child: const Text(
+                'Try Again',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: OutlinedButton(
+              onPressed: _logout,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white54,
+                side: const BorderSide(color: Colors.white12),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
                 ),
               ),
               child: const Text(
                 'Back to Welcome',
-                style: TextStyle(fontWeight: FontWeight.w700),
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
               ),
             ),
           ),
@@ -485,3 +628,7 @@ class _DriverPendingReviewScreenState extends State<DriverPendingReviewScreen>
     );
   }
 }
+
+/// Shown after a driver submits their application.
+/// Polls the backend every 5 seconds for dispatch approval.
+/// The driver CANNOT navigate away — this is the gate.
