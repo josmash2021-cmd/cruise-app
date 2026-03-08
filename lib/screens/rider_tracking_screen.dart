@@ -82,7 +82,7 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
 
   _TrackPhase _phase = _TrackPhase.arriving;
   bool _greetingSent = false;
-  bool _arrivedNotifSent = false;
+  bool _arrivedNotifSent = false; // ignore: prefer_final_fields
   LatLng _driverPos = const LatLng(0, 0);
   LatLng _animPos = const LatLng(0, 0);
   double _driverBearing = 0;
