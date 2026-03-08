@@ -18,9 +18,11 @@ import '../config/page_transitions.dart';
 import '../services/directions_service.dart';
 import '../services/local_data_service.dart';
 import '../services/places_service.dart';
+import 'airport_terminal_sheet.dart';
 import 'credit_card_screen.dart';
 import 'payment_accounts_screen.dart';
 import 'ride_rating_screen.dart';
+import 'scheduled_rides_screen.dart';
 import 'trip_receipt_screen.dart';
 import '../navigation/car_icon_loader.dart';
 import '../services/api_service.dart';
@@ -168,6 +170,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   bool _pickupNow = true;
   DateTime? _scheduledDate;
   TimeOfDay? _scheduledTime;
+  AirportSelection? _airportSelection;
   int _routeAnimationTicket = 0;
   bool _planBodyVisible = false;
   double? _panelDragHeight;
@@ -1112,12 +1115,13 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     );
   }
 
-    /// Fit the camera to [bounds] with [padding] (pixels) on all sides.
+  /// Fit the camera to [bounds] with [padding] (pixels) on all sides.
   Future<void> _fitBounds(LatLngBounds bounds, double padding) async {
     await _mapController?.animateCamera(
       CameraUpdate.newLatLngBounds(bounds, padding),
     );
   }
+
   /// Returns the current map zoom level on whichever platform is active.
   Future<double> _currentZoom() async {
     try {
@@ -2080,6 +2084,46 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     );
   }
 
+  /// Combines [_scheduledDate] and [_scheduledTime] into a single [DateTime].
+  DateTime? _buildScheduledAt() {
+    if (_scheduledDate == null || _scheduledTime == null) return null;
+    return DateTime(
+      _scheduledDate!.year,
+      _scheduledDate!.month,
+      _scheduledDate!.day,
+      _scheduledTime!.hour,
+      _scheduledTime!.minute,
+    );
+  }
+
+  /// Opens the [AirportTerminalSheet] and stores the result in [_airportSelection].
+  Future<void> _showAirportSheet() async {
+    // Tapping again when already set → clear the selection (deselect)
+    if (_airportSelection != null) {
+      setState(() {
+        _airportSelection = null;
+      });
+      return;
+    }
+    final isDark = _c.isDark;
+    final result = await showModalBottomSheet<AirportSelection>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => AirportTerminalSheet(isDark: isDark),
+    );
+    if (!mounted) return;
+    if (result != null) {
+      setState(() {
+        _airportSelection = result;
+        // Pre-fill dropoff with airport name
+        _dropoffAddress = result.airport.name;
+        _dropoffCtrl.text = result.airport.name;
+      });
+      _onDropoffSubmitted(_dropoffAddress);
+    }
+  }
+
   Widget _rideTimeOption({
     required IconData icon,
     required String title,
@@ -2869,6 +2913,16 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     ),
                     const SizedBox(width: 8),
                     const _Badge(icon: Icons.person_outline, text: 'For me'),
+                    const SizedBox(width: 8),
+                    _Badge(
+                      icon: _airportSelection != null
+                          ? Icons.flight_rounded
+                          : Icons.flight_outlined,
+                      text: _airportSelection != null
+                          ? _airportSelection!.airport.code
+                          : 'Airport',
+                      onTap: _showAirportSheet,
+                    ),
                   ],
                 ),
                 const SizedBox(height: 10),
@@ -3550,6 +3604,127 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       await LocalDataService.usePromo();
     }
 
+    final scheduledAt = _buildScheduledAt();
+    final isScheduled = !_pickupNow && scheduledAt != null;
+    final isAirport = _airportSelection != null;
+    final airportNotes = _airportSelection?.flightNumber != null
+        ? 'Flight: ${_airportSelection!.flightNumber}'
+        : null;
+
+    // ── SCHEDULED trip: use createTrip, show confirmation, go to plan ──
+    if (isScheduled) {
+      try {
+        final riderId = await ApiService.getCurrentUserId();
+        final pickupPos = _pickupMarker?.position ?? _currentPosition;
+        final dropoffPos = _dropoffMarker?.position;
+        if (riderId != null && pickupPos != null && dropoffPos != null) {
+          final fareStr = _rides[_selectedRide].price
+              .replaceAll('\$', '')
+              .replaceAll(',', '');
+          final fare = double.tryParse(fareStr) ?? 0;
+          final vehicleType = _rides[_selectedRide].name;
+          final tripData = await ApiService.createTrip(
+            riderId: riderId,
+            pickupAddress: _pickupAddress,
+            dropoffAddress: _dropoffAddress,
+            pickupLat: pickupPos.latitude,
+            pickupLng: pickupPos.longitude,
+            dropoffLat: dropoffPos.latitude,
+            dropoffLng: dropoffPos.longitude,
+            fare: fare,
+            vehicleType: vehicleType,
+            scheduledAt: scheduledAt,
+            isAirport: isAirport,
+            airportCode: _airportSelection?.airport.code,
+            terminal: _airportSelection?.terminal,
+            pickupZone: _airportSelection?.pickupZone,
+            notes: airportNotes,
+          );
+          _currentTripId = tripData['id'] as int?;
+          debugPrint('\u2705 Scheduled trip created: $_currentTripId');
+          // Mirror to Firestore for dispatch admin
+          try {
+            final session = await UserSession.getUser();
+            final milesStr = _tripMiles.replaceAll(RegExp(r'[^\d.]'), '');
+            final km = (double.tryParse(milesStr) ?? 0.0) * 1.60934;
+            final durStr = _tripDuration.replaceAll(RegExp(r'[^\d]'), '');
+            final durMin = int.tryParse(durStr) ?? 0;
+            final name =
+                '${session?['firstName'] ?? ''} ${session?['lastName'] ?? ''}'
+                    .trim();
+            _firestoreTripId = await TripFirestoreService.submitRideRequest(
+              passengerName: name.isEmpty ? 'Passenger' : name,
+              passengerPhone: session?['phone'] ?? '',
+              pickupAddress: _pickupAddress,
+              dropoffAddress: _dropoffAddress,
+              pickupLat: pickupPos.latitude,
+              pickupLng: pickupPos.longitude,
+              dropoffLat: dropoffPos.latitude,
+              dropoffLng: dropoffPos.longitude,
+              fare: fare,
+              distanceKm: km,
+              durationMin: durMin,
+              vehicleType: vehicleType,
+              paymentMethod: _selectedPaymentMethod,
+              scheduledAt: scheduledAt,
+              isAirportTrip: isAirport,
+            );
+          } catch (_) {}
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: const Color(0xFFFF5252),
+              content: Text(
+                'Failed to schedule ride: $e',
+                style: const TextStyle(color: Colors.white),
+              ),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          );
+          _setStage(RideStage.payment);
+        }
+        return;
+      }
+      if (!mounted) return;
+      final scheduleLabel = _rideTimeBadgeText;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: _gold,
+          content: Text(
+            'Ride scheduled for $scheduleLabel!',
+            style: const TextStyle(
+              color: Colors.black,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+      await LocalDataService.addNotification(
+        title: 'Ride scheduled',
+        message: 'Your $scheduleLabel ride has been confirmed.',
+        type: 'ride',
+      );
+      _setStage(RideStage.plan);
+      if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const ScheduledRidesScreen()),
+        );
+      }
+      return;
+    }
+
+    // ── IMMEDIATE ride ──
     _setStage(RideStage.matching);
     await LocalDataService.addNotification(
       title: 'Searching driver',
@@ -3589,6 +3764,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           durationMin: durMin,
           vehicleType: _rides[_selectedRide].name,
           paymentMethod: _selectedPaymentMethod,
+          isAirportTrip: isAirport,
         );
       }
     } catch (e) {
@@ -3619,6 +3795,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           dropoffLng: dropoffPos.longitude,
           fare: fare,
           vehicleType: vehicleType,
+          isAirport: isAirport,
+          airportCode: _airportSelection?.airport.code,
+          terminal: _airportSelection?.terminal,
+          pickupZone: _airportSelection?.pickupZone,
+          notes: airportNotes,
         );
 
         _currentTripId = tripData['id'] as int?;
@@ -3725,8 +3906,27 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
               _driverMarker = null;
               _dropoffMarker = null;
             });
-            _setStage(RideStage.plan);
-            _showTripCancelledDialog();
+            // Only show cancelled dialog if a human (dispatch/admin) cancelled.
+            // If auto-cancelled due to no drivers, go back silently.
+            final reason =
+                (dispatch['cancel_reason'] ??
+                        dispatch['cancellation_reason'] ??
+                        dispatch['reason'] ??
+                        '')
+                    .toString()
+                    .toLowerCase();
+            final isNoDrivers =
+                reason.contains('no_driver') ||
+                reason.contains('no driver') ||
+                reason.contains('timeout') ||
+                reason.contains('expired') ||
+                reason.isEmpty;
+            if (isNoDrivers) {
+              _setStage(RideStage.options);
+            } else {
+              _setStage(RideStage.plan);
+              _showTripCancelledDialog();
+            }
             return;
           } else if (status == 'no_drivers') {
             noDriverCount++;
@@ -3966,11 +4166,25 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           } else if (status == 'canceled' || status == 'cancelled') {
             timer.cancel();
             _rideLifecycleTimer?.cancel();
-            // Sync cancelled to Firestore for Dispatch Admin
+            final reason =
+                (trip['cancel_reason'] ??
+                        trip['cancellation_reason'] ??
+                        trip['reason'] ??
+                        '')
+                    .toString()
+                    .toLowerCase();
+            final isNoDrivers =
+                reason.contains('no_driver') ||
+                reason.contains('no driver') ||
+                reason.contains('timeout') ||
+                reason.contains('expired') ||
+                reason.isEmpty;
             if (_firestoreTripId != null) {
               TripFirestoreService.syncTripCancelled(
                 _firestoreTripId!,
-                reason: 'Cancelled by dispatch',
+                reason: isNoDrivers
+                    ? 'No drivers available'
+                    : 'Cancelled by dispatch',
               );
             }
             if (mounted) {
@@ -3982,8 +4196,12 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                 _driverMarker = null;
                 _dropoffMarker = null;
               });
-              _setStage(RideStage.plan);
-              _showTripCancelledDialog();
+              if (isNoDrivers) {
+                _setStage(RideStage.options);
+              } else {
+                _setStage(RideStage.plan);
+                _showTripCancelledDialog();
+              }
             }
             return;
           }

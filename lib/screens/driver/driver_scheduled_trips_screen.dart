@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../config/app_theme.dart';
 import '../../services/api_service.dart';
@@ -10,7 +13,8 @@ class DriverScheduledTripsScreen extends StatefulWidget {
   const DriverScheduledTripsScreen({super.key});
 
   @override
-  State<DriverScheduledTripsScreen> createState() => _DriverScheduledTripsScreenState();
+  State<DriverScheduledTripsScreen> createState() =>
+      _DriverScheduledTripsScreenState();
 }
 
 class _DriverScheduledTripsScreenState extends State<DriverScheduledTripsScreen>
@@ -20,6 +24,7 @@ class _DriverScheduledTripsScreenState extends State<DriverScheduledTripsScreen>
   static const _airport = Color(0xFF4285F4);
 
   late final AnimationController _staggerCtrl;
+  Timer? _countdownTimer;
 
   List<Map<String, dynamic>> _trips = [];
   bool _loading = true;
@@ -32,11 +37,16 @@ class _DriverScheduledTripsScreenState extends State<DriverScheduledTripsScreen>
       vsync: this,
       duration: const Duration(milliseconds: 800),
     );
+    // Refresh countdown every minute so the "In Xh Ym" text stays live
+    _countdownTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
     _loadTrips();
   }
 
   @override
   void dispose() {
+    _countdownTimer?.cancel();
     _staggerCtrl.dispose();
     super.dispose();
   }
@@ -93,7 +103,11 @@ class _DriverScheduledTripsScreenState extends State<DriverScheduledTripsScreen>
                   color: Colors.white.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 18),
+                child: const Icon(
+                  Icons.arrow_back_ios_new_rounded,
+                  color: Colors.white,
+                  size: 18,
+                ),
               ),
             ),
             actions: [
@@ -106,7 +120,11 @@ class _DriverScheduledTripsScreenState extends State<DriverScheduledTripsScreen>
                     color: Colors.white.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Icon(Icons.refresh_rounded, color: Colors.white70, size: 20),
+                  child: const Icon(
+                    Icons.refresh_rounded,
+                    color: Colors.white70,
+                    size: 20,
+                  ),
                 ),
               ),
             ],
@@ -118,10 +136,16 @@ class _DriverScheduledTripsScreenState extends State<DriverScheduledTripsScreen>
                   Container(
                     padding: const EdgeInsets.all(6),
                     decoration: BoxDecoration(
-                      gradient: const LinearGradient(colors: [_gold, _goldLight]),
+                      gradient: const LinearGradient(
+                        colors: [_gold, _goldLight],
+                      ),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Icon(Icons.event_note_rounded, color: Colors.black87, size: 16),
+                    child: const Icon(
+                      Icons.event_note_rounded,
+                      color: Colors.black87,
+                      size: 16,
+                    ),
                   ),
                   const SizedBox(width: 10),
                   const Text(
@@ -139,10 +163,7 @@ class _DriverScheduledTripsScreenState extends State<DriverScheduledTripsScreen>
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [
-                      _gold.withValues(alpha: 0.06),
-                      c.bg,
-                    ],
+                    colors: [_gold.withValues(alpha: 0.06), c.bg],
                   ),
                 ),
               ),
@@ -153,7 +174,10 @@ class _DriverScheduledTripsScreenState extends State<DriverScheduledTripsScreen>
           if (_loading)
             const SliverFillRemaining(
               child: Center(
-                child: CircularProgressIndicator(color: _gold, strokeWidth: 2.5),
+                child: CircularProgressIndicator(
+                  color: _gold,
+                  strokeWidth: 2.5,
+                ),
               ),
             )
           else if (_error != null)
@@ -162,19 +186,34 @@ class _DriverScheduledTripsScreenState extends State<DriverScheduledTripsScreen>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.error_outline_rounded, color: Colors.white24, size: 48),
+                    const Icon(
+                      Icons.error_outline_rounded,
+                      color: Colors.white24,
+                      size: 48,
+                    ),
                     const SizedBox(height: 12),
                     Text(_error!, style: TextStyle(color: c.textSecondary)),
                     const SizedBox(height: 16),
                     GestureDetector(
                       onTap: _loadTrips,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 10,
+                        ),
                         decoration: BoxDecoration(
-                          border: Border.all(color: _gold.withValues(alpha: 0.4)),
+                          border: Border.all(
+                            color: _gold.withValues(alpha: 0.4),
+                          ),
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: const Text('Retry', style: TextStyle(color: _gold, fontWeight: FontWeight.w600)),
+                        child: const Text(
+                          'Retry',
+                          style: TextStyle(
+                            color: _gold,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ),
                     ),
                   ],
@@ -211,6 +250,8 @@ class _DriverScheduledTripsScreenState extends State<DriverScheduledTripsScreen>
     final airportCode = trip['airport_code'] as String?;
     final pickupZone = trip['pickup_zone'] as String?;
     final notes = trip['notes'] as String?;
+    final pickupLat = (trip['pickup_lat'] as num?)?.toDouble();
+    final pickupLng = (trip['pickup_lng'] as num?)?.toDouble();
 
     DateTime? scheduledAt;
     if (trip['scheduled_at'] != null) {
@@ -261,7 +302,9 @@ class _DriverScheduledTripsScreenState extends State<DriverScheduledTripsScreen>
               color: isAirport
                   ? _airport.withValues(alpha: 0.06)
                   : _gold.withValues(alpha: 0.04),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(20),
+              ),
             ),
             child: Row(
               children: [
@@ -274,7 +317,9 @@ class _DriverScheduledTripsScreenState extends State<DriverScheduledTripsScreen>
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
-                    isAirport ? Icons.flight_takeoff_rounded : Icons.schedule_rounded,
+                    isAirport
+                        ? Icons.flight_takeoff_rounded
+                        : Icons.schedule_rounded,
                     color: isAirport ? _airport : _gold,
                     size: 20,
                   ),
@@ -307,7 +352,10 @@ class _DriverScheduledTripsScreenState extends State<DriverScheduledTripsScreen>
                   ),
                 if (isAirport && airportCode != null)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
                     decoration: BoxDecoration(
                       color: _airport.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(10),
@@ -315,7 +363,11 @@ class _DriverScheduledTripsScreenState extends State<DriverScheduledTripsScreen>
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.flight_rounded, size: 14, color: _airport),
+                        const Icon(
+                          Icons.flight_rounded,
+                          size: 14,
+                          color: _airport,
+                        ),
                         const SizedBox(width: 4),
                         Text(
                           airportCode,
@@ -346,7 +398,10 @@ class _DriverScheduledTripsScreenState extends State<DriverScheduledTripsScreen>
                       decoration: BoxDecoration(
                         color: _gold,
                         shape: BoxShape.circle,
-                        border: Border.all(color: _gold.withValues(alpha: 0.3), width: 3),
+                        border: Border.all(
+                          color: _gold.withValues(alpha: 0.3),
+                          width: 3,
+                        ),
                       ),
                     ),
                     Container(width: 1.5, height: 28, color: Colors.white12),
@@ -357,7 +412,8 @@ class _DriverScheduledTripsScreenState extends State<DriverScheduledTripsScreen>
                         color: isAirport ? _airport : Colors.white,
                         shape: BoxShape.circle,
                         border: Border.all(
-                          color: (isAirport ? _airport : Colors.white).withValues(alpha: 0.3),
+                          color: (isAirport ? _airport : Colors.white)
+                              .withValues(alpha: 0.3),
                           width: 3,
                         ),
                       ),
@@ -373,14 +429,22 @@ class _DriverScheduledTripsScreenState extends State<DriverScheduledTripsScreen>
                         pickup.isNotEmpty ? pickup : 'Pickup',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: c.textPrimary, fontSize: 14, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          color: c.textPrimary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                       const SizedBox(height: 18),
                       Text(
                         dropoff.isNotEmpty ? dropoff : 'Dropoff',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: c.textPrimary, fontSize: 14, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          color: c.textPrimary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ],
                   ),
@@ -398,7 +462,11 @@ class _DriverScheduledTripsScreenState extends State<DriverScheduledTripsScreen>
               children: [
                 _chip(Icons.directions_car_outlined, vehicleType, c),
                 if (fare != null && fare > 0)
-                  _chip(Icons.attach_money_rounded, '\$${fare.toStringAsFixed(2)}', c),
+                  _chip(
+                    Icons.attach_money_rounded,
+                    '\$${fare.toStringAsFixed(2)}',
+                    c,
+                  ),
                 if (terminal != null)
                   _chip(Icons.door_front_door_outlined, terminal, c),
                 if (pickupZone != null)
@@ -422,7 +490,9 @@ class _DriverScheduledTripsScreenState extends State<DriverScheduledTripsScreen>
                 child: Row(
                   children: [
                     Icon(
-                      isAirport ? Icons.airplane_ticket_outlined : Icons.note_outlined,
+                      isAirport
+                          ? Icons.airplane_ticket_outlined
+                          : Icons.note_outlined,
                       size: 16,
                       color: _airport,
                     ),
@@ -444,19 +514,31 @@ class _DriverScheduledTripsScreenState extends State<DriverScheduledTripsScreen>
             child: SizedBox(
               width: double.infinity,
               child: GestureDetector(
-                onTap: () {
-                  // TODO: Navigate to pickup
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      backgroundColor: _gold,
-                      content: const Text(
-                        'Navigation coming soon',
-                        style: TextStyle(color: Colors.black, fontWeight: FontWeight.w600),
+                onTap: () async {
+                  if (pickupLat == null || pickupLng == null) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        backgroundColor: const Color(0xFFFF5252),
+                        content: const Text(
+                          'Pickup coordinates not available',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                        behavior: SnackBarBehavior.floating,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
-                      behavior: SnackBarBehavior.floating,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
+                    );
+                    return;
+                  }
+                  final uri = Uri.parse(
+                    'https://www.google.com/maps/dir/?api=1'
+                    '&destination=$pickupLat,$pickupLng'
+                    '&travelmode=driving',
                   );
+                  if (await canLaunchUrl(uri)) {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  }
                 },
                 child: Container(
                   padding: const EdgeInsets.symmetric(vertical: 12),
@@ -474,7 +556,11 @@ class _DriverScheduledTripsScreenState extends State<DriverScheduledTripsScreen>
                   child: const Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.navigation_rounded, color: Colors.black87, size: 18),
+                      Icon(
+                        Icons.navigation_rounded,
+                        color: Colors.black87,
+                        size: 18,
+                      ),
                       SizedBox(width: 8),
                       Text(
                         'Navigate to Pickup',
@@ -507,7 +593,14 @@ class _DriverScheduledTripsScreenState extends State<DriverScheduledTripsScreen>
         children: [
           Icon(icon, size: 13, color: c.textSecondary),
           const SizedBox(width: 4),
-          Text(text, style: TextStyle(fontSize: 12, color: c.textSecondary, fontWeight: FontWeight.w600)),
+          Text(
+            text,
+            style: TextStyle(
+              fontSize: 12,
+              color: c.textSecondary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ],
       ),
     );
@@ -525,7 +618,11 @@ class _DriverScheduledTripsScreenState extends State<DriverScheduledTripsScreen>
               color: _gold.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(24),
             ),
-            child: const Icon(Icons.event_available_rounded, color: _gold, size: 36),
+            child: const Icon(
+              Icons.event_available_rounded,
+              color: _gold,
+              size: 36,
+            ),
           ),
           const SizedBox(height: 20),
           Text(

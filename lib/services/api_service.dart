@@ -606,7 +606,7 @@ class ApiService {
       final list = jsonDecode(res.body) as List;
       return list.cast<Map<String, dynamic>>();
     }
-    return [];
+    throw ApiException(res.statusCode, 'Failed to load scheduled trips');
   }
 
   /// Get scheduled trips assigned to a driver.
@@ -624,7 +624,7 @@ class ApiService {
       final list = jsonDecode(res.body) as List;
       return list.cast<Map<String, dynamic>>();
     }
-    return [];
+    throw ApiException(res.statusCode, 'Failed to load scheduled trips');
   }
 
   /// Cancel a trip (scheduled or active).
@@ -952,6 +952,12 @@ class ApiService {
     required double dropoffLng,
     double? fare,
     String? vehicleType,
+    DateTime? scheduledAt,
+    bool isAirport = false,
+    String? airportCode,
+    String? terminal,
+    String? pickupZone,
+    String? notes,
   }) async {
     final h = await _authHeaders();
     final res = await http
@@ -968,6 +974,13 @@ class ApiService {
             'dropoff_lng': dropoffLng,
             'fare': ?fare,
             'vehicle_type': ?vehicleType,
+            if (scheduledAt != null)
+              'scheduled_at': scheduledAt.toUtc().toIso8601String(),
+            'is_airport': isAirport,
+            'airport_code': ?airportCode,
+            'terminal': ?terminal,
+            'pickup_zone': ?pickupZone,
+            'notes': ?notes,
           }),
         )
         .timeout(const Duration(seconds: 10));

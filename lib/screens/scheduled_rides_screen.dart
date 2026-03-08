@@ -398,6 +398,7 @@ class _TripCard extends StatelessWidget {
     final vehicleType = trip['vehicle_type'] as String? ?? 'Economy';
     final terminal = trip['terminal'] as String?;
     final airportCode = trip['airport_code'] as String?;
+    final pickupZone = trip['pickup_zone'] as String?;
     final notes = trip['notes'] as String?;
 
     DateTime? scheduledAt;
@@ -587,6 +588,10 @@ class _TripCard extends StatelessWidget {
                 if (terminal != null) ...[
                   const SizedBox(width: 8),
                   _infoChip(Icons.door_front_door_outlined, terminal, c),
+                ],
+                if (pickupZone != null) ...[
+                  const SizedBox(width: 8),
+                  _infoChip(Icons.pin_drop_outlined, pickupZone, c),
                 ],
               ],
             ),
