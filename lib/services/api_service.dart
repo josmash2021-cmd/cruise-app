@@ -464,7 +464,7 @@ class ApiService {
           headers: _jsonHeaders(token),
           body: jsonEncode(data),
         )
-        .timeout(const Duration(seconds: 10));
+        .timeout(const Duration(seconds: 60));
     return _parse(res);
   }
 

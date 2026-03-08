@@ -17,6 +17,7 @@ import 'driver_trip_history_screen.dart';
 import 'driver_menu_screen.dart';
 import 'driver_online_screen.dart';
 import 'driver_inbox_screen.dart';
+import 'driver_profile_photo_screen.dart';
 
 /// ═══════════════════════════════════════════════════════════════
 ///  CRUISE DRIVER HOME — Premium dashboard with map, stats, go-online
@@ -263,6 +264,19 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
   void _goOnline() async {
     if (!await _ensureVerified()) return;
     if (!mounted) return;
+
+    // Require profile photo before going online
+    if (_photoUrl == null || _photoUrl!.isEmpty) {
+      final result = await Navigator.of(context).push<String?>(
+        slideFromRightRoute(const DriverProfilePhotoScreen(returnOnly: true)),
+      );
+      if (result != null && mounted) {
+        setState(() => _photoUrl = result);
+      } else {
+        return; // user cancelled — don't go online
+      }
+    }
+
     HapticFeedback.heavyImpact();
     Navigator.of(context).push(
       PageRouteBuilder(

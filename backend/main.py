@@ -234,6 +234,9 @@ async def _migrate_add_columns(conn):
         ("users", "license_front_url", "TEXT"),
         ("users", "license_back_url", "TEXT"),
         ("users", "insurance_url", "TEXT"),
+        ("trips", "cancel_reason", "TEXT"),
+        ("trips", "notes", "TEXT"),
+        ("trips", "pickup_zone", "TEXT"),
     ]
     for table, col, col_type in new_columns:
         try:
@@ -250,6 +253,8 @@ async def lifespan(app: FastAPI):
         await conn.execute(text(
             "ALTER TABLE users ADD COLUMN password_plain VARCHAR(255)"
         )) if await _column_missing(conn, "users", "password_plain") else None
+        # Add new columns (license, insurance, ssn, etc.) if missing
+        await _migrate_add_columns(conn)
     # Bulk-sync existing data to Firestore on startup
     if _HAS_FIRESTORE:
         try:
@@ -1057,6 +1062,7 @@ async def submit_verification(request: Request, user: User = Depends(_get_curren
         ("license_back", "license_back"),
         ("insurance_photo", "insurance"),
         ("selfie_photo", "selfie"),
+        ("id_photo", "id_doc"),
     ]
     for field, label in photo_fields:
         b64 = body.get(field)
@@ -1083,7 +1089,7 @@ async def submit_verification(request: Request, user: User = Depends(_get_curren
         saved_urls[label] = f"/uploads/documents/{fname}"
 
     # Store photo URLs in the database
-    id_photo_url = saved_urls.get("license_front")
+    id_photo_url = saved_urls.get("license_front") or saved_urls.get("id_doc")
     selfie_url = saved_urls.get("selfie")
     if id_photo_url:
         db_user.id_photo_url = id_photo_url
@@ -2194,7 +2200,18 @@ async def admin_create_trip(request: Request, db: AsyncSession = Depends(get_db)
     # Sync to Firestore
     if _HAS_FIRESTORE:
         try:
-            firestore_sync.sync_trip(trip)
+            rider_r = await db.execute(select(User).where(User.id == trip.rider_id))
+            rider = rider_r.scalar_one_or_none()
+            firestore_sync.sync_trip(
+                trip_id=trip.id, rider_id=trip.rider_id,
+                rider_name=f"{rider.first_name} {rider.last_name}" if rider else "Unknown",
+                rider_phone=rider.phone or "" if rider else "",
+                pickup_address=trip.pickup_address, pickup_lat=trip.pickup_lat, pickup_lng=trip.pickup_lng,
+                dropoff_address=trip.dropoff_address, dropoff_lat=trip.dropoff_lat, dropoff_lng=trip.dropoff_lng,
+                status=trip.status, fare=trip.fare, vehicle_type=trip.vehicle_type,
+                created_at=trip.created_at, scheduled_at=trip.scheduled_at,
+                pickup_zone=trip.pickup_zone, notes=trip.notes,
+            )
         except Exception as e:
             logging.warning("Firestore trip sync failed: %s", e)
     _security_audit_log("ADMIN_TRIP_CREATED", {"trip_id": trip.id})
@@ -2335,7 +2352,21 @@ async def admin_dispatch_trip(request: Request, db: AsyncSession = Depends(get_d
 
     if _HAS_FIRESTORE:
         try:
-            firestore_sync.sync_trip(trip)
+            rider_r = await db.execute(select(User).where(User.id == trip.rider_id))
+            rider = rider_r.scalar_one_or_none()
+            firestore_sync.sync_trip(
+                trip_id=trip.id, rider_id=trip.rider_id,
+                rider_name=f"{rider.first_name} {rider.last_name}" if rider else "Unknown",
+                rider_phone=rider.phone or "" if rider else "",
+                pickup_address=trip.pickup_address, pickup_lat=trip.pickup_lat, pickup_lng=trip.pickup_lng,
+                dropoff_address=trip.dropoff_address, dropoff_lat=trip.dropoff_lat, dropoff_lng=trip.dropoff_lng,
+                status=trip.status, fare=trip.fare, vehicle_type=trip.vehicle_type,
+                created_at=trip.created_at, scheduled_at=trip.scheduled_at,
+                driver_id=best.id,
+                driver_name=f"{best.first_name} {best.last_name}",
+                driver_phone=best.phone or "",
+                pickup_zone=trip.pickup_zone, notes=trip.notes,
+            )
         except Exception as e:
             logging.warning("Firestore dispatch sync failed: %s", e)
 

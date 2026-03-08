@@ -9,7 +9,9 @@ import 'driver_home_screen.dart';
 
 /// After approval, the driver must upload a profile photo before entering the app.
 class DriverProfilePhotoScreen extends StatefulWidget {
-  const DriverProfilePhotoScreen({super.key});
+  /// When true, pops back with the photo URL instead of navigating to home.
+  final bool returnOnly;
+  const DriverProfilePhotoScreen({super.key, this.returnOnly = false});
 
   @override
   State<DriverProfilePhotoScreen> createState() =>
@@ -93,6 +95,10 @@ class _DriverProfilePhotoScreenState extends State<DriverProfilePhotoScreen> {
       final photoUrl = await ApiService.uploadPhoto(_photoPath!);
       await ApiService.updateMe({'photo_url': photoUrl});
       if (!mounted) return;
+      if (widget.returnOnly) {
+        Navigator.of(context).pop(photoUrl);
+        return;
+      }
       Navigator.of(context).pushAndRemoveUntil(
         slideFromRightRoute(const DriverHomeScreen()),
         (_) => false,
@@ -112,7 +118,7 @@ class _DriverProfilePhotoScreenState extends State<DriverProfilePhotoScreen> {
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: false,
+      canPop: widget.returnOnly,
       child: Scaffold(
         backgroundColor: Colors.black,
         body: SafeArea(

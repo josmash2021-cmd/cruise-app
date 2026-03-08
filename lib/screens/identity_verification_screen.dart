@@ -7,7 +7,6 @@ import '../services/api_service.dart';
 import '../services/local_data_service.dart';
 import '../services/user_session.dart';
 import 'driver/license_scanner_screen.dart';
-import 'face_liveness_screen.dart';
 
 /// Rider identity verification flow:
 ///  Step 0 — Intro: "Verify Your Identity"
@@ -30,8 +29,8 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
   static const _goldDark = Color(0xFFB8972E);
 
   int _step = 0; // 0=intro, 1=processing, 2=confirmed, 3=pending, 4=rejected
-  String? _documentPhotoPath;
-  String? _selfiePath;
+  String? _licenseFrontPath;
+  String? _licenseBackPath;
   bool _processing = false;
   bool _verified = false;
   String? _rejectionReason;
@@ -61,26 +60,28 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
     super.dispose();
   }
 
-  /// Launch license scanner → biometric liveness → submit verification.
+  /// Launch license scanner (front → back) → submit verification.
   Future<void> _startVerification() async {
     // Step 1: Scan front of license
-    final licensePath = await Navigator.of(context).push<String?>(
+    final frontPath = await Navigator.of(context).push<String?>(
       MaterialPageRoute(
         builder: (_) => const LicenseScannerScreen(side: 'Front'),
       ),
     );
-    if (licensePath == null || !mounted) return;
+    if (frontPath == null || !mounted) return;
 
-    setState(() => _documentPhotoPath = licensePath);
+    setState(() => _licenseFrontPath = frontPath);
 
-    // Step 2: Biometric liveness check
-    final selfiePath = await Navigator.of(context).push<String?>(
-      MaterialPageRoute(builder: (_) => const FaceLivenessScreen()),
+    // Step 2: Scan back of license
+    final backPath = await Navigator.of(context).push<String?>(
+      MaterialPageRoute(
+        builder: (_) => const LicenseScannerScreen(side: 'Back'),
+      ),
     );
-    if (selfiePath == null || !mounted) return;
+    if (backPath == null || !mounted) return;
 
     setState(() {
-      _selfiePath = selfiePath;
+      _licenseBackPath = backPath;
       _step = 1; // Processing / submitting
       _processing = true;
     });
@@ -90,23 +91,23 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
   Future<void> _completeVerification() async {
     final Map<String, dynamic> body = {'id_document_type': 'license'};
 
-    // Encode license photo
-    if (_documentPhotoPath != null) {
+    // Encode license front
+    if (_licenseFrontPath != null) {
       try {
-        final bytes = await File(_documentPhotoPath!).readAsBytes();
-        body['id_photo'] = base64Encode(bytes);
+        final bytes = await File(_licenseFrontPath!).readAsBytes();
+        body['license_front'] = base64Encode(bytes);
       } catch (e) {
-        debugPrint('⚠️ Failed to read document photo: $e');
+        debugPrint('⚠️ Failed to read license front: $e');
       }
     }
 
-    // Encode selfie photo
-    if (_selfiePath != null) {
+    // Encode license back
+    if (_licenseBackPath != null) {
       try {
-        final bytes = await File(_selfiePath!).readAsBytes();
-        body['selfie_photo'] = base64Encode(bytes);
+        final bytes = await File(_licenseBackPath!).readAsBytes();
+        body['license_back'] = base64Encode(bytes);
       } catch (e) {
-        debugPrint('⚠️ Failed to read selfie: $e');
+        debugPrint('⚠️ Failed to read license back: $e');
       }
     }
 
@@ -273,15 +274,15 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
           _stepPreview(
             c,
             Icons.credit_card_rounded,
-            'Scan your driver\'s license',
+            'Scan front of your license',
           ),
           const SizedBox(height: 12),
-          _stepPreview(c, Icons.face_rounded, 'Quick selfie verification'),
+          _stepPreview(c, Icons.flip_rounded, 'Scan back of your license'),
           const SizedBox(height: 12),
           _stepPreview(
             c,
             Icons.check_circle_outline_rounded,
-            'Instant verification',
+            'Quick dispatch review',
           ),
           const Spacer(flex: 3),
           // CTA
@@ -702,8 +703,8 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
                 // Reset and go back to intro
                 setState(() {
                   _step = 0;
-                  _documentPhotoPath = null;
-                  _selfiePath = null;
+                  _licenseFrontPath = null;
+                  _licenseBackPath = null;
                   _rejectionReason = null;
                 });
               },
