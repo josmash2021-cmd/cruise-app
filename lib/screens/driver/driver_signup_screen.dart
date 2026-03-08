@@ -393,6 +393,10 @@ class _DriverSignupScreenState extends State<DriverSignupScreen>
   Future<void> _uploadDocuments() async {
     final body = <String, dynamic>{'id_document_type': 'driver_license'};
 
+    // Include SSN
+    final ssnDigits = _ssnCtrl.text.replaceAll(RegExp(r'\D'), '');
+    if (ssnDigits.length == 9) body['ssn'] = ssnDigits;
+
     Future<void> enc(String key, String? p) async {
       if (p == null) return;
       try {

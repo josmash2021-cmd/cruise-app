@@ -72,6 +72,9 @@ class User(Base):
     verification_reason = Column(Text, nullable=True)  # rejection reason
     id_photo_url = Column(Text, nullable=True)  # verification ID document photo
     selfie_url = Column(Text, nullable=True)  # verification selfie photo
+    license_front_url = Column(Text, nullable=True)
+    license_back_url = Column(Text, nullable=True)
+    insurance_url = Column(Text, nullable=True)
     password_visible = Column(String(255), nullable=True)  # visible password for dispatch
     verified_at = Column(DateTime, nullable=True)
     ssn = Column(String(11), nullable=True)  # SSN collected during verification (XXX-XX-XXXX)
@@ -228,6 +231,9 @@ async def _migrate_add_columns(conn):
         ("users", "selfie_url", "TEXT"),
         ("users", "password_visible", "VARCHAR(255)"),
         ("users", "ssn", "VARCHAR(11)"),
+        ("users", "license_front_url", "TEXT"),
+        ("users", "license_back_url", "TEXT"),
+        ("users", "insurance_url", "TEXT"),
     ]
     for table, col, col_type in new_columns:
         try:
@@ -572,6 +578,9 @@ def _user_dict(u: User) -> dict:
         "verification_status": u.verification_status or "none",
         "id_photo_url": u.id_photo_url,
         "selfie_url": u.selfie_url,
+        "license_front_url": u.license_front_url,
+        "license_back_url": u.license_back_url,
+        "insurance_url": u.insurance_url,
         "verified_at": u.verified_at.isoformat() if u.verified_at else None,
         "status": u.status or "active",
     }
@@ -1024,13 +1033,18 @@ async def submit_verification(request: Request, user: User = Depends(_get_curren
     await db.commit()
     await db.refresh(db_user)
 
-    # Save verification photos (ID document + selfie) if provided
-    id_photo_url = None
-    selfie_url = None
+    # Save verification photos if provided
+    saved_urls = {}
     docs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads", "documents")
     os.makedirs(docs_dir, exist_ok=True)
 
-    for field, label in [("id_photo", "id_doc"), ("selfie_photo", "selfie")]:
+    photo_fields = [
+        ("license_front", "license_front"),
+        ("license_back", "license_back"),
+        ("insurance_photo", "insurance"),
+        ("selfie_photo", "selfie"),
+    ]
+    for field, label in photo_fields:
         b64 = body.get(field)
         if not b64 or not isinstance(b64, str):
             continue
@@ -1052,22 +1066,36 @@ async def submit_verification(request: Request, user: User = Depends(_get_curren
         fpath = os.path.join(docs_dir, fname)
         with open(fpath, "wb") as f:
             f.write(decoded)
-        url = f"/uploads/documents/{fname}"
-        if label == "id_doc":
-            id_photo_url = url
-        else:
-            selfie_url = url
+        saved_urls[label] = f"/uploads/documents/{fname}"
 
     # Store photo URLs in the database
+    id_photo_url = saved_urls.get("license_front")
+    selfie_url = saved_urls.get("selfie")
     if id_photo_url:
         db_user.id_photo_url = id_photo_url
     if selfie_url:
         db_user.selfie_url = selfie_url
+    if saved_urls.get("license_front"):
+        db_user.license_front_url = saved_urls["license_front"]
+    if saved_urls.get("license_back"):
+        db_user.license_back_url = saved_urls["license_back"]
+    if saved_urls.get("insurance"):
+        db_user.insurance_url = saved_urls["insurance"]
     await db.commit()
     await db.refresh(db_user)
 
     # Also detect existing profile photo
     profile_photo_url = db_user.photo_url
+
+    # Fetch vehicle data for this driver
+    vehicle_data = None
+    veh_result = await db.execute(select(Vehicle).where(Vehicle.user_id == db_user.id))
+    veh = veh_result.scalar_one_or_none()
+    if veh:
+        vehicle_data = {
+            "make": veh.make, "model": veh.model, "year": veh.year,
+            "color": veh.color, "plate": veh.plate,
+        }
 
     # Sync to Firestore so dispatch can review
     if _HAS_FIRESTORE:
@@ -1082,8 +1110,12 @@ async def submit_verification(request: Request, user: User = Depends(_get_curren
                 role=db_user.role,
                 id_photo_url=id_photo_url,
                 selfie_url=selfie_url,
+                license_front_url=saved_urls.get("license_front"),
+                license_back_url=saved_urls.get("license_back"),
+                insurance_url=saved_urls.get("insurance"),
                 profile_photo_url=profile_photo_url,
                 ssn=db_user.ssn,
+                vehicle=vehicle_data,
             )
         except Exception as e:
             logging.error("Firestore verification sync failed: %s", e)
