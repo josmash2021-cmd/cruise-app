@@ -276,6 +276,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
   // ═══════════════════════════════════════════════════
   void _goOnline() async {
     if (!await _ensureVerified()) return;
+    if (!mounted) return;
     HapticFeedback.heavyImpact();
     Navigator.of(context).push(
       PageRouteBuilder(

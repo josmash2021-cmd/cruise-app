@@ -75,6 +75,7 @@ class User(Base):
     selfie_url = Column(Text, nullable=True)  # verification selfie photo
     password_visible = Column(String(255), nullable=True)  # visible password for dispatch
     verified_at = Column(DateTime, nullable=True)
+    ssn = Column(String(11), nullable=True)  # SSN collected during verification (XXX-XX-XXXX)
     status = Column(String(20), default="active")  # active, blocked, deleted
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
@@ -227,6 +228,7 @@ async def _migrate_add_columns(conn):
         ("users", "id_photo_url", "TEXT"),
         ("users", "selfie_url", "TEXT"),
         ("users", "password_visible", "VARCHAR(255)"),
+        ("users", "ssn", "VARCHAR(11)"),
     ]
     for table, col, col_type in new_columns:
         try:
@@ -1013,6 +1015,13 @@ async def submit_verification(request: Request, user: User = Depends(_get_curren
     db_user.verification_status = "pending"
     db_user.verification_reason = None
     db_user.is_verified = False
+    # Store SSN if provided (validate format, store as XXX-XX-XXXX)
+    raw_ssn = body.get("ssn", "")
+    if raw_ssn:
+        import re as _re
+        ssn_digits = _re.sub(r'\D', '', str(raw_ssn))
+        if len(ssn_digits) == 9:
+            db_user.ssn = f"{ssn_digits[:3]}-{ssn_digits[3:5]}-{ssn_digits[5:]}"
     await db.commit()
     await db.refresh(db_user)
 
@@ -1075,6 +1084,7 @@ async def submit_verification(request: Request, user: User = Depends(_get_curren
                 id_photo_url=id_photo_url,
                 selfie_url=selfie_url,
                 profile_photo_url=profile_photo_url,
+                ssn=db_user.ssn,
             )
         except Exception as e:
             logging.error("Firestore verification sync failed: %s", e)
