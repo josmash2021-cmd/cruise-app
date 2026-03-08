@@ -7,7 +7,6 @@ import 'account_deactivated_screen.dart';
 import 'home_screen.dart';
 import 'driver/driver_home_screen.dart';
 import 'driver/driver_pending_review_screen.dart';
-import 'driver/driver_profile_photo_screen.dart';
 import '../config/page_transitions.dart';
 import '../services/api_service.dart';
 import '../services/local_data_service.dart';
@@ -243,19 +242,7 @@ class _SplashScreenState extends State<SplashScreen>
             );
             return;
           }
-          if (vStatus == 'approved') {
-            final photoUrl = approvalResult['photo_url'] as String?;
-            if (photoUrl == null || photoUrl.isEmpty) {
-              if (!mounted) return;
-              Navigator.of(context).pushReplacement(
-                smoothFadeRoute(
-                  const DriverProfilePhotoScreen(),
-                  durationMs: 400,
-                ),
-              );
-              return;
-            }
-          }
+          // Approved — continue to home
         } catch (_) {
           // Backend unreachable — let them through
         }

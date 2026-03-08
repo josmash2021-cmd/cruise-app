@@ -8,7 +8,6 @@ import '../../services/local_data_service.dart';
 import '../../services/user_session.dart';
 import '../welcome_screen.dart';
 import 'driver_home_screen.dart';
-import 'driver_profile_photo_screen.dart';
 import 'driver_signup_screen.dart';
 
 /// Shown after a driver submits their application.
@@ -71,7 +70,7 @@ class _DriverPendingReviewScreenState extends State<DriverPendingReviewScreen>
     super.dispose();
   }
 
-  /// Check approval status right away; if already approved, skip this screen.
+  /// Check approval status right away; if already approved, show approved screen.
   Future<void> _checkImmediateAndPoll() async {
     try {
       final result = await ApiService.getDriverApprovalStatus();
@@ -83,7 +82,20 @@ class _DriverPendingReviewScreenState extends State<DriverPendingReviewScreen>
       if (status == 'approved') {
         await LocalDataService.setDriverApprovalStatus('approved');
         if (!mounted) return;
-        _enterApp();
+        setState(() => _status = 'approved');
+        _approvedCtrl.forward();
+        return;
+      } else if (status == 'rejected') {
+        final reason =
+            result['rejection_reason'] as String? ??
+            result['reason'] as String? ??
+            'Your application was not approved at this time.';
+        await LocalDataService.setDriverApprovalStatus('rejected');
+        if (!mounted) return;
+        setState(() {
+          _status = 'rejected';
+          _rejectionReason = reason;
+        });
         return;
       }
     } catch (_) {}
@@ -128,22 +140,8 @@ class _DriverPendingReviewScreenState extends State<DriverPendingReviewScreen>
 
   Future<void> _enterApp() async {
     if (!mounted) return;
-    // Check if driver already has a profile photo
-    try {
-      final result = await ApiService.getDriverApprovalStatus();
-      final photoUrl = result['photo_url'] as String?;
-      if (photoUrl != null && photoUrl.isNotEmpty) {
-        if (!mounted) return;
-        Navigator.of(context).pushAndRemoveUntil(
-          slideFromRightRoute(const DriverHomeScreen()),
-          (_) => false,
-        );
-        return;
-      }
-    } catch (_) {}
-    if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
-      slideFromRightRoute(const DriverProfilePhotoScreen()),
+      slideFromRightRoute(const DriverHomeScreen()),
       (_) => false,
     );
   }

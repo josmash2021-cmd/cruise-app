@@ -6,7 +6,6 @@ import '../forgot_password_screen.dart';
 import 'driver_signup_screen.dart';
 import 'driver_home_screen.dart';
 import 'driver_pending_review_screen.dart';
-import 'driver_profile_photo_screen.dart';
 
 /// Driver login screen — email + password for existing drivers.
 class DriverLoginScreen extends StatefulWidget {
@@ -120,18 +119,15 @@ class _DriverLoginScreenState extends State<DriverLoginScreen>
         );
         return;
       }
-      // Approved but no profile photo yet
+      // Approved — go to home
       if (vStatus == 'approved') {
-        final photoUrl = user['photo_url'] as String?;
-        if (photoUrl == null || photoUrl.isEmpty) {
-          if (!mounted) return;
-          setState(() => _loading = false);
-          Navigator.of(context).pushAndRemoveUntil(
-            slideFromRightRoute(const DriverProfilePhotoScreen()),
-            (_) => false,
-          );
-          return;
-        }
+        if (!mounted) return;
+        setState(() => _loading = false);
+        Navigator.of(context).pushAndRemoveUntil(
+          slideFromRightRoute(const DriverHomeScreen()),
+          (_) => false,
+        );
+        return;
       }
     } on ApiException catch (e) {
       if (!mounted) return;
