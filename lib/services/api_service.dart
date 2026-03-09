@@ -473,12 +473,17 @@ class ApiService {
   // ═══════════════════════════════════════════════════════
 
   /// Create or get existing open support chat.
-  static Future<Map<String, dynamic>> createSupportChat({String subject = ''}) async {
+  static Future<Map<String, dynamic>> createSupportChat({
+    String subject = '',
+  }) async {
     final token = await getToken();
     if (token == null) throw ApiException(401, 'Not logged in');
     final res = await http
-        .post(Uri.parse('$_baseUrl/support/chats'),
-            headers: _jsonHeaders(token), body: jsonEncode({'subject': subject}))
+        .post(
+          Uri.parse('$_baseUrl/support/chats'),
+          headers: _jsonHeaders(token),
+          body: jsonEncode({'subject': subject}),
+        )
         .timeout(const Duration(seconds: 10));
     return _parse(res);
   }
@@ -488,22 +493,44 @@ class ApiService {
     final token = await getToken();
     if (token == null) throw ApiException(401, 'Not logged in');
     final res = await http
-        .get(Uri.parse('$_baseUrl/support/chats/$chatId/messages'),
-            headers: _jsonHeaders(token))
+        .get(
+          Uri.parse('$_baseUrl/support/chats/$chatId/messages'),
+          headers: _jsonHeaders(token),
+        )
         .timeout(const Duration(seconds: 10));
     final data = _parse(res);
     return data is List ? data : [];
   }
 
   /// Send a support chat message.
-  static Future<Map<String, dynamic>> sendSupportMessage(int chatId, String message) async {
+  static Future<Map<String, dynamic>> sendSupportMessage(
+    int chatId,
+    String message,
+  ) async {
     final token = await getToken();
     if (token == null) throw ApiException(401, 'Not logged in');
     final res = await http
-        .post(Uri.parse('$_baseUrl/support/chats/$chatId/messages'),
-            headers: _jsonHeaders(token), body: jsonEncode({'message': message}))
+        .post(
+          Uri.parse('$_baseUrl/support/chats/$chatId/messages'),
+          headers: _jsonHeaders(token),
+          body: jsonEncode({'message': message}),
+        )
         .timeout(const Duration(seconds: 10));
     return _parse(res);
+  }
+
+  /// Get the support voice call phone number.
+  static Future<String?> getSupportPhoneNumber() async {
+    try {
+      final res = await http
+          .get(Uri.parse('$_baseUrl/voice/phone-number'))
+          .timeout(const Duration(seconds: 10));
+      final data = _parse(res);
+      final phone = data['phone_number'] as String?;
+      return (phone != null && phone.isNotEmpty) ? phone : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Submit identity verification for dispatch review.

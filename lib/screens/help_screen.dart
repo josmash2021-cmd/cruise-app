@@ -1036,6 +1036,29 @@ class _CruiseSupportChatScreenState extends State<CruiseSupportChatScreen> {
 
   String get _displayName => _agentName ?? 'Asistente Cruise';
 
+  Future<void> _startVoiceCall() async {
+    try {
+      final phone = await ApiService.getSupportPhoneNumber();
+      if (phone == null || phone.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Línea de soporte no disponible en este momento'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+      final uri = Uri(scheme: 'tel', path: phone);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri);
+      }
+    } catch (e) {
+      debugPrint('[SupportChat] voice call error: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1115,6 +1138,13 @@ class _CruiseSupportChatScreenState extends State<CruiseSupportChatScreen> {
             ),
           ],
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.phone, color: _gold),
+            tooltip: 'Llamar a soporte',
+            onPressed: _startVoiceCall,
+          ),
+        ],
       ),
       body: Column(
         children: [

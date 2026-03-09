@@ -25,7 +25,7 @@ load_dotenv()  # Load .env file (gitignored)
 import base64
 from fastapi import FastAPI, Depends, HTTPException, Header, Request, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
 from jose import jwt, JWTError
@@ -42,6 +42,9 @@ API_KEY = os.environ["API_KEY"]       # Required — set in .env
 HMAC_SECRET = os.environ["HMAC_SECRET"] # Required — set in .env
 JWT_SECRET = os.environ["JWT_SECRET"]   # Required — set in .env
 DISPATCH_API_KEY = os.getenv("DISPATCH_API_KEY", "")  # Separate key for admin/dispatch endpoints
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
+TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER", "")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_HOURS = 24   # 24 hours (reduced from 30 days)
 JWT_REFRESH_HOURS = 168  # 7-day refresh window
@@ -2767,6 +2770,298 @@ async def close_support_chat(chat_id: int, db: AsyncSession = Depends(get_db)):
             logging.error("Firestore close chat sync failed: %s", e)
 
     return {"status": "closed"}
+
+# ═══════════════════════════════════════════════════════
+#  TWILIO AI VOICE CALL ENDPOINTS
+# ═══════════════════════════════════════════════════════
+
+# In-memory voice session store: call_sid -> {agent_name, phase, category, msg_count}
+_voice_sessions: dict = {}
+
+_VOICE_WELCOME = [
+    "Hola, bienvenido al centro de soporte de Cruise. Mi nombre es {agent}. ¿En qué puedo ayudarte hoy?",
+    "Hola, gracias por llamar a Cruise. Soy {agent}, tu agente de soporte. Cuéntame, ¿cómo puedo asistirte?",
+    "Bienvenido a Cruise, mi nombre es {agent}. Estoy aquí para ayudarte. ¿Qué necesitas?",
+]
+
+_VOICE_FALLBACK_FIRST = [
+    "Entiendo. ¿Me podrías dar un poco más de detalle para poder ayudarte mejor?",
+    "Gracias por contarme. ¿Puedes darme más información sobre tu situación?",
+    "De acuerdo. Necesito un poco más de información para resolver tu caso. ¿Puedes ampliar?",
+]
+
+_VOICE_FALLBACK_FOLLOWUP = [
+    "Ya estoy trabajando en tu caso. Nuestro equipo le dará seguimiento. ¿Hay algo más que necesites?",
+    "Perfecto, he registrado todo. ¿Puedo ayudarte con algo más?",
+    "Todo anotado. Voy a dar seguimiento a tu caso. ¿Necesitas algo adicional?",
+]
+
+_VOICE_CLOSING = [
+    "Me alegra poder ayudarte. No dudes en llamarnos si necesitas algo. ¡Que tengas un excelente día!",
+    "¡Con gusto! Estamos aquí para lo que necesites. ¡Que tengas un gran día!",
+    "Ha sido un placer atenderte. Si necesitas algo en el futuro, aquí estaremos. ¡Cuídate mucho!",
+]
+
+_VOICE_ESCALATION = [
+    "Entiendo tu solicitud. Voy a escalar tu caso a un supervisor. Te contactará lo más pronto posible.",
+    "Comprendo. Estoy pasando tu caso a un supervisor que podrá ayudarte mejor.",
+]
+
+# Shortened voice versions of category responses (shorter for spoken flow)
+_VOICE_CATEGORIES = {
+    "trip_charge": {
+        "first": [
+            "Entiendo tu preocupación con el cobro. Déjame revisar los detalles de tu viaje. ¿Me podrías indicar la fecha y hora aproximada?",
+            "Lamento el inconveniente con el cobro. Voy a revisar tu cuenta. ¿Podrías darme la fecha del viaje y el monto que te cobraron?",
+        ],
+        "followup": [
+            "Ya localicé tu viaje. He procesado el ajuste correspondiente. El reembolso se reflejará en 3 a 5 días hábiles. ¿Necesitas algo más?",
+            "Ya revisé la transacción. Voy a iniciar el proceso de corrección. Te llegará una notificación cuando se complete. ¿Algo más?",
+        ],
+    },
+    "cancellation": {
+        "first": [
+            "Puedo ayudarte con eso. ¿Es un viaje que quieres cancelar ahora, o te cobraron una tarifa de cancelación?",
+            "Claro. ¿El viaje ya está programado o te cobraron por cancelar? Dime los detalles.",
+        ],
+        "followup": [
+            "He procesado tu solicitud. Si hubo un cobro injustificado, he iniciado la devolución. ¿Puedo ayudarte con algo más?",
+            "La cancelación ha sido procesada correctamente. Recuerda que puedes cancelar sin cargo dentro de los primeros 2 minutos. ¿Necesitas algo más?",
+        ],
+    },
+    "refund": {
+        "first": [
+            "Entiendo que necesitas un reembolso. ¿Me podrías indicar la fecha del viaje y por qué solicitas el reembolso?",
+            "Claro que puedo ayudarte con el reembolso. ¿Cuál fue la fecha del viaje y el monto? Así proceso tu solicitud rápido.",
+        ],
+        "followup": [
+            "He procesado tu solicitud de reembolso. El monto se reflejará en tu cuenta en 3 a 5 días hábiles. ¿Hay algo más?",
+            "El reembolso fue aprobado y está en proceso. Lo verás de vuelta en tu método de pago pronto. ¿Necesitas algo más?",
+        ],
+    },
+    "driver": {
+        "first": [
+            "Lamento mucho esa experiencia. Tomamos estos reportes muy en serio. ¿Me das más detalles? La fecha y hora del viaje me ayudarían.",
+            "Eso no debería pasar. Voy a documentar tu reporte. ¿Puedes contarme qué sucedió y cuándo fue?",
+        ],
+        "followup": [
+            "Tu reporte ha sido registrado. Nuestro equipo revisará el caso y tomará las medidas necesarias. ¿Algo más?",
+            "He documentado todo. Este tipo de comportamiento no lo toleramos. El equipo de calidad revisará el caso. ¿Algo más?",
+        ],
+    },
+    "lost_item": {
+        "first": [
+            "No te preocupes, vamos a intentar recuperar tu objeto. ¿Qué objeto perdiste y en qué fecha fue el viaje?",
+            "La mayoría de objetos se recuperan en las primeras 24 horas. ¿Qué olvidaste y cuándo fue el viaje?",
+        ],
+        "followup": [
+            "Ya contacté al conductor. En cuanto responda te notifico. ¿Hay algo más?",
+            "El conductor ya fue notificado. Cuando confirme que tiene tu objeto, te avisamos. ¿Necesitas algo más?",
+        ],
+    },
+    "account": {
+        "first": [
+            "Puedo ayudarte con tu cuenta. ¿Qué problema tienes exactamente? ¿Es con el inicio de sesión o con tu perfil?",
+            "Los problemas de cuenta tienen solución rápida. ¿Qué necesitas cambiar o qué error te aparece?",
+        ],
+        "followup": [
+            "He actualizado tu cuenta. Los cambios ya deberían estar activos. Intenta cerrar sesión y volver a iniciar. ¿Todo bien?",
+            "Tu cuenta ha sido actualizada. Si el problema persiste, intenta reinstalar la app. ¿Algo más?",
+        ],
+    },
+    "app_problem": {
+        "first": [
+            "Entiendo que tienes problemas con la app. ¿Qué error ves o qué parte no funciona?",
+            "Lamento el inconveniente. ¿Se cierra sola, no carga, o hay algún error específico?",
+        ],
+        "followup": [
+            "Te recomiendo cerrar la app completamente, verificar que tengas la última versión, reiniciar tu dispositivo y abrirla de nuevo. ¿De acuerdo?",
+            "He reportado el problema al equipo técnico. Prueba reinstalando la app. Eso suele resolver la mayoría de problemas. ¿Algo más?",
+        ],
+    },
+    "safety": {
+        "first": [
+            "Tu seguridad es nuestra prioridad. Voy a tomar acción inmediata. ¿Puedes contarme qué sucedió?",
+            "Tomo esto muy en serio. ¿Te encuentras bien? Cuéntame con detalle qué pasó.",
+        ],
+        "followup": [
+            "Tu caso ha sido marcado como prioritario. Nuestro equipo de seguridad ya está revisándolo. ¿Algo más inmediato que necesites?",
+            "He escalado tu caso al equipo de seguridad. Lo tratamos con máxima urgencia. ¿Necesitas algo más ahora?",
+        ],
+    },
+    "payment": {
+        "first": [
+            "Puedo ayudarte con el método de pago. ¿Tu tarjeta fue rechazada, necesitas agregar una nueva, u otro problema?",
+            "¿Qué sucede con tu pago? ¿Error al agregar tarjeta, cargo rechazado, o necesitas cambiar el método?",
+        ],
+        "followup": [
+            "Verifica que los datos de tu tarjeta estén correctos y que tengas fondos. Si continúa, intenta otra tarjeta. ¿Algo más?",
+            "He actualizado la configuración de pago en tu cuenta. Intenta de nuevo. Si sigue, puede ser un bloqueo de tu banco. ¿Algo más?",
+        ],
+    },
+    "waiting": {
+        "first": [
+            "Entiendo tu frustración con la espera. ¿Cuánto tiempo esperaste y si el conductor finalmente llegó?",
+            "Lamento la demora. Los tiempos pueden variar por demanda. ¿Cuánto esperaste y cuándo fue?",
+        ],
+        "followup": [
+            "He revisado tu caso. He aplicado un crédito a tu cuenta como compensación. Lo verás en tu próximo viaje. ¿Algo más?",
+            "Voy a aplicar un ajuste en tu cuenta por la mala experiencia. ¿Hay algo más?",
+        ],
+    },
+}
+
+
+def _voice_detect_category(text: str):
+    """Detect category from spoken text using the same keywords as chat AI."""
+    t = text.lower()
+    for cat, data in _AI_CATEGORIES.items():
+        if any(k in t for k in data["keywords"]):
+            return cat
+    return None
+
+
+def _generate_voice_response(call_sid: str, speech_text: str) -> str:
+    """Generate the spoken AI response based on voice session state."""
+    session = _voice_sessions.get(call_sid, {})
+    phase = session.get("phase", "active")
+    agent = session.get("agent_name", "Agente")
+    msg_count = session.get("msg_count", 0)
+
+    # Check for thank/closing keywords
+    if _match_keywords(speech_text, _THANK_KEYWORDS):
+        resp = _rng.choice(_VOICE_CLOSING)
+        session["phase"] = "closing"
+        _voice_sessions[call_sid] = session
+        return resp
+
+    # Check for escalation
+    if _match_keywords(speech_text, _ESCALATION_TRIGGERS):
+        resp = _rng.choice(_VOICE_ESCALATION)
+        session["phase"] = "escalated"
+        _voice_sessions[call_sid] = session
+        return resp
+
+    if phase == "escalated":
+        return "Tu caso ya fue escalado a un supervisor. Se comunicará contigo pronto. ¿Hay algo urgente que necesites mientras tanto?"
+
+    # Detect category
+    cat = _voice_detect_category(speech_text)
+    if cat and cat in _VOICE_CATEGORIES:
+        if msg_count <= 1:
+            resp = _rng.choice(_VOICE_CATEGORIES[cat]["first"])
+        else:
+            resp = _rng.choice(_VOICE_CATEGORIES[cat]["followup"])
+        session["category"] = cat
+    elif msg_count <= 1:
+        resp = _rng.choice(_VOICE_FALLBACK_FIRST)
+    else:
+        resp = _rng.choice(_VOICE_FALLBACK_FOLLOWUP)
+
+    session["msg_count"] = msg_count + 1
+    _voice_sessions[call_sid] = session
+    return resp
+
+
+def _twiml_response(text: str, gather: bool = True) -> str:
+    """Build a TwiML XML response with neural Spanish voice."""
+    # Use Amazon Polly Lupe Neural — natural Latin American Spanish female voice
+    voice = "Polly.Lupe-Neural"
+    lang = "es-MX"
+
+    if gather:
+        # Listen for caller speech after speaking
+        return (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            "<Response>"
+            f'<Gather input="speech" language="{lang}" speechTimeout="auto" '
+            f'speechModel="phone_call" action="/voice/gather" method="POST">'
+            f'<Say voice="{voice}" language="{lang}">{text}</Say>'
+            "</Gather>"
+            # If no input, say goodbye
+            f'<Say voice="{voice}" language="{lang}">No escuché nada. Si necesitas ayuda, llámanos de nuevo. ¡Hasta luego!</Say>'
+            "</Response>"
+        )
+    else:
+        # Final message — no gather, just speak and hang up
+        return (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            "<Response>"
+            f'<Say voice="{voice}" language="{lang}">{text}</Say>'
+            "<Hangup/>"
+            "</Response>"
+        )
+
+
+@app.post("/voice/incoming")
+async def voice_incoming(request: Request):
+    """Twilio webhook: handles incoming voice calls. Greets caller with AI agent."""
+    form = await request.form()
+    call_sid = form.get("CallSid", "unknown")
+
+    # Assign a random agent name for this call
+    agent = _rng.choice(_AGENT_NAMES)
+    _voice_sessions[call_sid] = {
+        "agent_name": agent,
+        "phase": "active",
+        "category": None,
+        "msg_count": 0,
+    }
+
+    welcome = _rng.choice(_VOICE_WELCOME).format(agent=agent)
+    twiml = _twiml_response(welcome)
+    return Response(content=twiml, media_type="application/xml")
+
+
+@app.get("/voice/phone-number")
+async def get_voice_phone_number():
+    """Return the Twilio support phone number for the mobile app."""
+    return {"phone_number": TWILIO_PHONE_NUMBER}
+
+
+@app.post("/voice/gather")
+async def voice_gather(request: Request):
+    """Twilio webhook: processes caller speech and responds with AI."""
+    form = await request.form()
+    call_sid = form.get("CallSid", "unknown")
+    speech_result = form.get("SpeechResult", "")
+
+    if not speech_result:
+        twiml = _twiml_response(
+            "No logré escucharte. ¿Podrías repetir tu consulta por favor?"
+        )
+        return Response(content=twiml, media_type="application/xml")
+
+    logging.info("[Voice AI] CallSid=%s Speech: %s", call_sid, speech_result)
+
+    # Generate AI response
+    reply = _generate_voice_response(call_sid, speech_result)
+
+    session = _voice_sessions.get(call_sid, {})
+    is_closing = session.get("phase") == "closing"
+
+    if is_closing:
+        # Say goodbye and hang up
+        twiml = _twiml_response(reply, gather=False)
+        # Clean up session
+        _voice_sessions.pop(call_sid, None)
+    else:
+        twiml = _twiml_response(reply)
+
+    return Response(content=twiml, media_type="application/xml")
+
+
+@app.post("/voice/status")
+async def voice_status(request: Request):
+    """Twilio webhook: call status callback. Cleans up voice sessions."""
+    form = await request.form()
+    call_sid = form.get("CallSid", "unknown")
+    call_status = form.get("CallStatus", "")
+    logging.info("[Voice] CallSid=%s Status=%s", call_sid, call_status)
+    if call_status in ("completed", "failed", "busy", "no-answer", "canceled"):
+        _voice_sessions.pop(call_sid, None)
+    return Response(content="<Response/>", media_type="application/xml")
+
 
 # ═══════════════════════════════════════════════════════
 #  PROMO CODE  ENDPOINTS
