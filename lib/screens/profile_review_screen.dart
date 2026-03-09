@@ -5,6 +5,7 @@ import '../l10n/app_localizations.dart';
 import '../config/app_theme.dart';
 import '../config/page_transitions.dart';
 import '../services/api_service.dart';
+import '../services/local_data_service.dart';
 import '../services/user_session.dart';
 import 'ready_to_ride_screen.dart';
 
@@ -195,6 +196,9 @@ class _ProfileReviewScreenState extends State<ProfileReviewScreen> {
       password: pendingPass,
       userId: userId,
     );
+
+    // Auto-enable biometric login so it appears on next sign-in
+    await LocalDataService.setBiometricLogin(true);
 
     if (!mounted) return;
     Navigator.of(context).push(

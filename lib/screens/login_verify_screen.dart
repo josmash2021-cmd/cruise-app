@@ -172,6 +172,9 @@ class _LoginVerifyScreenState extends State<LoginVerifyScreen>
         await LocalDataService.setIdentityVerified(docType);
       }
 
+      // Auto-enable biometric login for next sign-in
+      await LocalDataService.setBiometricLogin(true);
+
       if (!mounted) return;
 
       Navigator.of(context).pushAndRemoveUntil(

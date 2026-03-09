@@ -281,14 +281,22 @@ class _AccountScreenState extends State<AccountScreen> {
 
   Widget _buildMenuGrid(AppColors c) {
     final items = [
-      _MenuItem(Icons.help_outline_rounded, S.of(context).help),
-      _MenuItem(Icons.account_balance_wallet_outlined, S.of(context).wallet),
-      _MenuItem(Icons.history_rounded, S.of(context).yourTrips),
-      _MenuItem(Icons.schedule_rounded, S.of(context).scheduledRides),
-      _MenuItem(Icons.local_offer_rounded, S.of(context).promoCodes),
-      _MenuItem(Icons.shield_outlined, S.of(context).safety),
-      _MenuItem(Icons.mail_outline_rounded, S.of(context).inbox),
-      _MenuItem(Icons.settings_outlined, S.of(context).settings),
+      _MenuItem('help', Icons.help_outline_rounded, S.of(context).help),
+      _MenuItem(
+        'wallet',
+        Icons.account_balance_wallet_outlined,
+        S.of(context).wallet,
+      ),
+      _MenuItem('trips', Icons.history_rounded, S.of(context).yourTrips),
+      _MenuItem(
+        'scheduled',
+        Icons.schedule_rounded,
+        S.of(context).scheduledRides,
+      ),
+      _MenuItem('promos', Icons.local_offer_rounded, S.of(context).promoCodes),
+      _MenuItem('safety', Icons.shield_outlined, S.of(context).safety),
+      _MenuItem('inbox', Icons.mail_outline_rounded, S.of(context).inbox),
+      _MenuItem('settings', Icons.settings_outlined, S.of(context).settings),
     ];
 
     return Wrap(
@@ -297,43 +305,43 @@ class _AccountScreenState extends State<AccountScreen> {
       children: items.map((item) {
         return GestureDetector(
           onTap: () async {
-            switch (item.label) {
-              case 'Help':
+            switch (item.id) {
+              case 'help':
                 Navigator.of(
                   context,
                 ).push(slideFromRightRoute(const HelpScreen()));
                 break;
-              case 'Wallet':
+              case 'wallet':
                 Navigator.of(
                   context,
                 ).push(slideFromRightRoute(const PaymentAccountsScreen()));
                 break;
-              case 'Trips':
+              case 'trips':
                 Navigator.of(
                   context,
                 ).push(slideFromRightRoute(const RideHistoryScreen()));
                 break;
-              case 'Scheduled':
+              case 'scheduled':
                 Navigator.of(
                   context,
                 ).push(slideFromRightRoute(const ScheduledRidesScreen()));
                 break;
-              case 'Promos':
+              case 'promos':
                 Navigator.of(
                   context,
                 ).push(slideFromRightRoute(const PromoCodeScreen()));
                 break;
-              case 'Safety':
+              case 'safety':
                 Navigator.of(
                   context,
                 ).push(slideFromRightRoute(const SafetyScreen()));
                 break;
-              case 'Inbox':
+              case 'inbox':
                 Navigator.of(
                   context,
                 ).push(slideFromRightRoute(const InboxScreen()));
                 break;
-              case 'Settings':
+              case 'settings':
                 _openSettings();
                 break;
             }
@@ -465,9 +473,10 @@ class _AccountScreenState extends State<AccountScreen> {
 }
 
 class _MenuItem {
+  final String id;
   final IconData icon;
   final String label;
-  const _MenuItem(this.icon, this.label);
+  const _MenuItem(this.id, this.icon, this.label);
 }
 
 // ─────────────────────────────────────────────

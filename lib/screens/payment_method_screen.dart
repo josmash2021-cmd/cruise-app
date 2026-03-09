@@ -371,34 +371,27 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
 
               const Spacer(),
 
-              // ── Footer note ──
+              // ── Skip payment button ──
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
-                child: Text(
-                  S.of(context).paymentRetryInfo,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: c.textTertiary,
-                    height: 1.5,
-                  ),
-                ),
-              ),
-
-              // ── Set up later ──
-              Padding(
-                padding: const EdgeInsets.only(bottom: 28),
-                child: Center(
-                  child: GestureDetector(
-                    onTap: _skipPayment,
-                    child: Text(
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _gold,
+                      side: const BorderSide(color: _gold, width: 1.5),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(25),
+                      ),
+                    ),
+                    onPressed: _skipPayment,
+                    icon: const Icon(Icons.skip_next_rounded, size: 22),
+                    label: Text(
                       S.of(context).setUpLater,
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: _gold,
-                        decoration: TextDecoration.underline,
-                        decorationColor: _gold,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ),

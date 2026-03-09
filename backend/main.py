@@ -798,17 +798,16 @@ class DispatchRequestIn(BaseModel):
 
 @app.post("/auth/register", dependencies=[Depends(_verify_api_key)])
 async def register(body: RegisterIn, db: AsyncSession = Depends(get_db)):
-    # Check duplicates — return 409 so the Flutter client can auto-login
+    role = body.role if body.role in ("rider", "driver") else "rider"
+    # Check duplicates per role — allow same email/phone for different roles (driver vs rider)
     if body.email:
-        exists = await db.execute(select(User).where(User.email == body.email))
+        exists = await db.execute(select(User).where(User.email == body.email, User.role == role))
         if exists.scalar_one_or_none():
             raise HTTPException(409, "Email already registered")
     if body.phone:
-        exists = await db.execute(select(User).where(User.phone == body.phone))
+        exists = await db.execute(select(User).where(User.phone == body.phone, User.role == role))
         if exists.scalar_one_or_none():
             raise HTTPException(409, "Phone already registered")
-
-    role = body.role if body.role in ("rider", "driver") else "rider"
     user = User(
         first_name=body.first_name,
         last_name=body.last_name,
@@ -883,8 +882,14 @@ async def login(body: LoginIn, request: Request, db: AsyncSession = Depends(get_
     result = await db.execute(
         select(User).where((User.email == body.identifier) | (User.phone == identifier))
     )
-    user = result.scalar_one_or_none()
-    if not user or not pwd.verify(body.password, user.password_hash):
+    users = result.scalars().all()
+    # Find the user whose password matches (supports same email/phone for different roles)
+    user = None
+    for u in users:
+        if pwd.verify(body.password, u.password_hash):
+            user = u
+            break
+    if not user:
         _record_login_failure(client_ip)
         raise HTTPException(401, "Invalid credentials")
     st = user.status or "active"
@@ -2495,8 +2500,8 @@ async def _generate_bot_replies(chat, user_msg: str, user_name: str, db: AsyncSe
     elif phase == "agent_active":
         agent = chat.agent_name or "Agente"
 
-        # Simulate real agent typing delay (~60 seconds)
-        await asyncio.sleep(60)
+        # Simulate real agent typing delay (~5 minutes)
+        await asyncio.sleep(300)
 
         # Check escalation
         if _match_keywords(user_msg, _ESCALATION_TRIGGERS):
@@ -2509,6 +2514,19 @@ async def _generate_bot_replies(chat, user_msg: str, user_name: str, db: AsyncSe
             ])
             replies.append({"role": "bot", "message": esc, "sender_name": agent})
             replies.append({"role": "system", "message": "⚠️ Este chat ha sido escalado a un supervisor", "sender_name": "Sistema"})
+            # Notify dispatch about escalation
+            if _HAS_FIRESTORE:
+                try:
+                    firestore_sync.sync_dispatch_notification(
+                        chat.id, user_name, "escalation",
+                        f"⚠️ Chat de {user_name} escalado a supervisor"
+                    )
+                    firestore_sync.sync_support_chat(
+                        chat.id, chat.user_id, user_name, "",
+                        needs_escalation=True, bot_phase="escalated",
+                    )
+                except Exception:
+                    pass
 
         elif _match_keywords(user_msg, _THANK_KEYWORDS):
             close = _rng.choice(_CLOSING_RESPONSES).format(name=user_name)
@@ -2538,7 +2556,7 @@ async def _generate_bot_replies(chat, user_msg: str, user_name: str, db: AsyncSe
 
     elif phase == "escalated":
         agent = chat.agent_name or "Agente"
-        await asyncio.sleep(60)
+        await asyncio.sleep(300)
         if _match_keywords(user_msg, _THANK_KEYWORDS):
             close = _rng.choice(_CLOSING_RESPONSES).format(name=user_name)
             replies.append({"role": "bot", "message": close, "sender_name": agent})
@@ -2772,6 +2790,11 @@ async def send_support_message(chat_id: int, request: Request, user: User = Depe
         try:
             firestore_sync.sync_support_message(chat_id, msg.id, user.id,
                                                  user_full, user.role or "rider", msg_text)
+            # Notify dispatch of every user message
+            firestore_sync.sync_dispatch_notification(
+                chat_id, user_full, "new_message",
+                f"{user_full}: {msg_text[:100]}"
+            )
         except Exception as e:
             logging.error("Firestore support msg sync failed: %s", e)
 

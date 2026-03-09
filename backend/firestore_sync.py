@@ -190,7 +190,8 @@ def sync_client_online(user_id: int, is_online: bool):
 
 def sync_support_chat(chat_id: int, user_id: int, first_name: str, last_name: str,
                        photo_url: str = None, role: str = "rider",
-                       subject: str = "", status: str = "open"):
+                       subject: str = "", status: str = "open",
+                       needs_escalation: bool = False, bot_phase: str = "welcome"):
     """Upsert a support chat into the Firestore `support_chats` collection."""
     _ensure_init()
     if _db is None:
@@ -204,6 +205,8 @@ def sync_support_chat(chat_id: int, user_id: int, first_name: str, last_name: st
         "userRole": role or "rider",
         "subject": subject,
         "status": status,
+        "needsEscalation": needs_escalation,
+        "botPhase": bot_phase,
         "lastUpdated": _ts(),
     }
     try:
@@ -235,16 +238,39 @@ def sync_support_message(chat_id: int, msg_id: int, sender_id: int,
             "isRead": False,
             "createdAt": _ts(),
         })
-        # Update parent chat's last message
-        _db.collection("support_chats").document(doc_id).set({
+        # Update parent chat's last message and increment unread counter
+        update_data = {
             "lastMessage": message,
             "lastMessageAt": _ts(),
             "lastSenderRole": sender_role,
             "lastUpdated": _ts(),
-        }, merge=True)
+        }
+        # Increment unread count for dispatch when user sends a message
+        if sender_role in ("rider", "driver"):
+            update_data["hasNewMessage"] = True
+        _db.collection("support_chats").document(doc_id).set(update_data, merge=True)
         log.info("🔄 Synced support msg %d in chat %d → Firestore", msg_id, chat_id)
     except Exception as e:
         log.error("❌ Support message sync failed: %s", e)
+
+
+def sync_dispatch_notification(chat_id: int, user_name: str, notif_type: str, message: str):
+    """Write a notification event for the dispatch app to pick up via Firestore listener."""
+    _ensure_init()
+    if _db is None:
+        return
+    try:
+        _db.collection("dispatch_notifications").add({
+            "chatId": chat_id,
+            "userName": user_name,
+            "type": notif_type,  # "escalation", "new_message"
+            "message": message,
+            "isRead": False,
+            "createdAt": _ts(),
+        })
+        log.info("🔔 Dispatch notification sent: %s for chat %d", notif_type, chat_id)
+    except Exception as e:
+        log.error("❌ Dispatch notification failed: %s", e)
 
 
 # ═══════════════════════════════════════════════════════════
