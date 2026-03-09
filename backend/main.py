@@ -17,6 +17,7 @@ Hardened with 10 LAYERS OF ULTRA-STRONG SECURITY PROTECTION.
 import os, time, hmac, hashlib, math, secrets, logging, collections, re, json
 from datetime import datetime, timedelta, timezone
 from contextlib import asynccontextmanager
+import asyncio
 from typing import Optional, List
 from dotenv import load_dotenv
 
@@ -2373,8 +2374,89 @@ def _detect_category(text: str):
     return None
 
 
+# ── Human-like general conversation responses ─────────
+_GENERAL_CHAT_RESPONSES = {
+    "greeting": {
+        "keywords": ["hola", "hello", "hi", "hey", "buenos", "buenas", "qué tal", "como estas", "cómo estás", "que tal", "buenas tardes", "buenas noches", "buen día", "good morning", "good afternoon"],
+        "responses": [
+            "¡Hola {name}! 😊 ¿Cómo estás? Que gusto saludarte. Cuéntame, ¿en qué puedo ayudarte hoy?",
+            "¡Hey {name}! 😊 Me da gusto verte por aquí. ¿En qué te puedo ayudar?",
+            "¡Hola {name}! Espero que estés teniendo un buen día 😊 ¿Qué necesitas? Estoy aquí para ayudarte.",
+        ],
+    },
+    "how_are_you": {
+        "keywords": ["cómo estás", "como estas", "qué tal estás", "how are you", "how you doing", "que tal estas"],
+        "responses": [
+            "¡Muy bien, {name}, gracias por preguntar! 😊 Aquí trabajando para ayudar a nuestros usuarios. ¿Y tú cómo estás? ¿En qué te puedo ayudar?",
+            "¡Todo bien por acá, {name}! 😊 Gracias por preguntar. Cuéntame, ¿necesitas ayuda con algo?",
+            "¡Excelente, {name}! Siempre con energía para ayudar 💪😊 ¿Cómo te va a ti? ¿Hay algo en lo que pueda asistirte?",
+        ],
+    },
+    "joke": {
+        "keywords": ["chiste", "joke", "broma", "hazme reír", "cuéntame algo", "dime algo gracioso", "something funny"],
+        "responses": [
+            "Jaja {name}, a ver... ¿Por qué el conductor de Cruise nunca se pierde? ¡Porque siempre sigue el camino dorado! 😄🚗 ¿Necesitas ayuda con algo más?",
+            "¡Uno rápido, {name}! ¿Qué le dijo un taxi a Cruise? 'Oye, ¿por qué todos te prefieren?' 😄 Jaja, bueno volviendo al trabajo... ¿en qué te ayudo?",
+            "Jaja ok {name}, ahí va: Un pasajero le pregunta al conductor '¿Cuánto falta?' y el conductor responde: 'Solo 5 estrellas señor, solo 5 estrellas' 😄⭐ ¿Puedo ayudarte con algo?",
+        ],
+    },
+    "weather": {
+        "keywords": ["clima", "weather", "llueve", "hace calor", "frío", "sol", "temperatura", "rain"],
+        "responses": [
+            "Mmm {name}, yo no puedo ver el clima desde aquí 😅 pero espero que esté bonito por allá. Lo que sí puedo hacer es ayudarte con cualquier cosa de Cruise. ¿Necesitas algo?",
+            "Jaja {name}, no soy la mejor para pronósticos del clima 🌤️ Pero soy experta en resolver problemas de viajes y soporte de Cruise. ¿Te ayudo con algo?",
+        ],
+    },
+    "compliment": {
+        "keywords": ["eres genial", "muy buena", "excelente servicio", "buen trabajo", "great job", "you're great", "amazing", "increíble", "la mejor", "eres la mejor"],
+        "responses": [
+            "¡Aww {name}, muchas gracias! 😊❤️ Eso me motiva mucho a seguir dando mi mejor esfuerzo. Estoy aquí siempre que me necesites.",
+            "¡Qué lindo, {name}! 😊 Me alegra mucho poder ayudarte. Es lo que más me gusta de mi trabajo. ¿Hay algo más en lo que te pueda servir?",
+            "¡Gracias {name}! 😊 Comentarios así hacen que valga la pena cada momento. ¿Necesitas algo más?",
+        ],
+    },
+    "who_are_you": {
+        "keywords": ["quién eres", "eres real", "eres un bot", "eres robot", "eres humana", "are you real", "are you a bot", "who are you", "eres una persona"],
+        "responses": [
+            "¡Soy {agent}, {name}! 😊 Tu agente de soporte aquí en Cruise. Estoy para ayudarte con lo que necesites. ¿Tienes alguna pregunta o inconveniente?",
+            "¡{agent} al servicio! 😊 Soy parte del equipo de soporte de Cruise, {name}. Mi trabajo es asegurarme de que tengas la mejor experiencia. ¿En qué te ayudo?",
+        ],
+    },
+    "about_cruise": {
+        "keywords": ["qué es cruise", "que es cruise", "cómo funciona", "como funciona", "what is cruise", "how does cruise work", "para qué sirve", "servicios"],
+        "responses": [
+            "¡Claro, {name}! 😊 Cruise es una plataforma de transporte que te conecta con conductores confiables para llevarte a donde necesites.\n\nPuedes solicitar viajes, programar recorridos, y mucho más desde la app. ¿Te gustaría saber algo específico?",
+            "Cruise es tu servicio de transporte de confianza, {name} 🚗 Conectamos pasajeros con conductores verificados para viajes seguros y cómodos.\n\nPuedes pedir viajes en tiempo real o programarlos con anticipación. ¿Hay algo específico que quieras saber?",
+        ],
+    },
+}
+
+
+def _generate_human_chat(user_msg: str, user_name: str, agent_name: str) -> str:
+    """Generate natural, human-like conversational responses for non-category messages."""
+    t = user_msg.lower()
+
+    # Check general conversation topics (most specific first)
+    for topic_key in ["how_are_you", "who_are_you", "greeting", "joke", "weather", "compliment", "about_cruise"]:
+        topic = _GENERAL_CHAT_RESPONSES[topic_key]
+        if any(k in t for k in topic["keywords"]):
+            resp = _rng.choice(topic["responses"])
+            return resp.format(name=user_name, agent=agent_name)
+
+    # General fallback — still human, warm and helpful
+    general = [
+        f"Entiendo lo que me dices, {user_name} 😊 Aunque ese tema no es mi especialidad, estoy aquí para lo que necesites relacionado con tu cuenta o viajes en Cruise. ¿Hay algo con lo que pueda ayudarte?",
+        f"Jaja, interesante lo que me cuentas, {user_name} 😊 Oye, si necesitas algo relacionado con Cruise estaré encantada de ayudarte. ¿Hay algo que pueda hacer por ti?",
+        f"Me encanta platicar contigo, {user_name} 😊 Pero no quiero que se me pase... ¿tienes algún tema pendiente con tus viajes o tu cuenta? Si no, aquí estoy disponible para cuando lo necesites.",
+        f"Qué buena onda, {user_name} 😊 Oye, si necesitas ayuda con algo de la app, un viaje, pagos, o cualquier duda, no dudes en decirme. ¡Para eso estoy aquí!",
+        f"Claro que sí, {user_name} 😊 Mira, si en algún momento necesitas ayuda con un viaje, un cobro, tu cuenta, o lo que sea de Cruise, aquí me tienes. ¿Todo bien por ahora?",
+    ]
+    return _rng.choice(general)
+
+
 async def _generate_bot_replies(chat, user_msg: str, user_name: str, db: AsyncSession):
-    """Generate AI bot replies. Returns list of dicts with role/message/sender_name."""
+    """Generate AI bot replies. Returns list of dicts with role/message/sender_name.
+    When agent is active, adds a ~60s delay to simulate a real human agent typing."""
     phase = chat.bot_phase or "welcome"
     replies = []
 
@@ -2401,7 +2483,6 @@ async def _generate_bot_replies(chat, user_msg: str, user_name: str, db: AsyncSe
         connected = f"🟢 {agent} se ha conectado al chat"
         replies.append({"role": "system", "message": connected, "sender_name": "Sistema"})
 
-        # Detect category from user's problem description to tailor intro
         cat = _detect_category(user_msg)
         intro = _rng.choice([
             f"¡Hola! 😊 Mi nombre es {agent}.\n\nEspero que estés bien, {user_name}. Voy a ayudarte a resolver lo que necesites y haré mi mejor esfuerzo. ¿Me puedes dar más detalles del problema para así ayudarte mejor?",
@@ -2413,6 +2494,9 @@ async def _generate_bot_replies(chat, user_msg: str, user_name: str, db: AsyncSe
 
     elif phase == "agent_active":
         agent = chat.agent_name or "Agente"
+
+        # Simulate real agent typing delay (~60 seconds)
+        await asyncio.sleep(60)
 
         # Check escalation
         if _match_keywords(user_msg, _ESCALATION_TRIGGERS):
@@ -2448,11 +2532,13 @@ async def _generate_bot_replies(chat, user_msg: str, user_name: str, db: AsyncSe
             elif bot_count <= 1:
                 resp = _rng.choice(_FALLBACK_FIRST).format(name=user_name)
             else:
-                resp = _rng.choice(_FALLBACK_FOLLOWUP).format(name=user_name)
+                # Generate a human-like conversational response
+                resp = _generate_human_chat(user_msg, user_name, agent)
             replies.append({"role": "bot", "message": resp, "sender_name": agent})
 
     elif phase == "escalated":
         agent = chat.agent_name or "Agente"
+        await asyncio.sleep(60)
         if _match_keywords(user_msg, _THANK_KEYWORDS):
             close = _rng.choice(_CLOSING_RESPONSES).format(name=user_name)
             replies.append({"role": "bot", "message": close, "sender_name": agent})
