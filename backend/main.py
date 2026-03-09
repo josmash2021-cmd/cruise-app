@@ -186,6 +186,9 @@ class SupportChat(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     status = Column(String(20), default="open")  # open, closed
     subject = Column(String(255), nullable=True)
+    agent_name = Column(String(100), nullable=True)
+    bot_phase = Column(String(30), default="welcome")  # welcome, awaiting_details, transferring, agent_active, escalated
+    needs_escalation = Column(Boolean, default=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -259,6 +262,9 @@ async def _migrate_add_columns(conn):
         ("trips", "cancel_reason", "TEXT"),
         ("trips", "notes", "TEXT"),
         ("trips", "pickup_zone", "TEXT"),
+        ("support_chats", "agent_name", "VARCHAR(100)"),
+        ("support_chats", "bot_phase", "VARCHAR(30) DEFAULT 'welcome'"),
+        ("support_chats", "needs_escalation", "BOOLEAN DEFAULT 0"),
     ]
     for table, col, col_type in new_columns:
         try:
@@ -2176,6 +2182,288 @@ async def get_chat_messages(trip_id: int, user: User = Depends(_get_current_user
     ]
 
 # ═══════════════════════════════════════════════════════
+#  AI SUPPORT AGENT ENGINE
+# ═══════════════════════════════════════════════════════
+
+import random as _rng
+
+_AGENT_NAMES = [
+    "Lucía", "Sofía", "Isabella", "Valentina", "Camila",
+    "Mariana", "Daniela", "Gabriela", "Andrea", "Carolina",
+    "Ana Paula", "Laura", "Diana", "Natalia", "Alejandra",
+]
+
+_ESCALATION_TRIGGERS = [
+    "manager", "supervisor", "gerente", "jefe", "encargado", "superior",
+    "speak to your manager", "hablar con el gerente", "hablar con un supervisor",
+    "hablar con el jefe", "quiero hablar con un supervisor", "quiero hablar con el gerente",
+    "no me ayudas", "incompetente", "inútil", "useless", "your boss",
+]
+
+_THANK_KEYWORDS = [
+    "gracias", "thanks", "thank you", "thx", "ty", "perfecto", "perfect",
+    "genial", "great", "ok gracias", "listo", "eso es todo", "nada más",
+    "that's all", "no nada", "no, gracias", "ya está", "resolved",
+    "resuelto", "solucionado", "excelente", "bueno gracias",
+]
+
+_AI_CATEGORIES = {
+    "trip_charge": {
+        "keywords": ["cobr", "cobro", "cargo", "charge", "tarifa", "fare", "precio",
+                     "price", "caro", "expensive", "overcharge", "sobrecar", "cobrado",
+                     "dinero", "money", "amount", "monto", "receipt", "recibo"],
+        "first": [
+            "Entiendo tu preocupación con el cobro, {name}. Déjame revisar los detalles de tu viaje.\n\n¿Me podrías indicar la fecha y hora aproximada del viaje? Así puedo localizar la transacción más rápido 🔍",
+            "Lamento el inconveniente con el cobro, {name}. Voy a revisar tu cuenta ahora mismo.\n\n¿Podrías darme la fecha del viaje y el monto que te cobraron? Así lo verifico de inmediato.",
+            "Claro, {name}, voy a revisar eso por ti. A veces los cobros varían por cambios de ruta, peajes o tiempo de espera.\n\n¿Me das la fecha y la hora del viaje para revisar el recibo?",
+        ],
+        "followup": [
+            "Perfecto, ya localicé tu viaje, {name}. He verificado el recibo y voy a procesar el ajuste correspondiente.\n\nEl reembolso se reflejará en tu método de pago en un plazo de 3 a 5 días hábiles. ¿Necesitas algo más?",
+            "Ya revisé la transacción, {name}. Efectivamente hay una diferencia y voy a iniciar el proceso de corrección.\n\nTe llegará una notificación cuando se complete. ¿Hay algo más en lo que pueda ayudarte?",
+        ],
+    },
+    "cancellation": {
+        "keywords": ["cancel", "cancelar", "cancelación", "cancele", "cancelado",
+                     "cancelar viaje", "no quiero el viaje"],
+        "first": [
+            "Entiendo, {name}. Puedo ayudarte con eso. ¿Es un viaje que quieres cancelar ahora o te cobraron una tarifa de cancelación?\n\nCuéntame los detalles y lo resolvemos juntos.",
+            "Claro, {name}. ¿El viaje ya está programado o es uno que ya pasó y te cobraron por cancelar?\n\nDime los detalles para proceder de la mejor manera.",
+        ],
+        "followup": [
+            "Listo, {name}. He procesado tu solicitud. Si hubo un cobro injustificado, he iniciado la devolución.\n\nEl reembolso tarda de 3 a 5 días hábiles. ¿Puedo ayudarte con algo más?",
+            "Todo resuelto, {name}. La cancelación ha sido procesada correctamente.\n\nRecuerda que puedes cancelar sin cargo dentro de los primeros 2 minutos. ¿Necesitas algo más?",
+        ],
+    },
+    "refund": {
+        "keywords": ["reembolso", "refund", "devolver", "devolución", "money back",
+                     "regres", "devuel", "return my money"],
+        "first": [
+            "Entiendo que necesitas un reembolso, {name}. Voy a revisar tu caso.\n\n¿Me podrías indicar por qué concepto solicitas el reembolso y la fecha del viaje?",
+            "{name}, claro que puedo ayudarte con el reembolso. Necesito algunos datos:\n\n• ¿Fecha del viaje?\n• ¿Monto que te cobraron?\n• ¿Cuál fue el motivo?\n\nAsí proceso tu solicitud lo más rápido posible.",
+        ],
+        "followup": [
+            "He procesado tu solicitud de reembolso, {name}. El monto se reflejará en tu cuenta en 3 a 5 días hábiles.\n\nTe enviaremos una confirmación por correo. ¿Hay algo más en lo que pueda ayudarte?",
+            "Listo, {name}. El reembolso fue aprobado y está en proceso. Verás el monto de vuelta en tu método de pago pronto.\n\n¿Necesitas algo más?",
+        ],
+    },
+    "driver": {
+        "keywords": ["conductor", "driver", "chofer", "grosero", "rude", "manej",
+                     "driving", "unsafe", "peligro", "insegur", "report", "reportar",
+                     "queja", "complain", "comportamiento", "behavior", "actitud", "attitude"],
+        "first": [
+            "Lamento mucho que hayas tenido esa experiencia, {name}. Tomamos estos reportes muy en serio.\n\n¿Me podrías dar más detalles? El nombre del conductor si lo tienes, la fecha y hora del viaje me ayudarían mucho.",
+            "Eso no debería pasar, {name}. Voy a documentar tu reporte inmediatamente.\n\n¿Puedes contarme exactamente qué sucedió y cuándo fue? Así tomo las medidas necesarias.",
+        ],
+        "followup": [
+            "Tu reporte ha sido registrado, {name}. Nuestro equipo revisará el caso y tomará las medidas necesarias.\n\nEl conductor será notificado. Dependiendo de la gravedad, podría ser suspendido. ¿Necesitas algo más?",
+            "He documentado todo, {name}. Este tipo de comportamiento no lo toleramos. El equipo de calidad revisará el caso en las próximas horas.\n\nTe mantendremos informado del resultado. ¿Puedo ayudarte con algo más?",
+        ],
+    },
+    "lost_item": {
+        "keywords": ["perdí", "lost", "olvid", "forgot", "left", "item", "objeto",
+                     "cosa", "dejé", "perdi", "phone in car", "teléfono en el carro",
+                     "left my", "olvidé mi"],
+        "first": [
+            "No te preocupes, {name}, vamos a intentar recuperar tu objeto. Necesito algunos datos:\n\n• ¿Qué objeto perdiste?\n• ¿En qué fecha fue el viaje?\n• ¿Recuerdas el nombre del conductor?\n\nContactaré al conductor en cuanto tenga la información.",
+            "Entiendo la preocupación, {name}. La mayoría de objetos se recuperan en las primeras 24 horas.\n\n¿Me dices qué olvidaste y cuándo fue el viaje? Así contacto al conductor directamente.",
+        ],
+        "followup": [
+            "Ya contacté al conductor, {name}. En cuanto responda te notifico.\n\nLa mayoría de objetos se devuelven en las primeras 24 horas. Si se localiza, coordinaremos la devolución. ¿Hay algo más?",
+            "El conductor ya fue notificado, {name}. Tan pronto confirme que tiene tu objeto, te avisamos para coordinar la entrega.\n\n¿Necesitas algo más mientras tanto?",
+        ],
+    },
+    "account": {
+        "keywords": ["cuenta", "account", "login", "contraseña", "password", "email",
+                     "correo", "teléfono", "phone", "acceso", "access", "perfil",
+                     "profile", "sesión", "session", "iniciar sesión", "log in"],
+        "first": [
+            "Puedo ayudarte con tu cuenta, {name}. ¿Qué problema estás teniendo exactamente?\n\n¿Es con el inicio de sesión, cambiar datos de tu perfil, o algo diferente?",
+            "Claro, {name}. Los problemas de cuenta tienen solución rápida generalmente. ¿Me dices qué necesitas cambiar o qué error te aparece?\n\nAsí te guío paso a paso.",
+        ],
+        "followup": [
+            "Listo, {name}. He actualizado tu cuenta. Los cambios ya deberían estar activos.\n\nIntenta cerrar sesión y volver a iniciar para verificar. ¿Todo bien ahora?",
+            "Tu cuenta ha sido actualizada, {name}. Si el problema persiste, intenta reinstalar la app.\n\n¿Pudiste verificar que todo está correcto?",
+        ],
+    },
+    "app_problem": {
+        "keywords": ["app", "aplicación", "crash", "error", "bug", "funciona", "work",
+                     "mapa", "map", "gps", "carga", "load", "lenta", "slow",
+                     "actualiz", "update", "pantalla", "screen", "no abre", "cierra"],
+        "first": [
+            "Entiendo que tienes problemas con la app, {name}. Vamos a resolverlo.\n\n¿Podrías decirme qué error ves o qué parte de la app no funciona?",
+            "Lamento el inconveniente, {name}. ¿Me describes qué pasa exactamente? Por ejemplo: ¿se cierra sola, no carga, o hay algún error específico?\n\nAsí puedo darte la solución correcta.",
+        ],
+        "followup": [
+            "Gracias, {name}. Te recomiendo estos pasos:\n\n1. Cierra la app completamente\n2. Verifica que tengas la última versión\n3. Reinicia tu dispositivo\n4. Abre la app de nuevo\n\nSi persiste, me avisas y lo escalamos al equipo técnico. ¿De acuerdo?",
+            "Entendido, {name}. He reportado el problema al equipo técnico. Mientras tanto, prueba reinstalando la app desde la tienda.\n\nEso suele resolver la mayoría de problemas. ¿Necesitas algo más?",
+        ],
+    },
+    "safety": {
+        "keywords": ["seguridad", "safety", "accidente", "accident", "emergencia",
+                     "emergency", "peligro", "danger", "acoso", "harass", "amenaz",
+                     "threat", "miedo", "scared", "fear"],
+        "first": [
+            "{name}, tu seguridad es nuestra prioridad. Voy a tomar acción inmediata.\n\n¿Puedes contarme exactamente qué sucedió? Es importante para las medidas necesarias.",
+            "Tomo esto muy en serio, {name}. ¿Te encuentras bien en este momento?\n\nCuéntame con detalle qué pasó para que pueda actuar de inmediato.",
+        ],
+        "followup": [
+            "Tu caso ha sido marcado como prioritario, {name}. Nuestro equipo de seguridad ya está revisándolo.\n\nTe contactarán directamente para dar seguimiento. ¿Hay algo inmediato que necesites?",
+            "He escalado tu caso al equipo de seguridad, {name}. Este tipo de situaciones las tratamos con máxima urgencia.\n\nTe mantendremos informado. ¿Necesitas algo más ahora?",
+        ],
+    },
+    "payment": {
+        "keywords": ["pago", "payment", "tarjeta", "card", "wallet", "método", "method",
+                     "añadir", "add", "rechaz", "decline", "declined", "visa",
+                     "mastercard", "débito", "crédito"],
+        "first": [
+            "Puedo ayudarte con el método de pago, {name}. ¿Qué problema tienes exactamente?\n\n¿Tu tarjeta fue rechazada, necesitas agregar una nueva, o hay otro problema?",
+            "Claro, {name}. ¿Me dices qué sucede con tu pago? ¿Error al agregar tarjeta, cargo rechazado, o necesitas cambiar el método?\n\nTe ayudo con eso.",
+        ],
+        "followup": [
+            "He revisado tu método de pago, {name}. Te sugiero:\n\n1. Verifica que los datos de tu tarjeta estén correctos\n2. Asegúrate de tener fondos\n3. Si continúa, intenta agregar otra tarjeta\n\n¿Pudiste resolver el problema?",
+            "Entendido, {name}. He actualizado la configuración de pago en tu cuenta. Intenta de nuevo.\n\nSi sigue sin funcionar, puede ser un bloqueo temporal de tu banco. ¿Necesitas algo más?",
+        ],
+    },
+    "waiting": {
+        "keywords": ["espera", "wait", "tardó", "late", "demor", "delay", "tiempo",
+                     "llegó", "arrive", "no lleg", "demorad", "long time", "mucho tiempo"],
+        "first": [
+            "Entiendo tu frustración con la espera, {name}. ¿Me cuentas cuánto tiempo esperaste y si el conductor finalmente llegó?\n\nAsí evalúo si aplica una compensación.",
+            "Lamento la demora, {name}. Los tiempos pueden variar por demanda en tu zona.\n\n¿Me cuentas los detalles: cuánto esperaste, fecha y hora? Para ver qué puedo hacer.",
+        ],
+        "followup": [
+            "He revisado tu caso, {name}. Entiendo la molestia. He aplicado un crédito a tu cuenta como compensación.\n\nLo verás reflejado en tu próximo viaje. ¿Necesitas algo más?",
+            "Entendido, {name}. Voy a aplicar un ajuste en tu cuenta por la mala experiencia.\n\nLamentamos los inconvenientes. ¿Hay algo más en lo que pueda ayudarte?",
+        ],
+    },
+}
+
+_FALLBACK_FIRST = [
+    "Gracias por contarme, {name}. Voy a revisar tu caso con atención.\n\n¿Me podrías dar un poco más de detalle para entender mejor la situación?",
+    "Entiendo, {name}. Déjame ayudarte con eso.\n\n¿Puedes darme más información? Cualquier detalle me ayuda a resolver tu caso más rápido.",
+    "Claro, {name}. Estoy revisando lo que me comentas. ¿Podrías ampliar un poco más para darte una solución precisa?",
+]
+
+_FALLBACK_FOLLOWUP = [
+    "Gracias por la información, {name}. Ya estoy trabajando en tu caso.\n\nVoy a asegurarme de que se resuelva lo antes posible. ¿Hay algo más que necesites?",
+    "Perfecto, {name}. He registrado todo. Nuestro equipo ya está al tanto y daremos seguimiento.\n\n¿Puedo ayudarte con algo más?",
+    "Todo anotado, {name}. Voy a dar seguimiento a tu caso personalmente.\n\nSi surge algo más, aquí estoy. ¿Necesitas algo adicional?",
+]
+
+_CLOSING_RESPONSES = [
+    "Me alegra poder ayudarte, {name} 😊 No dudes en escribirnos si necesitas algo. ¡Que tengas un excelente día!",
+    "¡Con gusto, {name}! Estamos aquí para lo que necesites. ¡Que tengas un gran día! 😊",
+    "Ha sido un placer atenderte, {name}. Si necesitas algo en el futuro, aquí estaremos. ¡Cuídate mucho! 😊",
+]
+
+
+def _match_keywords(text: str, keywords: list) -> bool:
+    t = text.lower()
+    return any(k in t for k in keywords)
+
+
+def _detect_category(text: str):
+    t = text.lower()
+    for cat, data in _AI_CATEGORIES.items():
+        if any(k in t for k in data["keywords"]):
+            return cat
+    return None
+
+
+async def _generate_bot_replies(chat, user_msg: str, user_name: str, db: AsyncSession):
+    """Generate AI bot replies. Returns list of dicts with role/message/sender_name."""
+    phase = chat.bot_phase or "welcome"
+    replies = []
+
+    if phase == "welcome":
+        reply = _rng.choice([
+            f"Entendido, {user_name}. Para poder ayudarte de la mejor manera, ¿podrías darme más detalles sobre tu problema o situación?",
+            f"Gracias por contactarnos, {user_name}. ¿Podrías describir tu problema con un poco más de detalle? Así te asigno al mejor agente disponible.",
+            f"Claro, {user_name}. Cuéntame un poco más sobre lo que necesitas para poder conectarte con el agente indicado.",
+        ])
+        replies.append({"role": "bot", "message": reply, "sender_name": "Asistente Cruise"})
+        chat.bot_phase = "awaiting_details"
+
+    elif phase == "awaiting_details":
+        agent = _rng.choice(_AGENT_NAMES)
+        chat.agent_name = agent
+
+        transfer = _rng.choice([
+            f"Gracias por la información, {user_name}. Te estoy transfiriendo con un agente de soporte. En breve se conectará y te ayudará.",
+            f"Perfecto, {user_name}. Voy a conectarte con un agente especializado. Un momento por favor, enseguida te atenderá.",
+            f"Entendido, {user_name}. Estoy transfiriendo tu caso a un agente. Se conectará contigo en un momento.",
+        ])
+        replies.append({"role": "bot", "message": transfer, "sender_name": "Asistente Cruise"})
+
+        connected = f"🟢 {agent} se ha conectado al chat"
+        replies.append({"role": "system", "message": connected, "sender_name": "Sistema"})
+
+        # Detect category from user's problem description to tailor intro
+        cat = _detect_category(user_msg)
+        intro = _rng.choice([
+            f"¡Hola! 😊 Mi nombre es {agent}.\n\nEspero que estés bien, {user_name}. Voy a ayudarte a resolver lo que necesites y haré mi mejor esfuerzo. ¿Me puedes dar más detalles del problema para así ayudarte mejor?",
+            f"¡Hola, {user_name}! Soy {agent} 😊\n\nEstoy aquí para ayudarte. He revisado tu caso y quiero darte la mejor atención posible. ¿Me podrías ampliar un poco más la información?",
+            f"¡Hola {user_name}! 😊 Mi nombre es {agent} y voy a atender tu caso personalmente.\n\nHe leído tu consulta y quiero ayudarte de la mejor manera. Cuéntame todo con confianza.",
+        ])
+        replies.append({"role": "bot", "message": intro, "sender_name": agent})
+        chat.bot_phase = "agent_active"
+
+    elif phase == "agent_active":
+        agent = chat.agent_name or "Agente"
+
+        # Check escalation
+        if _match_keywords(user_msg, _ESCALATION_TRIGGERS):
+            chat.needs_escalation = True
+            chat.bot_phase = "escalated"
+            esc = _rng.choice([
+                f"Entiendo tu solicitud, {user_name}. Voy a escalar tu caso a un supervisor para que te atienda directamente. Un momento de paciencia, por favor.",
+                f"Entendido, {user_name}. Voy a transferir tu caso a mi supervisor. En breve se comunicará contigo.",
+                f"Comprendo, {user_name}. Estoy pasando tu caso a un supervisor que podrá ayudarte mejor. Te contactará muy pronto.",
+            ])
+            replies.append({"role": "bot", "message": esc, "sender_name": agent})
+            replies.append({"role": "system", "message": "⚠️ Este chat ha sido escalado a un supervisor", "sender_name": "Sistema"})
+
+        elif _match_keywords(user_msg, _THANK_KEYWORDS):
+            close = _rng.choice(_CLOSING_RESPONSES).format(name=user_name)
+            replies.append({"role": "bot", "message": close, "sender_name": agent})
+
+        else:
+            cat = _detect_category(user_msg)
+            # Count existing bot messages to decide first vs followup
+            r = await db.execute(
+                select(func.count(SupportMessage.id)).where(
+                    SupportMessage.chat_id == chat.id,
+                    SupportMessage.sender_role == "bot",
+                )
+            )
+            bot_count = r.scalar() or 0
+
+            if bot_count <= 1 and cat and cat in _AI_CATEGORIES:
+                resp = _rng.choice(_AI_CATEGORIES[cat]["first"]).format(name=user_name)
+            elif cat and cat in _AI_CATEGORIES:
+                resp = _rng.choice(_AI_CATEGORIES[cat]["followup"]).format(name=user_name)
+            elif bot_count <= 1:
+                resp = _rng.choice(_FALLBACK_FIRST).format(name=user_name)
+            else:
+                resp = _rng.choice(_FALLBACK_FOLLOWUP).format(name=user_name)
+            replies.append({"role": "bot", "message": resp, "sender_name": agent})
+
+    elif phase == "escalated":
+        agent = chat.agent_name or "Agente"
+        if _match_keywords(user_msg, _THANK_KEYWORDS):
+            close = _rng.choice(_CLOSING_RESPONSES).format(name=user_name)
+            replies.append({"role": "bot", "message": close, "sender_name": agent})
+        else:
+            esc = _rng.choice([
+                f"Tu caso ya fue escalado a un supervisor, {user_name}. Se comunicará contigo pronto. Mientras tanto, ¿hay algo urgente?",
+                f"{user_name}, tu solicitud ya está en proceso. Un supervisor te atenderá en breve.",
+            ])
+            replies.append({"role": "bot", "message": esc, "sender_name": agent})
+
+    return replies
+
+
+# ═══════════════════════════════════════════════════════
 #  SUPPORT CHAT ENDPOINTS
 # ═══════════════════════════════════════════════════════
 
@@ -2200,23 +2488,44 @@ async def create_or_get_support_chat(request: Request, user: User = Depends(_get
     chat = result.scalar_one_or_none()
     if chat:
         return {"id": chat.id, "user_id": chat.user_id, "status": chat.status,
-                "subject": chat.subject, "created_at": chat.created_at.isoformat() if chat.created_at else None}
+                "subject": chat.subject, "agent_name": chat.agent_name,
+                "bot_phase": chat.bot_phase or "welcome",
+                "created_at": chat.created_at.isoformat() if chat.created_at else None}
 
-    chat = SupportChat(user_id=user.id, subject=subject or "Soporte general")
+    chat = SupportChat(user_id=user.id, subject=subject or "Soporte general", bot_phase="welcome")
     db.add(chat)
     await db.commit()
     await db.refresh(chat)
+
+    # Send welcome message
+    welcome_text = (
+        "Sistema de soporte Cruise — Sesión iniciada.\n\n"
+        "Bienvenido al centro de ayuda automatizado. "
+        "Seleccione o describa su problema para que podamos asistirlo.\n\n"
+        "• Viajes y tarifas\n"
+        "• Pagos y reembolsos\n"
+        "• Cuenta y perfil\n"
+        "• Seguridad\n"
+        "• Problemas con la app"
+    )
+    welcome_msg = SupportMessage(chat_id=chat.id, sender_id=0, sender_role="system", message=welcome_text)
+    db.add(welcome_msg)
+    await db.commit()
+    await db.refresh(welcome_msg)
 
     # Sync to Firestore
     if _HAS_FIRESTORE:
         try:
             firestore_sync.sync_support_chat(chat.id, user.id, user.first_name, user.last_name,
                                               user.photo_url, user.role, chat.subject, chat.status)
+            firestore_sync.sync_support_message(chat.id, welcome_msg.id, 0, "Sistema", "system", welcome_text)
         except Exception as e:
             logging.error("Firestore support chat sync failed: %s", e)
 
     return {"id": chat.id, "user_id": chat.user_id, "status": chat.status,
-            "subject": chat.subject, "created_at": chat.created_at.isoformat() if chat.created_at else None}
+            "subject": chat.subject, "agent_name": chat.agent_name,
+            "bot_phase": chat.bot_phase or "welcome",
+            "created_at": chat.created_at.isoformat() if chat.created_at else None}
 
 @app.get("/support/chats", dependencies=[Depends(_verify_api_key)])
 async def list_support_chats(user: User = Depends(_get_current_user), db: AsyncSession = Depends(get_db)):
@@ -2261,6 +2570,9 @@ async def list_all_support_chats(db: AsyncSession = Depends(get_db)):
             "user_photo": u.photo_url if u else None,
             "user_role": u.role if u else "rider",
             "unread_count": unread,
+            "needs_escalation": bool(c.needs_escalation),
+            "agent_name": c.agent_name,
+            "bot_phase": c.bot_phase,
             "last_message": last_msg.message if last_msg else None,
             "last_message_at": last_msg.created_at.isoformat() if last_msg and last_msg.created_at else None,
             "last_sender_role": last_msg.sender_role if last_msg else None,
@@ -2272,6 +2584,10 @@ async def list_all_support_chats(db: AsyncSession = Depends(get_db)):
 @app.get("/support/chats/{chat_id}/messages", dependencies=[Depends(_verify_api_key)])
 async def get_support_messages(chat_id: int, user: User = Depends(_get_current_user), db: AsyncSession = Depends(get_db)):
     """Get messages for a support chat."""
+    # Load chat for agent_name
+    chat_result = await db.execute(select(SupportChat).where(SupportChat.id == chat_id))
+    chat = chat_result.scalar_one_or_none()
+
     result = await db.execute(
         select(SupportMessage).where(SupportMessage.chat_id == chat_id)
         .order_by(SupportMessage.created_at.asc())
@@ -2283,17 +2599,34 @@ async def get_support_messages(chat_id: int, user: User = Depends(_get_current_u
             m.is_read = True
     await db.commit()
     # Build sender names
-    sender_ids = {m.sender_id for m in messages}
+    sender_ids = {m.sender_id for m in messages if m.sender_id != 0}
     sender_names = {}
     for sid in sender_ids:
         r = await db.execute(select(User).where(User.id == sid))
         u = r.scalar_one_or_none()
         sender_names[sid] = f"{u.first_name} {u.last_name}".strip() if u else "Unknown"
-    return [_support_msg_dict(m, sender_names.get(m.sender_id, "")) for m in messages]
+    # Build output with proper names for bot/system messages
+    output = []
+    for m in messages:
+        if m.sender_id == 0:
+            if m.sender_role == "bot":
+                name = chat.agent_name if chat else "Agente"
+            elif m.sender_role == "system":
+                name = "Sistema"
+            else:
+                name = "Soporte Cruise"
+        else:
+            name = sender_names.get(m.sender_id, "Unknown")
+        output.append(_support_msg_dict(m, name))
+    return output
 
 @app.get("/support/chats/{chat_id}/messages/dispatch", dependencies=[Depends(_verify_dispatch_key)])
 async def get_support_messages_dispatch(chat_id: int, db: AsyncSession = Depends(get_db)):
     """Get messages for a support chat (dispatch version — marks dispatch-received as read)."""
+    # Load chat for agent_name
+    chat_result = await db.execute(select(SupportChat).where(SupportChat.id == chat_id))
+    chat = chat_result.scalar_one_or_none()
+
     result = await db.execute(
         select(SupportMessage).where(SupportMessage.chat_id == chat_id)
         .order_by(SupportMessage.created_at.asc())
@@ -2303,13 +2636,25 @@ async def get_support_messages_dispatch(chat_id: int, db: AsyncSession = Depends
         if m.sender_role != "dispatch" and not m.is_read:
             m.is_read = True
     await db.commit()
-    sender_ids = {m.sender_id for m in messages}
+    sender_ids = {m.sender_id for m in messages if m.sender_id != 0}
     sender_names = {}
     for sid in sender_ids:
         r = await db.execute(select(User).where(User.id == sid))
         u = r.scalar_one_or_none()
         sender_names[sid] = f"{u.first_name} {u.last_name}".strip() if u else "Unknown"
-    return [_support_msg_dict(m, sender_names.get(m.sender_id, "")) for m in messages]
+    output = []
+    for m in messages:
+        if m.sender_id == 0:
+            if m.sender_role == "bot":
+                name = (chat.agent_name if chat else "Agente") + " (Bot)"
+            elif m.sender_role == "system":
+                name = "Sistema"
+            else:
+                name = "Soporte Cruise"
+        else:
+            name = sender_names.get(m.sender_id, "Unknown")
+        output.append(_support_msg_dict(m, name))
+    return output
 
 @app.post("/support/chats/{chat_id}/messages", dependencies=[Depends(_verify_api_key)])
 async def send_support_message(chat_id: int, request: Request, user: User = Depends(_get_current_user), db: AsyncSession = Depends(get_db)):
@@ -2332,20 +2677,44 @@ async def send_support_message(chat_id: int, request: Request, user: User = Depe
     await db.commit()
     await db.refresh(msg)
 
-    # Sync to Firestore
+    # Sync user message to Firestore
+    user_full = f"{user.first_name} {user.last_name}".strip()
     if _HAS_FIRESTORE:
         try:
             firestore_sync.sync_support_message(chat_id, msg.id, user.id,
-                                                 f"{user.first_name} {user.last_name}".strip(),
-                                                 user.role or "rider", msg_text)
+                                                 user_full, user.role or "rider", msg_text)
         except Exception as e:
             logging.error("Firestore support msg sync failed: %s", e)
 
-    return _support_msg_dict(msg, f"{user.first_name} {user.last_name}".strip())
+    # Generate AI bot replies (only if not taken over by real dispatch)
+    if chat.bot_phase != "dispatch_takeover":
+        try:
+            replies = await _generate_bot_replies(chat, msg_text, user.first_name or "Cliente", db)
+            for r in replies:
+                bot_msg = SupportMessage(
+                    chat_id=chat_id, sender_id=0,
+                    sender_role=r["role"], message=r["message"]
+                )
+                db.add(bot_msg)
+                await db.flush()
+                await db.refresh(bot_msg)
+                if _HAS_FIRESTORE:
+                    try:
+                        firestore_sync.sync_support_message(
+                            chat_id, bot_msg.id, 0, r["sender_name"], r["role"], r["message"]
+                        )
+                    except Exception:
+                        pass
+            chat.updated_at = datetime.now(timezone.utc)
+            await db.commit()
+        except Exception as e:
+            logging.error("AI bot reply failed: %s", e)
+
+    return _support_msg_dict(msg, user_full)
 
 @app.post("/support/chats/{chat_id}/messages/dispatch", dependencies=[Depends(_verify_dispatch_key)])
 async def send_support_message_dispatch(chat_id: int, request: Request, db: AsyncSession = Depends(get_db)):
-    """Send a message in a support chat (dispatch side)."""
+    """Send a message in a support chat (dispatch side). Switches bot off."""
     body = await request.json()
     msg_text = (body.get("message") or "").strip()
     if not msg_text:
@@ -2356,7 +2725,10 @@ async def send_support_message_dispatch(chat_id: int, request: Request, db: Asyn
     if not chat:
         raise HTTPException(404, "Chat not found")
 
-    # Use a "dispatch" sender — sender_id=0 for system
+    # When dispatch sends a message, take over from bot
+    if chat.bot_phase != "dispatch_takeover":
+        chat.bot_phase = "dispatch_takeover"
+
     msg = SupportMessage(chat_id=chat_id, sender_id=0, sender_role="dispatch", message=msg_text)
     db.add(msg)
     chat.updated_at = datetime.now(timezone.utc)

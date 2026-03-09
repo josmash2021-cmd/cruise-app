@@ -902,7 +902,7 @@ class _HelpTopicDetailScreenState extends State<_HelpTopicDetailScreen> {
 }
 
 // ─────────────────────────────────────────────────────────
-//  Live Support Chat (connected to backend)
+//  Live Support Chat (connected to backend with AI agent)
 // ─────────────────────────────────────────────────────────
 class CruiseSupportChatScreen extends StatefulWidget {
   const CruiseSupportChatScreen({super.key});
@@ -919,6 +919,8 @@ class _CruiseSupportChatScreenState extends State<CruiseSupportChatScreen> {
   final _focusNode = FocusNode();
   final List<_ChatMsg> _messages = [];
   int? _chatId;
+  String? _agentName;
+  String _subtitle = 'Sistema automatizado';
   bool _loading = true;
   bool _sending = false;
   Timer? _pollTimer;
@@ -940,11 +942,17 @@ class _CruiseSupportChatScreenState extends State<CruiseSupportChatScreen> {
 
   Future<void> _initChat() async {
     try {
-      final chat = await ApiService.createSupportChat(subject: 'Soporte general');
+      final chat = await ApiService.createSupportChat(
+        subject: 'Soporte general',
+      );
       _chatId = chat['id'] as int?;
+      _agentName = chat['agent_name'] as String?;
       if (_chatId != null) {
         await _loadMessages();
-        _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) => _loadMessages());
+        _pollTimer = Timer.periodic(
+          const Duration(seconds: 3),
+          (_) => _loadMessages(),
+        );
       }
     } catch (e) {
       debugPrint('[SupportChat] init error: $e');
@@ -957,16 +965,29 @@ class _CruiseSupportChatScreenState extends State<CruiseSupportChatScreen> {
     try {
       final msgs = await ApiService.getSupportMessages(_chatId!);
       if (!mounted) return;
-      final newMessages = msgs.map((m) => _ChatMsg(
-        text: m['message'] ?? '',
-        isUser: m['sender_role'] != 'dispatch',
-        time: DateTime.tryParse(m['created_at'] ?? '') ?? DateTime.now(),
-        senderName: m['sender_name'] ?? '',
-      )).toList();
+      final newMessages = msgs.map((m) {
+        final role = m['sender_role'] ?? '';
+        return _ChatMsg(
+          text: m['message'] ?? '',
+          role: role,
+          time: DateTime.tryParse(m['created_at'] ?? '') ?? DateTime.now(),
+          senderName: m['sender_name'] ?? '',
+        );
+      }).toList();
       if (newMessages.length != _messages.length) {
+        // Extract agent name from bot messages
+        for (final m in newMessages) {
+          if (m.role == 'bot' &&
+              m.senderName.isNotEmpty &&
+              m.senderName != 'Asistente Cruise') {
+            _agentName = m.senderName;
+          }
+        }
         setState(() {
           _messages.clear();
           _messages.addAll(newMessages);
+          _sending = false;
+          _subtitle = _agentName != null ? 'En línea' : 'Sistema automatizado';
         });
         _scrollToBottom();
       }
@@ -981,15 +1002,24 @@ class _CruiseSupportChatScreenState extends State<CruiseSupportChatScreen> {
     _msgCtrl.clear();
     setState(() {
       _sending = true;
-      _messages.add(_ChatMsg(text: text, isUser: true, time: DateTime.now()));
+      _subtitle = 'Procesando solicitud...';
+      _messages.add(_ChatMsg(text: text, role: 'rider', time: DateTime.now()));
     });
     _scrollToBottom();
     try {
       await ApiService.sendSupportMessage(_chatId!, text);
+      // Immediately poll for bot reply
+      await Future.delayed(const Duration(milliseconds: 500));
+      await _loadMessages();
     } catch (e) {
       debugPrint('[SupportChat] send error: $e');
     }
-    if (mounted) setState(() => _sending = false);
+    if (mounted) {
+      setState(() {
+        _sending = false;
+        _subtitle = _agentName != null ? 'En línea' : 'Sistema automatizado';
+      });
+    }
   }
 
   void _scrollToBottom() {
@@ -1004,6 +1034,8 @@ class _CruiseSupportChatScreenState extends State<CruiseSupportChatScreen> {
     });
   }
 
+  String get _displayName => _agentName ?? 'Asistente Cruise';
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1015,29 +1047,71 @@ class _CruiseSupportChatScreenState extends State<CruiseSupportChatScreen> {
         title: Row(
           children: [
             Container(
-              width: 36, height: 36,
+              width: 36,
+              height: 36,
               decoration: BoxDecoration(
-                gradient: const LinearGradient(colors: [_gold, Color(0xFFD4A017)]),
+                gradient: const LinearGradient(
+                  colors: [_gold, Color(0xFFD4A017)],
+                ),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.support_agent, color: Colors.black, size: 20),
+              child: _agentName != null
+                  ? Center(
+                      child: Text(
+                        _agentName![0].toUpperCase(),
+                        style: const TextStyle(
+                          color: Colors.black,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    )
+                  : const Icon(
+                      Icons.support_agent,
+                      color: Colors.black,
+                      size: 20,
+                    ),
             ),
             const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Soporte Cruise', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-                Row(
-                  children: [
-                    Container(
-                      width: 7, height: 7,
-                      decoration: const BoxDecoration(color: Color(0xFF4CAF50), shape: BoxShape.circle),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _displayName,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
                     ),
-                    const SizedBox(width: 4),
-                    Text('En línea', style: TextStyle(fontSize: 11, color: Colors.grey[400])),
-                  ],
-                ),
-              ],
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Row(
+                    children: [
+                      Container(
+                        width: 7,
+                        height: 7,
+                        decoration: BoxDecoration(
+                          color: _sending
+                              ? Colors.orange
+                              : const Color(0xFF4CAF50),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          _subtitle,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey[400],
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -1048,26 +1122,37 @@ class _CruiseSupportChatScreenState extends State<CruiseSupportChatScreen> {
             child: _loading
                 ? const Center(child: CircularProgressIndicator(color: _gold))
                 : _messages.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.chat_bubble_outline, size: 48, color: Colors.grey[600]),
-                            const SizedBox(height: 12),
-                            Text('Escribe tu mensaje para iniciar',
-                                style: TextStyle(color: Colors.grey[500], fontSize: 14)),
-                            const SizedBox(height: 4),
-                            Text('Un agente te responderá pronto',
-                                style: TextStyle(color: Colors.grey[600], fontSize: 12)),
-                          ],
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.chat_bubble_outline,
+                          size: 48,
+                          color: Colors.grey[600],
                         ),
-                      )
-                    : ListView.builder(
-                        controller: _scrollCtrl,
-                        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                        itemCount: _messages.length,
-                        itemBuilder: (context, i) => _buildBubble(_messages[i]),
-                      ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Escribe tu mensaje para iniciar',
+                          style: TextStyle(
+                            color: Colors.grey[500],
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    controller: _scrollCtrl,
+                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                    itemCount: _messages.length + (_sending ? 1 : 0),
+                    itemBuilder: (context, i) {
+                      if (i == _messages.length && _sending) {
+                        return _buildTypingIndicator();
+                      }
+                      return _buildBubble(_messages[i]);
+                    },
+                  ),
           ),
           _buildInputBar(),
         ],
@@ -1075,41 +1160,32 @@ class _CruiseSupportChatScreenState extends State<CruiseSupportChatScreen> {
     );
   }
 
-  Widget _buildBubble(_ChatMsg msg) {
-    final isUser = msg.isUser;
+  Widget _buildTypingIndicator() {
     return Align(
-      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+      alignment: Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
-          color: isUser ? _gold : const Color(0xFF2A2A2A),
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16),
-            topRight: const Radius.circular(16),
-            bottomLeft: Radius.circular(isUser ? 16 : 4),
-            bottomRight: Radius.circular(isUser ? 4 : 16),
-          ),
+          color: const Color(0xFF2A2A2A),
+          borderRadius: BorderRadius.circular(16),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            if (!isUser && msg.senderName.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 3),
-                child: Text(msg.senderName,
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600,
-                        color: _gold.withValues(alpha: 0.9))),
-              ),
-            Text(msg.text,
-                style: TextStyle(
-                    color: isUser ? Colors.black : Colors.white, fontSize: 14.5, height: 1.35)),
-            const SizedBox(height: 3),
+            _dot(0),
+            const SizedBox(width: 4),
+            _dot(1),
+            const SizedBox(width: 4),
+            _dot(2),
+            const SizedBox(width: 8),
             Text(
-              '${msg.time.hour.toString().padLeft(2, '0')}:${msg.time.minute.toString().padLeft(2, '0')}',
-              style: TextStyle(fontSize: 10,
-                  color: isUser ? Colors.black54 : Colors.grey[600]),
+              'Procesando solicitud...',
+              style: TextStyle(
+                fontSize: 12,
+                color: _gold,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ],
         ),
@@ -1117,10 +1193,137 @@ class _CruiseSupportChatScreenState extends State<CruiseSupportChatScreen> {
     );
   }
 
+  Widget _dot(int index) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.3, end: 1.0),
+      duration: Duration(milliseconds: 600 + index * 200),
+      builder: (_, v, child) => Opacity(opacity: v, child: child),
+      child: Container(
+        width: 7,
+        height: 7,
+        decoration: BoxDecoration(color: _gold, shape: BoxShape.circle),
+      ),
+    );
+  }
+
+  Widget _buildBubble(_ChatMsg msg) {
+    // System messages — centered notification
+    if (msg.role == 'system') {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF2A2A2A),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              msg.text,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12.5,
+                color: msg.text.startsWith('🟢')
+                    ? const Color(0xFF4CAF50)
+                    : msg.text.startsWith('⚠️')
+                    ? Colors.orange
+                    : Colors.grey[400],
+                fontWeight: FontWeight.w500,
+                height: 1.4,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    final isUser = msg.role == 'rider';
+    final isBot = msg.role == 'bot' || msg.role == 'dispatch';
+
+    return Align(
+      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        mainAxisAlignment: isUser
+            ? MainAxisAlignment.end
+            : MainAxisAlignment.start,
+        children: [
+          if (isBot) ...[
+            Container(
+              width: 28,
+              height: 28,
+              margin: const EdgeInsets.only(right: 6, bottom: 4),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [_gold, Color(0xFFD4A017)],
+                ),
+                shape: BoxShape.circle,
+              ),
+              child: Center(
+                child: Text(
+                  msg.senderName.isNotEmpty
+                      ? msg.senderName[0].toUpperCase()
+                      : 'S',
+                  style: const TextStyle(
+                    color: Colors.black,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+          ],
+          Flexible(
+            child: Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.72,
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: isUser ? _gold : const Color(0xFF2A2A2A),
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(16),
+                  topRight: const Radius.circular(16),
+                  bottomLeft: Radius.circular(isUser ? 16 : 4),
+                  bottomRight: Radius.circular(isUser ? 4 : 16),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    msg.text,
+                    style: TextStyle(
+                      color: isUser ? Colors.black : Colors.white,
+                      fontSize: 14.5,
+                      height: 1.35,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '${msg.time.hour.toString().padLeft(2, '0')}:${msg.time.minute.toString().padLeft(2, '0')}',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: isUser ? Colors.black54 : Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildInputBar() {
     return Container(
       padding: EdgeInsets.only(
-        left: 12, right: 8, top: 8,
+        left: 12,
+        right: 8,
+        top: 8,
         bottom: MediaQuery.of(context).padding.bottom + 8,
       ),
       decoration: BoxDecoration(
@@ -1139,11 +1342,14 @@ class _CruiseSupportChatScreenState extends State<CruiseSupportChatScreen> {
               textInputAction: TextInputAction.send,
               onSubmitted: (_) => _sendMessage(),
               decoration: InputDecoration(
-                hintText: 'Escribe tu mensaje...',
+                hintText: 'Describe tu problema...',
                 hintStyle: TextStyle(color: Colors.grey[600]),
                 filled: true,
                 fillColor: const Color(0xFF2A2A2A),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(24),
                   borderSide: BorderSide.none,
@@ -1172,16 +1378,17 @@ class _CruiseSupportChatScreenState extends State<CruiseSupportChatScreen> {
 
 class _ChatMsg {
   final String text;
-  final bool isUser;
+  final String role; // rider, bot, system, dispatch
   final DateTime time;
   final String senderName;
   const _ChatMsg({
     required this.text,
-    required this.isUser,
+    required this.role,
     required this.time,
     this.senderName = '',
   });
 }
+
 class _HelpCategory {
   final String title;
   final IconData icon;
