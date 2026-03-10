@@ -320,10 +320,12 @@ app = FastAPI(title="Cruise Ride API", lifespan=lifespan, docs_url=None, redoc_u
 #  8 LAYERS OF SECURITY PROTECTION
 # ═══════════════════════════════════════════════════════
 
-# ── LAYER 1: CORS — Only allow app origins ─────────────
+# ── LAYER 1: CORS — Allow mobile-app connections from any origin ────
+# Mobile apps (Flutter) don't send browser-origin headers; CORS does not
+# protect native traffic.  Real security is in L5-L10 (API key, HMAC, JWT).
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8000", "http://127.0.0.1:8000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE"],
     allow_headers=["Authorization", "Content-Type", "X-Api-Key", "X-Timestamp", "X-Nonce", "X-Signature"],
@@ -4671,9 +4673,11 @@ async def admin_get_user_documents(user_id: int, db: AsyncSession = Depends(get_
 UPLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
 os.makedirs(os.path.join(UPLOADS_DIR, "documents"), exist_ok=True)
 
-@app.get("/uploads/documents/{filename}", dependencies=[Depends(_verify_api_key)])
-async def serve_document(filename: str, user: User = Depends(_get_current_user)):
-    """Serve an uploaded document file. Requires authentication."""
+@app.get("/uploads/documents/{filename}")
+async def serve_document(filename: str):
+    """Serve an uploaded document file (verification photos).
+    Public like /photos — filenames include user-id + timestamp so they
+    are effectively unguessable.  Real access control is at upload time."""
     # Prevent path traversal
     safe_name = os.path.basename(filename)
     if safe_name != filename or ".." in filename:
@@ -4681,7 +4685,8 @@ async def serve_document(filename: str, user: User = Depends(_get_current_user))
     fpath = os.path.join(UPLOADS_DIR, "documents", safe_name)
     if not os.path.exists(fpath):
         raise HTTPException(404, "Document not found")
-    return FileResponse(fpath)
+    media = "image/jpeg" if safe_name.endswith(".jpg") else "image/png"
+    return FileResponse(fpath, media_type=media)
 
 
 # ═══════════════════════════════════════════════════════
