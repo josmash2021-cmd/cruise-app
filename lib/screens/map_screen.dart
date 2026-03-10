@@ -6165,6 +6165,29 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                   ),
                 ),
               ),
+            const SizedBox(height: 8),
+            // ── TEST MODE: Skip payment ──
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: _c.textTertiary,
+                  side: BorderSide(
+                    color: _c.textTertiary.withValues(alpha: 0.35),
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                ),
+                onPressed: _processPaymentAndRequestRide,
+                icon: const Icon(Icons.science_rounded, size: 16),
+                label: const Text(
+                  'Skip Payment (Test)',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
           ],
         ),
       ),

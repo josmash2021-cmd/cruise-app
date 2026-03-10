@@ -146,9 +146,9 @@ class _LicenseScannerScreenState extends State<LicenseScannerScreen>
     );
   }
 
-  /// Show manual shutter after 60s fallback.
+  /// Show manual shutter after 20s fallback.
   void _startManualButtonTimer() {
-    _manualButtonTimer = Timer(const Duration(seconds: 60), () {
+    _manualButtonTimer = Timer(const Duration(seconds: 20), () {
       if (mounted) setState(() => _showManualButton = true);
     });
   }
@@ -550,7 +550,7 @@ class _LicenseScannerScreenState extends State<LicenseScannerScreen>
           ),
         ),
 
-        // Shutter button — hidden until 60s fallback
+        // Shutter button — hidden until 20s fallback
         if (_showManualButton)
           Positioned(
             bottom: 56,
