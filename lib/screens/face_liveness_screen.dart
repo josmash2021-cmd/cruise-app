@@ -218,7 +218,9 @@ class _FaceLivenessScreenState extends State<FaceLivenessScreen>
     _holdStart ??= DateTime.now();
     final elapsed = DateTime.now().difference(_holdStart!).inMilliseconds;
     // Blink is event-based — complete instantly once detected
-    final holdDuration = _challenges[_challengeIndex] == _Challenge.blink ? 200 : _holdMs;
+    final holdDuration = _challenges[_challengeIndex] == _Challenge.blink
+        ? 200
+        : _holdMs;
     final chunkProgress = (elapsed / holdDuration).clamp(0.0, 1.0);
     if (mounted) {
       setState(() {
@@ -385,7 +387,7 @@ class _FaceLivenessScreenState extends State<FaceLivenessScreen>
       case _Challenge.center:
         return S.of(context).positionFaceInFrame;
       case _Challenge.blink:
-        return S.of(context).holdStill;
+        return S.of(context).blinkBothEyes;
       case _Challenge.turn:
         return S.of(context).moveHeadSlowly;
       case _Challenge.smile:
@@ -553,10 +555,14 @@ class _FaceLivenessScreenState extends State<FaceLivenessScreen>
                               vertical: 6,
                             ),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFE8C547).withValues(alpha: 0.15),
+                              color: const Color(
+                                0xFFE8C547,
+                              ).withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(16),
                               border: Border.all(
-                                color: const Color(0xFFE8C547).withValues(alpha: 0.3),
+                                color: const Color(
+                                  0xFFE8C547,
+                                ).withValues(alpha: 0.3),
                               ),
                             ),
                             child: Text(
@@ -652,9 +658,7 @@ class _FaceLivenessScreenState extends State<FaceLivenessScreen>
               ),
             ),
             child: Icon(
-              _showPhase2Intro
-                  ? Icons.swap_horiz_rounded
-                  : _challengeIcon(),
+              _showPhase2Intro ? Icons.swap_horiz_rounded : _challengeIcon(),
               color: gold,
               size: 28,
             ),
@@ -688,10 +692,7 @@ class _FaceLivenessScreenState extends State<FaceLivenessScreen>
                 ? (_blinkDetected ? '' : '👁')
                 : '',
             key: ValueKey('sub_${_challengeIndex}_$_blinkDetected'),
-            style: const TextStyle(
-              color: Colors.white38,
-              fontSize: 13,
-            ),
+            style: const TextStyle(color: Colors.white38, fontSize: 13),
           ),
         ),
         const SizedBox(height: 20),
@@ -712,8 +713,8 @@ class _FaceLivenessScreenState extends State<FaceLivenessScreen>
                 color: isDone
                     ? const Color(0xFF34C759)
                     : isActive
-                        ? gold
-                        : Colors.white.withValues(alpha: 0.15),
+                    ? gold
+                    : Colors.white.withValues(alpha: 0.15),
               ),
             );
           }),
@@ -736,9 +737,7 @@ class _FaceLivenessScreenState extends State<FaceLivenessScreen>
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.12),
-              ),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
             ),
             child: Text(
               S.of(context).startOver,
@@ -923,18 +922,26 @@ class _FaceIDTickPainter extends CustomPainter {
         center.dy + innerR * math.sin(angleRad),
       );
 
-      canvas.drawLine(p1, p2, Paint()
-        ..color = color
-        ..strokeWidth = strokeW
-        ..strokeCap = StrokeCap.round);
+      canvas.drawLine(
+        p1,
+        p2,
+        Paint()
+          ..color = color
+          ..strokeWidth = strokeW
+          ..strokeCap = StrokeCap.round,
+      );
 
       // Glow effect for filled ticks
       if ((isFilled || isLeading) && !allDone) {
-        canvas.drawLine(p1, p2, Paint()
-          ..color = _green.withValues(alpha: 0.12)
-          ..strokeWidth = strokeW + 4
-          ..strokeCap = StrokeCap.round
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4));
+        canvas.drawLine(
+          p1,
+          p2,
+          Paint()
+            ..color = _green.withValues(alpha: 0.12)
+            ..strokeWidth = strokeW + 4
+            ..strokeCap = StrokeCap.round
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+        );
       }
     }
 

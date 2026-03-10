@@ -1072,6 +1072,14 @@ class _DriverSignupScreenState extends State<DriverSignupScreen>
                 ),
               ),
               if (ssnFilled)
+                GestureDetector(
+                  onTap: () => setState(() {
+                    _ssnCtrl.clear();
+                  }),
+                  child: const Icon(Icons.edit_rounded, color: _gold, size: 18),
+                ),
+              if (ssnFilled) const SizedBox(width: 6),
+              if (ssnFilled)
                 const Icon(Icons.check_circle_rounded, color: _gold, size: 22),
             ],
           ),
@@ -1141,7 +1149,7 @@ class _DriverSignupScreenState extends State<DriverSignupScreen>
 
   Widget _buildBiometricTile() {
     return GestureDetector(
-      onTap: _biometricDone ? null : _runBiometricCheck,
+      onTap: _runBiometricCheck,
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(

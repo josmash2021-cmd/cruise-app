@@ -368,13 +368,16 @@ async def rate_limit_middleware(request: Request, call_next):
 
 # ── LAYER 4: Request Size Limit (anti-payload bomb) ───
 _MAX_BODY_SIZE = 5 * 1024 * 1024  # 5 MB max (photos are ~1-2MB base64)
+_MAX_VERIFY_SIZE = 30 * 1024 * 1024  # 30 MB for verification (photos + video)
+_LARGE_BODY_PATHS = {"/auth/verify-request"}
 
 @app.middleware("http")
 async def request_size_limit_middleware(request: Request, call_next):
+    limit = _MAX_VERIFY_SIZE if request.url.path in _LARGE_BODY_PATHS else _MAX_BODY_SIZE
     content_length = request.headers.get("content-length")
     if content_length:
         try:
-            if int(content_length) > _MAX_BODY_SIZE:
+            if int(content_length) > limit:
                 return JSONResponse({"detail": "Request body too large"}, status_code=413)
         except ValueError:
             return JSONResponse({"detail": "Invalid content-length"}, status_code=400)
@@ -1489,8 +1492,13 @@ async def dispatch_approve_driver(user_id: int, db: AsyncSession = Depends(get_d
 
 
 @app.post("/auth/dispatch-reject/{user_id}", dependencies=[Depends(_verify_dispatch_key)])
-async def dispatch_reject_driver(user_id: int, reason: str = "Application not approved", db: AsyncSession = Depends(get_db)):
+async def dispatch_reject_driver(user_id: int, request: Request, db: AsyncSession = Depends(get_db)):
     """Dispatch rejects a driver directly via REST."""
+    try:
+        body = await request.json()
+        reason = body.get("reason", "Application not approved") if body else "Application not approved"
+    except Exception:
+        reason = "Application not approved"
     result = await db.execute(select(User).where(User.id == user_id, User.role == "driver"))
     db_user = result.scalar_one_or_none()
     if not db_user:

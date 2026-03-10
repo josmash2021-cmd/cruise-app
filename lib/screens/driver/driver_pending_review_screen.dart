@@ -147,11 +147,10 @@ class _DriverPendingReviewScreenState extends State<DriverPendingReviewScreen>
     );
   }
 
-  /// Rejected: clear all data and let them register again from scratch
+  /// Rejected: reset local status and let them resubmit verification
+  /// (keeps the same account — no logout/re-register)
   Future<void> _tryAgain() async {
     await LocalDataService.setDriverApprovalStatus('none');
-    await UserSession.logout();
-    await ApiService.clearToken();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const DriverSignupScreen()),
