@@ -949,15 +949,25 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
                                   border: Border.all(color: _gold, width: 2),
                                 ),
                                 child: ClipOval(
-                                  child: Image.network(
-                                    _photoUrl!,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, _, _) => const Icon(
-                                      Icons.person_rounded,
-                                      color: Colors.white54,
-                                      size: 22,
-                                    ),
-                                  ),
+                                  child: _photoUrl!.startsWith('http')
+                                      ? Image.network(
+                                          _photoUrl!,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, _, _) => const Icon(
+                                            Icons.person_rounded,
+                                            color: Colors.white54,
+                                            size: 22,
+                                          ),
+                                        )
+                                      : Image.file(
+                                          File(_photoUrl!),
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, _, _) => const Icon(
+                                            Icons.person_rounded,
+                                            color: Colors.white54,
+                                            size: 22,
+                                          ),
+                                        ),
                                 ),
                               ),
                               const SizedBox(width: 12),

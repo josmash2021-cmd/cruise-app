@@ -832,15 +832,25 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
               ),
               child: _photoUrl != null && _photoUrl!.isNotEmpty
                   ? ClipOval(
-                      child: Image.network(
-                        _photoUrl!,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) => const Icon(
-                          Icons.person_rounded,
-                          color: _gold,
-                          size: 40,
-                        ),
-                      ),
+                      child: _photoUrl!.startsWith('http')
+                          ? Image.network(
+                              _photoUrl!,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) => const Icon(
+                                Icons.person_rounded,
+                                color: _gold,
+                                size: 40,
+                              ),
+                            )
+                          : Image.file(
+                              File(_photoUrl!),
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) => const Icon(
+                                Icons.person_rounded,
+                                color: _gold,
+                                size: 40,
+                              ),
+                            ),
                     )
                   : const Icon(Icons.person_rounded, color: _gold, size: 40),
             ),

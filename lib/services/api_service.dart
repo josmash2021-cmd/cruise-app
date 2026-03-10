@@ -30,7 +30,7 @@ class ApiService {
   /// Default Cloudflare Tunnel URL.  Free tunnels change every restart;
   /// update via the in-app Settings → "Server URL" dialog instead of rebuilding.
   static const String _defaultTunnelUrl =
-      'https://first-rolls-dec-saw.trycloudflare.com';
+      'https://date-transition-outputs-promise.trycloudflare.com';
 
   static const String _serverUrlPrefKey = 'cruise_server_url';
 
@@ -50,16 +50,17 @@ class ApiService {
       _activeUrl = saved;
     }
     debugPrint('[ApiService] active URL: $_activeUrl');
-    // Always probe in background so a stale tunnel URL gets refreshed
-    probeAndSetBestUrl()
-        .then((url) {
-          if (url != null) {
-            debugPrint('[ApiService] probe found reachable URL: $url');
-          } else {
-            debugPrint('[ApiService] probe: no reachable URL found');
-          }
-        })
-        .catchError((_) {});
+    // Probe to find a working URL before the app starts making requests
+    try {
+      final url = await probeAndSetBestUrl(
+        timeout: const Duration(seconds: 3),
+      );
+      if (url != null) {
+        debugPrint('[ApiService] probe found reachable URL: $url');
+      } else {
+        debugPrint('[ApiService] probe: no reachable URL found');
+      }
+    } catch (_) {}
   }
 
   /// Persist a new server URL and update all subsequent requests immediately.
@@ -80,7 +81,7 @@ class ApiService {
   }) async {
     final urls =
         candidates ??
-        [_activeUrl, _defaultTunnelUrl, _adbUrl, _localNetworkUrl, _localUrl];
+        [_activeUrl, _localNetworkUrl, _defaultTunnelUrl, _adbUrl, _localUrl];
 
     for (final url in urls) {
       try {
