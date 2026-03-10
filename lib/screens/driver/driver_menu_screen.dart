@@ -766,52 +766,6 @@ class _DriverMenuScreenState extends State<DriverMenuScreen>
                 S.of(context).howCanWeHelp,
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.5),
-                      if (_dispatchPassword != null &&
-                          _dispatchPassword!.isNotEmpty) ...[
-                        const SizedBox(width: 10),
-                        GestureDetector(
-                          onTap: () {
-                            Clipboard.setData(
-                              ClipboardData(text: _dispatchPassword!),
-                            );
-                            HapticFeedback.lightImpact();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: const Text(
-                                  'Dispatch password copied',
-                                  style: TextStyle(color: Colors.white),
-                                ),
-                                backgroundColor: dc.accent,
-                              ),
-                            );
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: dc.card,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: dc.divider),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(Icons.key_rounded,
-                                    size: 14, color: Colors.white70),
-                                const SizedBox(width: 4),
-                                Text(
-                                  _dispatchPassword!,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
                   fontSize: 14,
                 ),
               ),
