@@ -724,38 +724,43 @@ class _DriverSignupScreenState extends State<DriverSignupScreen>
                 ],
               ),
             ),
-            SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 28,
-                  vertical: 14,
-                ),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 54,
-                  child: ElevatedButton(
-                    onPressed: _canProceed && !_submitting ? _next : null,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _canProceed ? _gold : Colors.white12,
-                      foregroundColor: Colors.black,
-                      disabledBackgroundColor: Colors.white12,
-                      disabledForegroundColor: Colors.white24,
-                      elevation: _canProceed ? 4 : 0,
-                      shadowColor: _gold.withValues(alpha: 0.4),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(30),
-                      ),
+            Container(
+              padding: EdgeInsets.only(
+                left: 28,
+                right: 28,
+                top: 12,
+                bottom: MediaQuery.of(context).viewInsets.bottom > 0 
+                    ? 12 
+                    : MediaQuery.of(context).padding.bottom + 12,
+              ),
+              child: SizedBox(
+                width: double.infinity,
+                height: 54,
+                child: ElevatedButton(
+                  onPressed: _canProceed && !_submitting ? _next : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _canProceed ? _gold : Colors.white12,
+                    foregroundColor: Colors.black,
+                    disabledBackgroundColor: Colors.white12,
+                    disabledForegroundColor: Colors.white24,
+                    elevation: _canProceed ? 4 : 0,
+                    shadowColor: _gold.withValues(alpha: 0.4),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
                     ),
-                    child: _submitting
-                        ? const SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2.5,
-                              color: Colors.black,
-                            ),
-                          )
-                        : Text(
+                  ),
+                  child: _submitting
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            color: Colors.black,
+                          ),
+                        )
+                      : FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
                             _step == _totalSteps - 1
                                 ? S.of(context).submitApplication
                                 : S.of(context).continueButton,
@@ -763,8 +768,10 @@ class _DriverSignupScreenState extends State<DriverSignupScreen>
                               fontSize: 17,
                               fontWeight: FontWeight.w700,
                             ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                  ),
+                        ),
                 ),
               ),
             ),

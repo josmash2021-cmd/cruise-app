@@ -398,11 +398,16 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
                               Icons.upload_file_rounded,
                               size: 20,
                             ),
-                            label: const Text(
-                              'Upload New Document',
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w700,
+                            label: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: const Text(
+                                'Upload New Document',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                             style: OutlinedButton.styleFrom(
@@ -731,9 +736,14 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
                           _showUploadSheet(docType: doc['doc_type'] as String?);
                         },
                         icon: const Icon(Icons.refresh_rounded, size: 18),
-                        label: Text(
-                          s.updateBtn,
-                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        label: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            s.updateBtn,
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: _gold,
@@ -758,9 +768,14 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
                             borderRadius: BorderRadius.circular(14),
                           ),
                         ),
-                        child: Text(
-                          s.close,
-                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            s.close,
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                       ),
                     ),

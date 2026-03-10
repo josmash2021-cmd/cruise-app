@@ -300,84 +300,9 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return const Scaffold(
       backgroundColor: _bg,
-      body: AnimatedBuilder(
-        animation: Listenable.merge([_entranceCtrl, _glowCtrl, _exitCtrl]),
-        builder: (context, _) {
-          // Exit transforms
-          final exitOpacity = _exitCtrl.isAnimating || _exitCtrl.isCompleted
-              ? _exitFade.value
-              : 1.0;
-          final exitSc = _exitCtrl.isAnimating || _exitCtrl.isCompleted
-              ? _exitScale.value
-              : 1.0;
-
-          return Opacity(
-            opacity: exitOpacity.clamp(0.0, 1.0),
-            child: Center(
-              child: Transform.scale(
-                scale: exitSc,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: List.generate(_letters.length, (i) {
-                    final dy = _letterSlide[i].value;
-                    final opacity = _letterFade[i].value.clamp(0.0, 1.0);
-                    final scale = _letterScale[i].value.clamp(0.0, 2.0);
-
-                    // Glow shimmer: sweep a bright highlight L→R
-                    final glowProgress = _glowCtrl.value;
-                    final letterCenter = i / (_letters.length - 1);
-                    final dist = (glowProgress - letterCenter).abs();
-                    final glowAmount = (1.0 - (dist / 0.35).clamp(0.0, 1.0));
-                    final letterColor = Color.lerp(
-                      _gold,
-                      _goldBright,
-                      glowAmount * (_glowCtrl.isAnimating ? 1.0 : 0.0),
-                    )!;
-
-                    // Subtle shadow glow at peak shimmer
-                    final shadowOpacity =
-                        (glowAmount * 0.7 * (_glowCtrl.isAnimating ? 1.0 : 0.0))
-                            .clamp(0.0, 1.0);
-
-                    return Transform.translate(
-                      offset: Offset(0, dy),
-                      child: Opacity(
-                        opacity: opacity,
-                        child: Transform.scale(
-                          scale: scale,
-                          child: Text(
-                            _letters[i],
-                            style: GoogleFonts.cinzel(
-                              fontSize: 56,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 3,
-                              color: letterColor,
-                              shadows: [
-                                Shadow(
-                                  color: _gold.withValues(alpha: shadowOpacity),
-                                  blurRadius: 24,
-                                ),
-                                Shadow(
-                                  color: _goldBright.withValues(
-                                    alpha: shadowOpacity * 0.5,
-                                  ),
-                                  blurRadius: 48,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  }),
-                ),
-              ),
-            ),
-          );
-        },
-      ),
+      body: SizedBox.expand(),
     );
   }
 }

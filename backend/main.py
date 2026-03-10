@@ -61,10 +61,6 @@ JWT_REFRESH_HOURS = 168  # 7-day refresh window
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
-    pool_size=20,  # Connection pool size
-    max_overflow=10,  # Extra connections when pool is full
-    pool_pre_ping=True,  # Verify connections before use
-    pool_recycle=3600,  # Recycle connections every hour
     connect_args={
         "timeout": 30,  # 30 second timeout for DB operations
         "check_same_thread": False,  # Allow multi-threading
@@ -370,8 +366,11 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     # Hide server identity
-    if "server" in response.headers:
-        del response.headers["server"]
+    try:
+        if "server" in response.headers:
+            response.headers["server"] = ""
+    except:
+        pass
     return response
 
 # ── LAYER 3: Rate Limiting (per-IP, anti-DDoS) ────────
@@ -5412,7 +5411,7 @@ async def _start_scheduler():
 if __name__ == "__main__":
     import uvicorn
     print("=" * 60)
-    print("🚀 CRUISE BACKEND SERVER")
+    print("CRUISE BACKEND SERVER")
     print("=" * 60)
     print(f"Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("Server URL: http://0.0.0.0:8000")

@@ -34,6 +34,8 @@ class _ChatScreenState extends State<ChatScreen> {
   final List<_ChatMessage> _messages = [];
   Timer? _pollTimer;
   int? _myUserId;
+  bool _connectionError = false;
+  bool _isConnecting = true;
 
   @override
   void initState() {
@@ -68,6 +70,8 @@ class _ChatScreenState extends State<ChatScreen> {
       final msgs = await ApiService.getChatMessages(widget.tripId!);
       if (!mounted) return;
       setState(() {
+        _connectionError = false;
+        _isConnecting = false;
         _messages.clear();
         for (final m in msgs) {
           _messages.add(
@@ -82,7 +86,13 @@ class _ChatScreenState extends State<ChatScreen> {
         }
       });
       _scrollToBottom();
-    } catch (_) {}
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _connectionError = true;
+        _isConnecting = false;
+      });
+      debugPrint('[ChatScreen] Error fetching messages: $e');
   }
 
   @override
@@ -100,13 +110,18 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() {
       _messages.add(_ChatMessage(text: text, isMe: true, time: DateTime.now()));
       _controller.clear();
+      _connectionError = false;
     });
     _scrollToBottom();
 
     if (widget.tripId != null) {
       try {
         await ApiService.sendChatMessage(tripId: widget.tripId!, message: text);
-      } catch (_) {}
+      } catch (e) {
+        if (!mounted) return;
+        setState(() => _connectionError = true);
+        debugPrint('[ChatScreen] Error sending message: $e');
+      }
     }
   }
 
@@ -262,39 +277,96 @@ class _ChatScreenState extends State<ChatScreen> {
 
             // ── Messages list ──
             Expanded(
-              child: _messages.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
+              child: Column(
+                children: [
+                  // Connection error banner
+                  if (_connectionError)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                      color: const Color(0xFFEF4444).withValues(alpha: 0.15),
+                      child: Row(
                         children: [
                           Icon(
-                            Icons.chat_bubble_outline_rounded,
-                            size: 48,
-                            color: Colors.white.withValues(alpha: 0.15),
+                            Icons.wifi_off_rounded,
+                            color: const Color(0xFFEF4444),
+                            size: 18,
                           ),
-                          const SizedBox(height: 12),
-                          Text(
-                            s.writeToStart,
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.3),
-                              fontSize: 14,
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Connection issue - retrying...',
+                              style: TextStyle(
+                                color: const Color(0xFFEF4444),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          GestureDetector(
+                            onTap: () => _fetchMessages(),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFEF4444),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                'Retry',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
                             ),
                           ),
                         ],
                       ),
-                    )
-                  : ListView.builder(
-                      controller: _scrollController,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
-                      itemCount: _messages.length,
-                      itemBuilder: (context, index) {
-                        final msg = _messages[index];
-                        return _buildBubble(msg);
-                      },
                     ),
+                  Expanded(
+                    child: _messages.isEmpty
+                        ? Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.chat_bubble_outline_rounded,
+                                  size: 48,
+                                  color: Colors.white.withValues(alpha: 0.15),
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  s.writeToStart,
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.3),
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        : ListView.builder(
+                            controller: _scrollController,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
+                            itemCount: _messages.length,
+                            itemBuilder: (context, index) {
+                              final msg = _messages[index];
+                              return _buildBubble(msg);
+                            },
+                          ),
+                  ),
+                ],
+              ),
             ),
 
             // ── Input bar ──

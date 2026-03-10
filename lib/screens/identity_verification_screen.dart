@@ -346,22 +346,29 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
                 ),
                 elevation: 0,
               ),
-              child: Text(
-                S.of(context).startVerification,
-                style: TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.2,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  S.of(context).startVerification,
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.2,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ),
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: MediaQuery.of(context).viewInsets.bottom > 0 ? 8 : 16),
           Text(
             S.of(context).documentsEncrypted,
             style: TextStyle(fontSize: 12, color: c.textTertiary),
           ),
-          const SizedBox(height: 24),
+          SizedBox(height: MediaQuery.of(context).viewInsets.bottom > 0 
+              ? 12 
+              : MediaQuery.of(context).padding.bottom + 24),
         ],
       ),
     );
@@ -587,13 +594,20 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
                     ),
                     elevation: 0,
                   ),
-                  child: const Text(
-                    'Continue to Cruise',
-                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: const Text(
+                      'Continue to Cruise',
+                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ),
               ),
-              const SizedBox(height: 24),
+              SizedBox(height: MediaQuery.of(context).viewInsets.bottom > 0 
+                  ? 12 
+                  : MediaQuery.of(context).padding.bottom + 24),
             ],
           ),
         );
@@ -771,13 +785,20 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
                 ),
                 elevation: 0,
               ),
-              child: const Text(
-                'Try Again',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: const Text(
+                  'Try Again',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
             ),
           ),
-          const SizedBox(height: 24),
+          SizedBox(height: MediaQuery.of(context).viewInsets.bottom > 0 
+              ? 12 
+              : MediaQuery.of(context).padding.bottom + 24),
         ],
       ),
     );

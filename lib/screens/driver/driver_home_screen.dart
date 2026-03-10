@@ -67,7 +67,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
   // ── Bottom panel ──
   double _panelExtent = 0.0; // 0 = collapsed, 1 = expanded
   static const double _panelCollapsedH = 62.0;
-  static const double _panelExpandedH = 280.0;
+  static const double _panelExpandedH = 380.0; // Increased for full content
   bool _dragging = false;
 
   // ── Inbox unread count ──
@@ -864,11 +864,12 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
                 ),
               ),
             ),
-            // ── Header row: settings | status | list ──
+            // ── Header row: photo | status | list ──
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
               child: Row(
                 children: [
+                  // Driver photo
                   GestureDetector(
                     onTap: () {
                       HapticFeedback.selectionClick();
@@ -876,10 +877,40 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
                         context,
                       ).push(slideFromRightRoute(const DriverEarningsScreen()));
                     },
-                    child: Icon(
-                      Icons.tune_rounded,
-                      color: Colors.white.withValues(alpha: 0.6),
-                      size: 24,
+                    child: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(color: _gold, width: 2),
+                      ),
+                      child: ClipOval(
+                        child: _photoUrl != null && _photoUrl!.isNotEmpty
+                            ? (_photoUrl!.startsWith('http')
+                                ? Image.network(
+                                    _photoUrl!,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, _, _) => Icon(
+                                      Icons.person_rounded,
+                                      color: dc.text.withValues(alpha: 0.6),
+                                      size: 20,
+                                    ),
+                                  )
+                                : Image.file(
+                                    File(_photoUrl!),
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, _, _) => Icon(
+                                      Icons.person_rounded,
+                                      color: dc.text.withValues(alpha: 0.6),
+                                      size: 20,
+                                    ),
+                                  ))
+                            : Icon(
+                                Icons.person_rounded,
+                                color: dc.text.withValues(alpha: 0.6),
+                                size: 20,
+                              ),
+                      ),
                     ),
                   ),
                   const Spacer(),
@@ -892,7 +923,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
                         height: 8,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: Colors.white.withValues(alpha: 0.3),
+                          color: dc.text.withValues(alpha: 0.3),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -901,7 +932,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
                             ? S.of(context).findingTrips
                             : S.of(context).youreOffline,
                         style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.7),
+                          color: dc.text.withValues(alpha: 0.7),
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
                         ),
@@ -918,7 +949,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
                     },
                     child: Icon(
                       Icons.format_list_bulleted_rounded,
-                      color: Colors.white.withValues(alpha: 0.6),
+                      color: dc.text.withValues(alpha: 0.6),
                       size: 24,
                     ),
                   ),
@@ -931,68 +962,21 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
                 child: Opacity(
                   opacity: _panelExtent.clamp(0.0, 1.0),
                   child: ListView(
-                    physics: const ClampingScrollPhysics(),
+                    physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.symmetric(
                       horizontal: 20,
                       vertical: 8,
                     ),
                     children: [
                       Divider(
-                        color: Colors.white.withValues(alpha: 0.08),
+                        color: dc.divider,
                         height: 1,
                       ),
                       const SizedBox(height: 16),
-                      // ── Profile row ──
-                      if (_photoUrl != null && _photoUrl!.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 16),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 42,
-                                height: 42,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  border: Border.all(color: _gold, width: 2),
-                                ),
-                                child: ClipOval(
-                                  child: _photoUrl!.startsWith('http')
-                                      ? Image.network(
-                                          _photoUrl!,
-                                          fit: BoxFit.cover,
-                                          errorBuilder: (_, _, _) => const Icon(
-                                            Icons.person_rounded,
-                                            color: Colors.white54,
-                                            size: 22,
-                                          ),
-                                        )
-                                      : Image.file(
-                                          File(_photoUrl!),
-                                          fit: BoxFit.cover,
-                                          errorBuilder: (_, _, _) => const Icon(
-                                            Icons.person_rounded,
-                                            color: Colors.white54,
-                                            size: 22,
-                                          ),
-                                        ),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Text(
-                                _driverName,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
                       Text(
                         S.of(context).recommendedForYou,
-                        style: const TextStyle(
-                          color: Colors.white,
+                        style: TextStyle(
+                          color: dc.text,
                           fontSize: 18,
                           fontWeight: FontWeight.w800,
                         ),
@@ -1018,6 +1002,45 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
                         S.of(context).seeDrivingTime,
                         () {},
                       ),
+                      const SizedBox(height: 16),
+                      // Go offline button
+                      if (_isStillOnline)
+                        GestureDetector(
+                          onTap: () {
+                            HapticFeedback.mediumImpact();
+                            setState(() => _isStillOnline = false);
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEF4444).withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: const Color(0xFFEF4444).withValues(alpha: 0.3),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.stop_circle_outlined,
+                                  color: const Color(0xFFEF4444),
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Go Offline',
+                                  style: TextStyle(
+                                    color: const Color(0xFFEF4444),
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      SizedBox(height: pad.bottom + 16),
                     ],
                   ),
                 ),
@@ -1029,6 +1052,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
   }
 
   Widget _recommendItem(IconData icon, String label, VoidCallback onTap) {
+    final dc = DriverColors.of(context);
     return GestureDetector(
       onTap: () {
         HapticFeedback.selectionClick();
@@ -1038,18 +1062,18 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
         padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
         decoration: BoxDecoration(
           border: Border(
-            bottom: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
+            bottom: BorderSide(color: dc.divider),
           ),
         ),
         child: Row(
           children: [
-            Icon(icon, color: Colors.white.withValues(alpha: 0.7), size: 22),
+            Icon(icon, color: dc.text.withValues(alpha: 0.7), size: 22),
             const SizedBox(width: 14),
             Expanded(
               child: Text(
                 label,
-                style: const TextStyle(
-                  color: Colors.white,
+                style: TextStyle(
+                  color: dc.text,
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
                 ),
@@ -1057,7 +1081,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
             ),
             Icon(
               Icons.chevron_right_rounded,
-              color: Colors.white.withValues(alpha: 0.25),
+              color: dc.text.withValues(alpha: 0.25),
               size: 22,
             ),
           ],

@@ -866,37 +866,43 @@ class _RideRequestScreenState extends State<RideRequestScreen>
         _searchMapTimer = null;
         _splashTimer?.cancel();
         _splashTimer = null;
-        // Show cancel reason dialog
-        final reason = s.cancelReason ?? S.of(context).noDriversAvailable;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          showDialog(
-            context: context,
-            barrierDismissible: false,
-            builder: (_) => AlertDialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              title: Row(
-                children: [
-                  Icon(Icons.info_outline, color: Colors.orange, size: 28),
-                  SizedBox(width: 10),
-                  Text(S.of(context).tripCancelled),
+        // Only show cancel dialog if there's a specific cancel reason from dispatch
+        // (not just "no drivers available" which is automatic)
+        if (s.cancelReason != null && s.cancelReason!.isNotEmpty) {
+          final reason = s.cancelReason!;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (_) => AlertDialog(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                title: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.orange, size: 28),
+                    SizedBox(width: 10),
+                    Text(S.of(context).tripCancelled),
+                  ],
+                ),
+                content: Text(reason, style: const TextStyle(fontSize: 15)),
+                actions: [
+                  TextButton(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      _ctrl.reset();
+                    },
+                    child: Text(S.of(context).okBtn),
+                  ),
                 ],
               ),
-              content: Text(reason, style: const TextStyle(fontSize: 15)),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                    _ctrl.reset();
-                  },
-                  child: Text(S.of(context).okBtn),
-                ),
-              ],
-            ),
-          );
-        });
+            );
+          });
+        } else {
+          // No cancel reason from dispatch - just reset silently
+          _ctrl.reset();
+        }
         break;
       default:
         _searchingShowMap = false;

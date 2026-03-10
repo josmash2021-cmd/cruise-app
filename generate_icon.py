@@ -13,6 +13,7 @@ ADAPT_FG  = 432
 ADAPT_R   = ADAPT_FG * 4
 
 # ── Colors ──
+WHITE    = (255, 255, 255)  # White background
 BLACK    = (0, 0, 0)
 GOLD     = (201, 168, 52)   # Warm gold matching the user's image
 
@@ -42,17 +43,17 @@ def _draw_car_icon(draw, cx, cy, scale):
     wy1 = ry1 + int(0.035 * s)
     wx2 = wx1 + ws_w
     wy2 = wy1 + ws_h
-    draw.rounded_rectangle([wx1, wy1, wx2, wy2], radius=int(0.02 * s), fill=BLACK)
+    draw.rounded_rectangle([wx1, wy1, wx2, wy2], radius=int(0.02 * s), fill=WHITE)
 
-    # ── Headlights (dark circles) ──
+    # ── Headlights (white circles) ──
     hl_r = int(0.035 * s)
     hl_y = by1 + body_h // 3
     # Left headlight
     draw.ellipse([bx1 + int(0.04 * s) - hl_r, hl_y - hl_r,
-                  bx1 + int(0.04 * s) + hl_r, hl_y + hl_r], fill=BLACK)
+                  bx1 + int(0.04 * s) + hl_r, hl_y + hl_r], fill=WHITE)
     # Right headlight
     draw.ellipse([bx2 - int(0.04 * s) - hl_r, hl_y - hl_r,
-                  bx2 - int(0.04 * s) + hl_r, hl_y + hl_r], fill=BLACK)
+                  bx2 - int(0.04 * s) + hl_r, hl_y + hl_r], fill=WHITE)
 
     # ── Bumper / lower body extension ──
     bump_w = int(0.44 * s)
@@ -74,7 +75,7 @@ def _draw_car_icon(draw, cx, cy, scale):
 
 
 def _draw_icon(img, sz):
-    """Draw the full icon: black bg, gold circle border, gold car."""
+    """Draw the full icon: white bg, gold circle border, gold car."""
     draw = ImageDraw.Draw(img)
 
     cx, cy = sz // 2, sz // 2
@@ -92,7 +93,7 @@ def _draw_icon(img, sz):
 # ═══════════════════════════════════════
 #  1. LEGACY ICON (ic_launcher.png)
 # ═══════════════════════════════════════
-img_hi = Image.new('RGB', (RENDER, RENDER), BLACK)
+img_hi = Image.new('RGB', (RENDER, RENDER), WHITE)
 _draw_icon(img_hi, RENDER)
 img_legacy = img_hi.resize((SIZE, SIZE), Image.LANCZOS)
 
@@ -110,9 +111,9 @@ _draw_car_icon(draw_fg, fgcx, fgcy, int(ADAPT_R * 0.45))
 fg_master = fg_hi.resize((ADAPT_FG, ADAPT_FG), Image.LANCZOS)
 
 # ═══════════════════════════════════════
-#  3. ADAPTIVE BACKGROUND (solid black)
+#  3. ADAPTIVE BACKGROUND (solid white)
 # ═══════════════════════════════════════
-bg_master = Image.new('RGB', (ADAPT_FG, ADAPT_FG), BLACK)
+bg_master = Image.new('RGB', (ADAPT_FG, ADAPT_FG), WHITE)
 
 # ═══════════════════════════════════════
 #  OUTPUT PATHS
@@ -174,12 +175,12 @@ with open(os.path.join(anydpi_dir, 'ic_launcher.xml'), 'w') as f:
     f.write(xml_content)
 print(f'  xml     mipmap-anydpi-v26/ic_launcher.xml')
 
-# ── Update colors.xml fallback bg color to gold ──
+# ── Update colors.xml fallback bg color to white ──
 values_dir = os.path.join(res_base, 'values')
 os.makedirs(values_dir, exist_ok=True)
 colors_path = os.path.join(values_dir, 'colors.xml')
-gold_hex = '#000000'
-bg_entry = f'<color name="ic_launcher_background">{gold_hex}</color>'
+white_hex = '#FFFFFF'
+bg_entry = f'<color name="ic_launcher_background">{white_hex}</color>'
 if os.path.exists(colors_path):
     with open(colors_path, 'r') as f:
         content = f.read()
@@ -199,7 +200,7 @@ else:
 standalone = os.path.join(values_dir, 'ic_launcher_background.xml')
 if os.path.exists(standalone):
     os.remove(standalone)
-print(f'  color   values/colors.xml (ic_launcher_background -> {gold_hex})')
+print(f'  color   values/colors.xml (ic_launcher_background -> {white_hex})')
 
 # ── Web icons ──
 web_dir = os.path.join(out_dir, 'web', 'icons')
@@ -237,4 +238,4 @@ for name, sz in IOS_SIZES.items():
     img_legacy.resize((sz, sz), Image.LANCZOS).save(os.path.join(ios_dir, name), 'PNG')
     print(f'  ios     {name}  {sz}x{sz}')
 
-print('\nDone — BLACK bg, GOLD car icon, adaptive + legacy, HD.')
+print('\nDone — WHITE bg, GOLD car icon, adaptive + legacy, HD.')
