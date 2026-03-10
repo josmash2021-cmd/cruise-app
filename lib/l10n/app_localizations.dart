@@ -378,6 +378,18 @@ class S {
   String get audioRecordingDesc => _es
       ? 'Graba audio durante tu viaje para mayor tranquilidad.'
       : 'Record audio during your trip for added peace of mind.';
+  String get audioRecordingFullDesc => _es
+      ? 'Durante un viaje, Cruise puede grabar audio de forma segura. Las grabaciones están encriptadas y solo se acceden si reportas un problema de seguridad.'
+      : 'During a trip, Cruise can securely record audio. Recordings are encrypted and only accessed if you report a safety issue.';
+  String get rideCheckFullDesc => _es
+      ? 'Si tu viaje se desvía de la ruta esperada o toma más tiempo de lo normal, te enviaremos una notificación para verificar que estés bien. También puedes compartir tu ubicación en tiempo real con tus contactos de confianza.'
+      : 'If your trip goes off the expected route or takes longer than usual, we\'ll send you a notification to check that you\'re okay. You can also share your real-time location with your trusted contacts.';
+  String get shareLocationNow =>
+      _es ? 'Compartir ubicación' : 'Share location now';
+  String get close => _es ? 'Cerrar' : 'Close';
+  String get rideCheckShareText => _es
+      ? 'Estoy en un viaje con Cruise App. Puedes verificar que estoy bien contactándome.'
+      : 'I\'m on a trip with Cruise App. You can check that I\'m safe by reaching out to me.';
   String get safetyTips => _es ? 'Consejos de Seguridad' : 'Safety Tips';
   String get safetyTip1 => _es
       ? 'Siempre verifica a tu conductor y vehículo antes de entrar.'

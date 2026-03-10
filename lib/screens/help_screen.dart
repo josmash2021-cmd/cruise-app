@@ -1015,7 +1015,9 @@ class _CruiseSupportChatScreenState extends State<CruiseSupportChatScreen> {
         }
         // Check if last bot message indicates chat closure
         final lastBot = newMessages.where((m) => m.role == 'bot').lastOrNull;
-        if (lastBot != null && lastBot.text.contains('cerraré este chat')) {
+        if (lastBot != null &&
+            (lastBot.text.contains('cerraré este chat') ||
+                lastBot.text.contains('closing this session'))) {
           _chatClosed = true;
           _pollTimer?.cancel();
         }
@@ -1023,7 +1025,8 @@ class _CruiseSupportChatScreenState extends State<CruiseSupportChatScreen> {
         final hasSupervisor = newMessages.any(
           (m) =>
               m.role == 'system' &&
-              m.text.contains('supervisor se ha conectado'),
+              (m.text.contains('supervisor se ha conectado') ||
+                  m.text.contains('supervisor has joined')),
         );
         setState(() {
           _messages.clear();
@@ -1095,6 +1098,16 @@ class _CruiseSupportChatScreenState extends State<CruiseSupportChatScreen> {
       await _loadMessages();
     } catch (e) {
       debugPrint('[SupportChat] send error: $e');
+      if (mounted) {
+        // Remove the optimistic message that failed to send
+        setState(() => _messages.removeLast());
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(S.of(context).connectionError),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
     if (mounted) {
       setState(() {

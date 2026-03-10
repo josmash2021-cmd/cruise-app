@@ -131,7 +131,7 @@ class _SafetyScreenState extends State<SafetyScreen> {
                 icon: Icons.phone_in_talk_rounded,
                 title: S.of(context).rideCheck,
                 subtitle: S.of(context).rideCheckDesc,
-                onTap: () => _showComingSoon(context, c),
+                onTap: () => _showRideCheck(context, c),
               ),
               const SizedBox(height: 10),
               _featureCard(
@@ -139,7 +139,7 @@ class _SafetyScreenState extends State<SafetyScreen> {
                 icon: Icons.record_voice_over_outlined,
                 title: S.of(context).audioRecording,
                 subtitle: S.of(context).audioRecordingDesc,
-                onTap: () => _showComingSoon(context, c),
+                onTap: () => _showAudioRecording(context, c),
               ),
 
               const SizedBox(height: 28),
@@ -666,13 +666,131 @@ class _SafetyScreenState extends State<SafetyScreen> {
     );
   }
 
-  void _showComingSoon(BuildContext context, AppColors c) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Coming soon'),
-        backgroundColor: c.isDark ? c.surface : Colors.black87,
-        duration: const Duration(seconds: 1),
+  void _showAudioRecording(BuildContext context, AppColors c) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: c.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: c.textTertiary.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Icon(Icons.record_voice_over_outlined, size: 48, color: _gold),
+            const SizedBox(height: 16),
+            Text(
+              S.of(context).audioRecording,
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: c.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              S.of(context).audioRecordingFullDesc,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 14, color: c.textSecondary),
+            ),
+            const SizedBox(height: 24),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(
+                S.of(context).close,
+                style: TextStyle(color: c.textSecondary),
+              ),
+            ),
+          ],
+        ),
       ),
     );
+  }
+
+  void _showRideCheck(BuildContext context, AppColors c) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: c.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: c.textTertiary.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Icon(Icons.phone_in_talk_rounded, size: 48, color: _gold),
+            const SizedBox(height: 16),
+            Text(
+              S.of(context).rideCheck,
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: c.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              S.of(context).rideCheckFullDesc,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 14, color: c.textSecondary),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _gold,
+                  foregroundColor: Colors.black,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                onPressed: () {
+                  Navigator.pop(context);
+                  _shareLocation(context, c);
+                },
+                child: Text(
+                  S.of(context).shareLocationNow,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(
+                S.of(context).close,
+                style: TextStyle(color: c.textSecondary),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _shareLocation(BuildContext context, AppColors c) {
+    Share.share(S.of(context).rideCheckShareText);
   }
 }

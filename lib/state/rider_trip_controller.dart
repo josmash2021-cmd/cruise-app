@@ -273,7 +273,7 @@ class RiderTripController extends ChangeNotifier {
         description: 'Premium SUV experience',
         priceEstimate: _round(baseFare * 2.20),
         etaMinutes: 5 + math.Random().nextInt(8),
-        icon: '�',
+        icon: '🚐',
         capacity: 7,
       ),
       RideOption(
@@ -291,7 +291,7 @@ class RiderTripController extends ChangeNotifier {
         description: 'Affordable rides',
         priceEstimate: _round(baseFare),
         etaMinutes: 3 + math.Random().nextInt(5),
-        icon: '�',
+        icon: '🚗',
         capacity: 4,
       ),
     ];

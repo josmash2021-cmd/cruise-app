@@ -10,7 +10,11 @@ class RideRating {
   final double tipAmount;
   final String comment;
 
-  const RideRating({required this.stars, required this.tipAmount, this.comment = ''});
+  const RideRating({
+    required this.stars,
+    required this.tipAmount,
+    this.comment = '',
+  });
 }
 
 class RideRatingScreen extends StatefulWidget {
@@ -64,7 +68,11 @@ class _RideRatingScreenState extends State<RideRatingScreen>
   void _submit() async {
     final stars = _stars == 0 ? 5 : _stars;
     final tip = _selectedTipIndex >= 0 ? _tipAmounts[_selectedTipIndex] : 0.0;
-    final rating = RideRating(stars: stars, tipAmount: tip, comment: _commentController.text.trim());
+    final rating = RideRating(
+      stars: stars,
+      tipAmount: tip,
+      comment: _commentController.text.trim(),
+    );
 
     // Send to backend
     if (widget.tripId != null) {
@@ -219,7 +227,10 @@ class _RideRatingScreenState extends State<RideRatingScreen>
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide.none,
                     ),
-                    counterStyle: TextStyle(color: c.textTertiary, fontSize: 11),
+                    counterStyle: TextStyle(
+                      color: c.textTertiary,
+                      fontSize: 11,
+                    ),
                   ),
                 ),
 

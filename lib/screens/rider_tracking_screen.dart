@@ -19,6 +19,7 @@ import '../services/notification_service.dart';
 import '../services/trip_firestore_service.dart';
 import '../config/api_keys.dart';
 import 'chat_screen.dart';
+import 'help_screen.dart';
 import 'home_screen.dart';
 import '../l10n/app_localizations.dart';
 
@@ -1396,12 +1397,7 @@ class _RiderTrackingScreenState extends State<RiderTrackingScreen>
                   child: TextButton(
                     onPressed: () {
                       Navigator.of(context).push(
-                        slideFromRightRoute(
-                          const ChatScreen(
-                            recipientName: 'Cruise Support',
-                            isSupport: true,
-                          ),
-                        ),
+                        slideFromRightRoute(const CruiseSupportChatScreen()),
                       );
                     },
                     child: Text(
