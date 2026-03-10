@@ -788,6 +788,7 @@ class RegisterIn(BaseModel):
 
 class CheckExistsIn(BaseModel):
     identifier: str
+    role: Optional[str] = None  # rider | driver — filter by role if provided
 
 class LoginIn(BaseModel):
     identifier: str
@@ -940,9 +941,10 @@ async def register(body: RegisterIn, db: AsyncSession = Depends(get_db)):
 @app.post("/auth/check-exists", dependencies=[Depends(_verify_api_key)])
 async def check_exists(body: CheckExistsIn, db: AsyncSession = Depends(get_db)):
     identifier = body.identifier.strip()
-    result = await db.execute(
-        select(User).where((User.email == identifier) | (User.phone == identifier))
-    )
+    query = select(User).where((User.email == identifier) | (User.phone == identifier))
+    if body.role in ("rider", "driver"):
+        query = query.where(User.role == body.role)
+    result = await db.execute(query)
     return {"exists": result.scalar_one_or_none() is not None}
 
 @app.post("/auth/login", dependencies=[Depends(_verify_api_key)])
@@ -5066,7 +5068,9 @@ async def serve_document(filename: str):
     fpath = os.path.join(UPLOADS_DIR, "documents", safe_name)
     if not os.path.exists(fpath):
         raise HTTPException(404, "Document not found")
-    media = "image/jpeg" if safe_name.endswith(".jpg") else "image/png"
+    ext = os.path.splitext(safe_name)[1].lower()
+    mime_map = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".mp4": "video/mp4", ".mov": "video/quicktime"}
+    media = mime_map.get(ext, "application/octet-stream")
     return FileResponse(fpath, media_type=media)
 
 

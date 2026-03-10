@@ -597,9 +597,17 @@ class _DriverSignupScreenState extends State<DriverSignupScreen>
               : null,
           plate: _plateCtrl.text.trim(),
         );
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('⚠️ Vehicle save failed: $e');
+        // Non-blocking — vehicle can be added later via dispatch
+      }
 
-      await _uploadDocuments();
+      try {
+        await _uploadDocuments();
+      } catch (e) {
+        debugPrint('⚠️ Document upload failed: $e');
+        // Non-blocking — documents can be re-submitted
+      }
       await LocalDataService.setDriverApprovalStatus('pending');
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -633,7 +641,9 @@ class _DriverSignupScreenState extends State<DriverSignupScreen>
       if (p == null) return;
       try {
         body[key] = base64Encode(await File(p).readAsBytes());
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('⚠️ Failed to read $key from $p: $e');
+      }
     }
 
     await enc('license_front', _licenseFrontPath);
@@ -641,9 +651,7 @@ class _DriverSignupScreenState extends State<DriverSignupScreen>
     await enc('insurance_photo', _insurancePath);
     await enc('selfie_photo', _selfiePath);
     await enc('verification_video', _verificationVideoPath);
-    try {
-      await ApiService.submitVerification(body);
-    } catch (_) {}
+    await ApiService.submitVerification(body);
   }
 
   void _showError(String msg) {

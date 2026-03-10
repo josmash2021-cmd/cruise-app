@@ -98,27 +98,25 @@ class _DriverLoginScreenState extends State<DriverLoginScreen>
       );
       await UserSession.saveMode('driver');
 
-      // Check if driver is still pending approval
+      // Check driver approval status
       final vStatus = user['verification_status'] as String? ?? 'none';
-      if (vStatus == 'pending') {
-        if (!mounted) return;
-        setState(() => _loading = false);
-        Navigator.of(context).pushAndRemoveUntil(
-          slideFromRightRoute(const DriverPendingReviewScreen()),
-          (_) => false,
-        );
-        return;
-      }
-      // Approved — go to home
+      if (!mounted) return;
+      setState(() => _loading = false);
+
       if (vStatus == 'approved') {
-        if (!mounted) return;
-        setState(() => _loading = false);
         Navigator.of(context).pushAndRemoveUntil(
           slideFromRightRoute(const DriverHomeScreen()),
           (_) => false,
         );
         return;
       }
+      // pending, rejected, none, or any other status → pending review screen
+      // (DriverPendingReviewScreen fetches live status and handles all states)
+      Navigator.of(context).pushAndRemoveUntil(
+        slideFromRightRoute(const DriverPendingReviewScreen()),
+        (_) => false,
+      );
+      return;
     } on ApiException catch (e) {
       if (!mounted) return;
       String msg;
@@ -149,15 +147,6 @@ class _DriverLoginScreenState extends State<DriverLoginScreen>
       });
       return;
     }
-
-    if (!mounted) return;
-    setState(() => _loading = false);
-
-    // Navigate to driver home
-    Navigator.of(context).pushAndRemoveUntil(
-      slideFromRightRoute(const DriverHomeScreen()),
-      (_) => false,
-    );
   }
 
   @override

@@ -275,6 +275,25 @@ class _ProfilePhotoScreenState extends State<ProfilePhotoScreen> {
                 ),
               ),
 
+              const SizedBox(height: 4),
+
+              // ── Skip ──
+              SizedBox(
+                width: double.infinity,
+                height: 44,
+                child: TextButton(
+                  onPressed: _advance,
+                  child: Text(
+                    S.of(context).skip,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: c.textTertiary,
+                    ),
+                  ),
+                ),
+              ),
+
               const SizedBox(height: 16),
             ],
           ),

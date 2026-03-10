@@ -351,12 +351,14 @@ class ApiService {
 
   /// Check whether an email or phone is already registered.
   /// Returns `true` if the account exists.
-  static Future<bool> checkExists(String identifier) async {
+  static Future<bool> checkExists(String identifier, {String? role}) async {
     try {
+      final payload = <String, dynamic>{'identifier': identifier.trim()};
+      if (role != null) payload['role'] = role;
       final res = await http.post(
         Uri.parse('$_baseUrl/auth/check-exists'),
         headers: _jsonHeaders(),
-        body: jsonEncode({'identifier': identifier.trim()}),
+        body: jsonEncode(payload),
       );
       if (res.statusCode == 200) {
         final body = jsonDecode(res.body);

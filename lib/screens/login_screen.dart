@@ -101,7 +101,7 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _sending = true);
 
     // Check if account already exists
-    final exists = await ApiService.checkExists(email);
+    final exists = await ApiService.checkExists(email, role: 'rider');
     if (!mounted) return;
     if (exists) {
       setState(() => _sending = false);
@@ -121,16 +121,24 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (sent) {
       _showSnack('Code sent to $email', const Color(0xFFE8C547));
+      Navigator.of(context).push(
+        slideFromRightRoute(VerifyCodeScreen(email: email, expectedCode: code)),
+      );
     } else if (!EmailService.isConfigured) {
+      // Dev mode — let them through even without email
       _showSnack(
         'EmailJS not configured — check console for code',
         const Color(0xFFE8C547),
       );
+      Navigator.of(context).push(
+        slideFromRightRoute(VerifyCodeScreen(email: email, expectedCode: code)),
+      );
+    } else {
+      _showSnack(
+        'Failed to send code. Try again.',
+        Colors.white.withValues(alpha: 0.6),
+      );
     }
-
-    Navigator.of(context).push(
-      slideFromRightRoute(VerifyCodeScreen(email: email, expectedCode: code)),
-    );
   }
 
   void _continueWithPhone(String phone) async {
@@ -146,7 +154,7 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _sending = true);
 
     // Check if account already exists
-    final exists = await ApiService.checkExists(normalizedPhone);
+    final exists = await ApiService.checkExists(normalizedPhone, role: 'rider');
     if (!mounted) return;
     if (exists) {
       setState(() => _sending = false);

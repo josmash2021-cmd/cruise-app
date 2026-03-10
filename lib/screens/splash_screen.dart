@@ -242,7 +242,10 @@ class _SplashScreenState extends State<SplashScreen>
               approvalResult['approval_status'] as String? ??
               approvalResult['status'] as String? ??
               'none';
-          if (vStatus == 'pending') {
+          if (vStatus == 'approved') {
+            destination = const DriverHomeScreen();
+          } else {
+            // pending, rejected, none → show review screen
             if (!mounted) return;
             Navigator.of(context).pushReplacement(
               smoothFadeRoute(
@@ -252,11 +255,10 @@ class _SplashScreenState extends State<SplashScreen>
             );
             return;
           }
-          // Approved — continue to home
         } catch (_) {
           // Backend unreachable — let them through
+          destination = const DriverHomeScreen();
         }
-        destination = const DriverHomeScreen();
       } else {
         destination = const HomeScreen();
       }
