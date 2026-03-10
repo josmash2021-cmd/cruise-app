@@ -2362,7 +2362,158 @@ _ESCALATION_TRIGGERS = [
     "speak to your manager", "hablar con el gerente", "hablar con un supervisor",
     "hablar con el jefe", "quiero hablar con un supervisor", "quiero hablar con el gerente",
     "no me ayudas", "incompetente", "inútil", "useless", "your boss",
+    "real person", "persona real", "human", "humano",
 ]
+
+_FRUSTRATION_KEYWORDS = [
+    "horrible", "terrible", "worst", "peor", "basura", "garbage", "trash",
+    "estafa", "scam", "robo", "steal", "fraud", "fraude", "disgusting",
+    "asqueroso", "fuck", "shit", "mierda", "damn", "hell", "stupid",
+    "idiota", "ridiculous", "ridículo", "absurdo", "absurd", "unacceptable",
+    "inaceptable", "sue", "demandar", "lawyer", "abogado", "police", "policía",
+]
+
+_CANCEL_INTENT = [
+    "cancela mi viaje", "cancel my trip", "cancel my ride", "cancelar mi viaje",
+    "cancelar el viaje", "cancela el viaje", "cancel the trip", "cancel the ride",
+    "quiero cancelar", "i want to cancel", "cancelar ahora", "cancel now",
+    "no quiero el viaje", "don't want the ride", "detener el viaje", "stop the trip",
+]
+
+
+def _detect_frustration(text: str) -> bool:
+    """Detect if user is frustrated/angry based on keywords and typing patterns."""
+    t = text.lower()
+    # Keyword check
+    if any(k in t for k in _FRUSTRATION_KEYWORDS):
+        return True
+    # ALL CAPS (more than 5 uppercase words)
+    words = text.split()
+    caps_words = sum(1 for w in words if len(w) > 2 and w.isupper())
+    if caps_words >= 3:
+        return True
+    # Excessive exclamation/question marks
+    if text.count("!") >= 3 or text.count("?") >= 3:
+        return True
+    return False
+
+
+def _has_cancel_intent(text: str) -> bool:
+    """Detect if user wants to cancel their active trip."""
+    t = text.lower()
+    return any(k in t for k in _CANCEL_INTENT)
+
+
+async def _get_user_context(user_id: int, db: AsyncSession, lang: str) -> dict:
+    """Gather comprehensive context about the user for smarter bot responses."""
+    ctx: dict = {"has_active_trip": False, "active_trip": None, "recent_trips": [],
+                 "user": None, "trip_summary": ""}
+
+    # User info
+    u_r = await db.execute(select(User).where(User.id == user_id))
+    user = u_r.scalar_one_or_none()
+    if user:
+        ctx["user"] = {
+            "name": f"{user.first_name} {user.last_name}".strip(),
+            "role": user.role or "rider",
+            "email": user.email,
+            "phone": user.phone,
+        }
+
+    # Active trip (not completed, not canceled)
+    active_r = await db.execute(
+        select(Trip).where(
+            Trip.rider_id == user_id,
+            Trip.status.notin_(["completed", "canceled"]),
+        ).order_by(Trip.created_at.desc()).limit(1)
+    )
+    active_trip = active_r.scalar_one_or_none()
+    if active_trip:
+        ctx["has_active_trip"] = True
+        driver_name = None
+        if active_trip.driver_id:
+            dr_r = await db.execute(select(User).where(User.id == active_trip.driver_id))
+            driver = dr_r.scalar_one_or_none()
+            if driver:
+                driver_name = f"{driver.first_name} {driver.last_name}".strip()
+        ctx["active_trip"] = {
+            "id": active_trip.id,
+            "status": active_trip.status,
+            "pickup": active_trip.pickup_address,
+            "dropoff": active_trip.dropoff_address,
+            "fare": active_trip.fare,
+            "driver_name": driver_name,
+            "vehicle_type": active_trip.vehicle_type,
+            "created_at": active_trip.created_at,
+        }
+
+    # Recent completed/canceled trips
+    recent_r = await db.execute(
+        select(Trip).where(Trip.rider_id == user_id)
+        .order_by(Trip.created_at.desc()).limit(5)
+    )
+    recent = recent_r.scalars().all()
+    for t in recent:
+        date_str = t.created_at.strftime("%m/%d/%Y %I:%M %p") if t.created_at else "N/A"
+        fare_str = f"${t.fare:.2f}" if t.fare else "$0.00"
+        ctx["recent_trips"].append({
+            "id": t.id, "date": date_str, "pickup": t.pickup_address or "N/A",
+            "dropoff": t.dropoff_address or "N/A", "fare": fare_str,
+            "status": t.status or "unknown",
+        })
+
+    # Build summary
+    if ctx["recent_trips"]:
+        lines = []
+        for rt in ctx["recent_trips"]:
+            lines.append(f"• {rt['date']} — {rt['pickup']} → {rt['dropoff']} — {rt['fare']} ({rt['status']})")
+        header = "Tus viajes recientes:" if lang.startswith("es") else "Your recent trips:"
+        ctx["trip_summary"] = header + "\n" + "\n".join(lines)
+    else:
+        ctx["trip_summary"] = ("No encontré viajes recientes en tu cuenta." if lang.startswith("es")
+                               else "I couldn't find any recent trips on your account.")
+
+    return ctx
+
+
+async def _bot_cancel_trip(user_id: int, db: AsyncSession, lang: str) -> str:
+    """Actually cancel the user's active trip and return confirmation message."""
+    result = await db.execute(
+        select(Trip).where(
+            Trip.rider_id == user_id,
+            Trip.status.notin_(["completed", "canceled"]),
+        ).order_by(Trip.created_at.desc()).limit(1)
+    )
+    trip = result.scalar_one_or_none()
+    if not trip:
+        if lang.startswith("es"):
+            return "No tienes un viaje activo en este momento para cancelar."
+        return "You don't have an active trip to cancel right now."
+
+    trip.status = "canceled"
+    trip.cancel_reason = "Canceled via support chat"
+    trip.updated_at = datetime.now(timezone.utc)
+    await db.flush()
+    if _HAS_FIRESTORE:
+        try:
+            firestore_sync.sync_trip_status(trip_id=trip.id, status="canceled", cancel_reason=trip.cancel_reason)
+        except Exception:
+            pass
+    if lang.startswith("es"):
+        return f"Tu viaje #{trip.id} de {trip.pickup_address} a {trip.dropoff_address} ha sido cancelado exitosamente. No se te realizará ningún cargo."
+    return f"Your trip #{trip.id} from {trip.pickup_address} to {trip.dropoff_address} has been successfully canceled. You won't be charged."
+
+
+def _score_categories(text: str) -> list:
+    """Score all categories by keyword match count and return sorted list."""
+    t = text.lower()
+    scores = []
+    for cat, data in _AI_CATEGORIES.items():
+        score = sum(1 for k in data["keywords"] if k in t)
+        if score > 0:
+            scores.append((cat, score))
+    scores.sort(key=lambda x: x[1], reverse=True)
+    return scores
 
 _THANK_KEYWORDS = [
     "gracias", "thanks", "thank you", "thx", "ty", "perfecto", "perfect",
@@ -2868,8 +3019,36 @@ async def _generate_bot_replies(chat, user_msg: str, user_name: str, db: AsyncSe
         # Brief typing delay
         await asyncio.sleep(_rng.randint(5, 15))
 
-        # Check escalation
-        if _match_keywords(user_msg, _ESCALATION_TRIGGERS):
+        # Gather user context for smarter responses
+        ctx = await _get_user_context(chat.user_id, db, lang)
+
+        # 1) Frustration auto-escalation — angry user gets supervisor fast
+        if _detect_frustration(user_msg) and not _match_keywords(user_msg, _THANK_KEYWORDS):
+            chat.needs_escalation = True
+            chat.bot_phase = "escalated"
+            if lang.startswith("es"):
+                esc = f"Lamento mucho esta experiencia, {user_name}. Entiendo tu frustración y quiero que recibas la mejor atención posible. Voy a conectarte de inmediato con un supervisor que podrá resolver tu caso directamente."
+                sys_msg = "⚠️ Caso escalado automáticamente por urgencia. Un supervisor conectará en breve."
+            else:
+                esc = f"I'm truly sorry about this experience, {user_name}. I completely understand your frustration and I want you to get the best possible attention. I'm connecting you right away with a supervisor who can resolve your case directly."
+                sys_msg = "⚠️ Case automatically escalated due to urgency. A supervisor will connect shortly."
+            replies.append({"role": "bot", "message": esc, "sender_name": agent})
+            replies.append({"role": "system", "message": sys_msg, "sender_name": "Sistema" if lang.startswith("es") else "System"})
+            if _HAS_FIRESTORE:
+                try:
+                    firestore_sync.sync_dispatch_notification(
+                        chat.id, user_name, "escalation",
+                        f"🚨 Chat de {user_name} escalado automáticamente — usuario frustrado"
+                    )
+                    firestore_sync.sync_support_chat(
+                        chat.id, chat.user_id, user_name, "",
+                        needs_escalation=True, bot_phase="escalated",
+                    )
+                except Exception:
+                    pass
+
+        # 2) Explicit escalation request
+        elif _match_keywords(user_msg, _ESCALATION_TRIGGERS):
             chat.needs_escalation = True
             chat.bot_phase = "escalated"
             if lang.startswith("es"):
@@ -2888,7 +3067,6 @@ async def _generate_bot_replies(chat, user_msg: str, user_name: str, db: AsyncSe
                 sys_msg = "⚠️ A supervisor has been requested. They'll connect in 5-10 minutes."
             replies.append({"role": "bot", "message": esc, "sender_name": agent})
             replies.append({"role": "system", "message": sys_msg, "sender_name": "Sistema" if lang.startswith("es") else "System"})
-            # Notify dispatch about escalation
             if _HAS_FIRESTORE:
                 try:
                     firestore_sync.sync_dispatch_notification(
@@ -2902,13 +3080,33 @@ async def _generate_bot_replies(chat, user_msg: str, user_name: str, db: AsyncSe
                 except Exception:
                     pass
 
+        # 3) Cancel trip intent — actually cancel the trip
+        elif _has_cancel_intent(user_msg):
+            cancel_result = await _bot_cancel_trip(chat.user_id, db, lang)
+            if lang.startswith("es"):
+                resp = f"✅ {cancel_result}\n\nSi necesitas algo más, aquí estoy para ayudarte, {user_name}."
+            else:
+                resp = f"✅ {cancel_result}\n\nIf you need anything else, I'm here to help, {user_name}."
+            replies.append({"role": "bot", "message": resp, "sender_name": agent})
+            if _HAS_FIRESTORE:
+                try:
+                    firestore_sync.sync_dispatch_notification(
+                        chat.id, user_name, "trip_canceled",
+                        f"🚫 {user_name} canceló viaje via chat de soporte"
+                    )
+                except Exception:
+                    pass
+
+        # 4) Thank/closing keywords
         elif _match_keywords(user_msg, _THANK_KEYWORDS):
             closing = _CLOSING_RESPONSES_ES if lang.startswith("es") else _CLOSING_RESPONSES_EN
             close = _rng.choice(closing).format(name=user_name)
             replies.append({"role": "bot", "message": close, "sender_name": agent})
 
+        # 5) Category-based responses with real data
         else:
-            cat = _detect_category(user_msg)
+            scored = _score_categories(user_msg)
+            cat = scored[0][0] if scored else None
             # Count existing bot messages to decide first vs followup
             r = await db.execute(
                 select(func.count(SupportMessage.id)).where(
@@ -2920,10 +3118,20 @@ async def _generate_bot_replies(chat, user_msg: str, user_name: str, db: AsyncSe
 
             if bot_count <= 1 and cat and cat in _AI_CATEGORIES:
                 resp = _rng.choice(_AI_CATEGORIES[cat][f"first{suffix}"]).format(name=user_name)
-                # For trip-related categories, include real trip data on first ask
-                if cat in ("trip_charge", "refund", "cancellation", "lost_item"):
-                    trip_summary = await _build_trip_summary(chat.user_id, db, lang)
-                    resp += "\n\n" + trip_summary
+                # For trip-related categories, include real trip data
+                if cat in ("trip_charge", "refund", "cancellation", "lost_item", "waiting"):
+                    resp += "\n\n" + ctx["trip_summary"]
+                # If user has active trip, mention it proactively
+                if ctx["has_active_trip"] and cat in ("cancellation", "waiting", "driver"):
+                    at = ctx["active_trip"]
+                    if lang.startswith("es"):
+                        resp += f"\n\n📍 Veo que tienes un viaje activo: {at['pickup']} → {at['dropoff']} (Estado: {at['status']})"
+                        if at.get("driver_name"):
+                            resp += f" con el conductor {at['driver_name']}"
+                    else:
+                        resp += f"\n\n📍 I can see you have an active trip: {at['pickup']} → {at['dropoff']} (Status: {at['status']})"
+                        if at.get("driver_name"):
+                            resp += f" with driver {at['driver_name']}"
             elif cat and cat in _AI_CATEGORIES:
                 resp = _rng.choice(_AI_CATEGORIES[cat][f"followup{suffix}"]).format(name=user_name)
                 # For refund/charge followups, create an actual refund request
@@ -2939,7 +3147,6 @@ async def _generate_bot_replies(chat, user_msg: str, user_name: str, db: AsyncSe
                             resp += f"\n\n📋 Se ha creado la solicitud de reembolso #{req_id}. Nuestro equipo la revisará."
                         else:
                             resp += f"\n\n📋 Refund request #{req_id} has been created. Our team will review it."
-                    # Notify dispatch about the refund request
                     if _HAS_FIRESTORE:
                         try:
                             firestore_sync.sync_dispatch_notification(
@@ -2949,7 +3156,6 @@ async def _generate_bot_replies(chat, user_msg: str, user_name: str, db: AsyncSe
                         except Exception:
                             pass
                 elif cat == "driver":
-                    # Log a driver report notification for dispatch
                     notif = Notification(
                         user_id=chat.user_id,
                         title="Driver Report",
@@ -2966,11 +3172,33 @@ async def _generate_bot_replies(chat, user_msg: str, user_name: str, db: AsyncSe
                             )
                         except Exception:
                             pass
+                elif cat == "safety":
+                    # Safety issues always get escalated
+                    chat.needs_escalation = True
+                    chat.bot_phase = "escalated"
+                    if _HAS_FIRESTORE:
+                        try:
+                            firestore_sync.sync_dispatch_notification(
+                                chat.id, user_name, "safety_report",
+                                f"🚨 SEGURIDAD: {user_name} reportó un problema de seguridad"
+                            )
+                            firestore_sync.sync_support_chat(
+                                chat.id, chat.user_id, user_name, "",
+                                needs_escalation=True, bot_phase="escalated",
+                            )
+                        except Exception:
+                            pass
             elif bot_count <= 1:
                 fallback = _FALLBACK_FIRST_ES if lang.startswith("es") else _FALLBACK_FIRST_EN
                 resp = _rng.choice(fallback).format(name=user_name)
+                # Include active trip context even for unrecognized categories
+                if ctx["has_active_trip"]:
+                    at = ctx["active_trip"]
+                    if lang.startswith("es"):
+                        resp += f"\n\n📍 Por cierto, veo que tienes un viaje activo ({at['status']}): {at['pickup']} → {at['dropoff']}. ¿Tu consulta es sobre este viaje?"
+                    else:
+                        resp += f"\n\n📍 By the way, I can see you have an active trip ({at['status']}): {at['pickup']} → {at['dropoff']}. Is your inquiry about this trip?"
             else:
-                # Generate a human-like conversational response
                 resp = _generate_human_chat(user_msg, user_name, agent, lang)
             replies.append({"role": "bot", "message": resp, "sender_name": agent})
 
