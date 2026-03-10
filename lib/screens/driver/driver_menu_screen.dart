@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -78,6 +79,11 @@ class _DriverMenuScreenState extends State<DriverMenuScreen>
               ? '$first ${last.toString()[0].toUpperCase()}.'
               : first.toString();
           _photoUrl = me['photo_url']?.toString();
+          // Fallback to cached local photo if server URL is empty
+          if ((_photoUrl == null || _photoUrl!.isEmpty) &&
+              UserSession.photoNotifier.value.isNotEmpty) {
+            _photoUrl = UserSession.photoNotifier.value;
+          }
           // Calculate tier from stats
           final sat =
               double.tryParse(me['satisfaction_rate']?.toString() ?? '') ?? 0;
@@ -408,17 +414,29 @@ class _DriverMenuScreenState extends State<DriverMenuScreen>
               ),
               child: _photoUrl != null && _photoUrl!.isNotEmpty
                   ? ClipOval(
-                      child: Image.network(
-                        _photoUrl!,
-                        fit: BoxFit.cover,
-                        width: 60,
-                        height: 60,
-                        errorBuilder: (_, _, _) => const Icon(
-                          Icons.person_rounded,
-                          color: Colors.black,
-                          size: 30,
-                        ),
-                      ),
+                      child: _photoUrl!.startsWith('http')
+                          ? Image.network(
+                              _photoUrl!,
+                              fit: BoxFit.cover,
+                              width: 60,
+                              height: 60,
+                              errorBuilder: (_, _, _) => const Icon(
+                                Icons.person_rounded,
+                                color: Colors.black,
+                                size: 30,
+                              ),
+                            )
+                          : Image.file(
+                              File(_photoUrl!),
+                              fit: BoxFit.cover,
+                              width: 60,
+                              height: 60,
+                              errorBuilder: (_, _, _) => const Icon(
+                                Icons.person_rounded,
+                                color: Colors.black,
+                                size: 30,
+                              ),
+                            ),
                     )
                   : Center(
                       child: Text(

@@ -6,6 +6,8 @@ import 'package:image_picker/image_picker.dart';
 import '../../services/api_service.dart';
 import '../../l10n/app_localizations.dart';
 
+enum _ExpiryStatus { ok, expiringSoon, expired }
+
 /// Document management screen – driver's license, insurance, registration.
 class DriverDocumentsScreen extends StatefulWidget {
   const DriverDocumentsScreen({super.key});
@@ -143,6 +145,19 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
         .length;
     final total = _documents.length;
     final progress = total > 0 ? approvedCount / total : 0.0;
+    final allComplete = approvedCount == total && total > 0;
+
+    // Check for expiry issues
+    final expiryIssues = _documents.where((d) {
+      final expiry = (d['expiry_date'] ?? d['expiry'] ?? '') as String;
+      final st = _checkExpiry(expiry);
+      return d['status'] == 'approved' &&
+          (st == _ExpiryStatus.expired || st == _ExpiryStatus.expiringSoon);
+    }).length;
+    final rejectedCount = _documents
+        .where((d) => d['status'] == 'rejected')
+        .length;
+    final needsAttention = expiryIssues + rejectedCount;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -197,53 +212,92 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
                           padding: const EdgeInsets.all(20),
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
-                              colors: [
-                                _gold.withValues(alpha: 0.15),
-                                Colors.transparent,
-                              ],
+                              colors: allComplete && needsAttention == 0
+                                  ? [
+                                      const Color(
+                                        0xFF4CAF50,
+                                      ).withValues(alpha: 0.15),
+                                      Colors.transparent,
+                                    ]
+                                  : needsAttention > 0
+                                  ? [
+                                      Colors.orange.withValues(alpha: 0.12),
+                                      Colors.transparent,
+                                    ]
+                                  : [
+                                      _gold.withValues(alpha: 0.15),
+                                      Colors.transparent,
+                                    ],
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
                             ),
                             borderRadius: BorderRadius.circular(22),
                             border: Border.all(
-                              color: _gold.withValues(alpha: 0.2),
+                              color: allComplete && needsAttention == 0
+                                  ? const Color(
+                                      0xFF4CAF50,
+                                    ).withValues(alpha: 0.3)
+                                  : needsAttention > 0
+                                  ? Colors.orange.withValues(alpha: 0.25)
+                                  : _gold.withValues(alpha: 0.2),
                             ),
                           ),
                           child: Column(
                             children: [
                               Row(
                                 children: [
-                                  SizedBox(
-                                    width: 56,
-                                    height: 56,
-                                    child: Stack(
-                                      alignment: Alignment.center,
-                                      children: [
-                                        SizedBox(
-                                          width: 56,
-                                          height: 56,
-                                          child: CircularProgressIndicator(
-                                            value: progress,
-                                            backgroundColor: Colors.white
-                                                .withValues(alpha: 0.06),
-                                            valueColor:
-                                                const AlwaysStoppedAnimation<
-                                                  Color
-                                                >(_gold),
-                                            strokeWidth: 4,
+                                  if (allComplete && needsAttention == 0)
+                                    Container(
+                                      width: 56,
+                                      height: 56,
+                                      decoration: BoxDecoration(
+                                        color: const Color(
+                                          0xFF4CAF50,
+                                        ).withValues(alpha: 0.15),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(
+                                        Icons.check_circle_rounded,
+                                        color: Color(0xFF4CAF50),
+                                        size: 32,
+                                      ),
+                                    )
+                                  else
+                                    SizedBox(
+                                      width: 56,
+                                      height: 56,
+                                      child: Stack(
+                                        alignment: Alignment.center,
+                                        children: [
+                                          SizedBox(
+                                            width: 56,
+                                            height: 56,
+                                            child: CircularProgressIndicator(
+                                              value: progress,
+                                              backgroundColor: Colors.white
+                                                  .withValues(alpha: 0.06),
+                                              valueColor:
+                                                  AlwaysStoppedAnimation<Color>(
+                                                    needsAttention > 0
+                                                        ? Colors.orange
+                                                        : _gold,
+                                                  ),
+                                              strokeWidth: 4,
+                                            ),
                                           ),
-                                        ),
-                                        Text(
-                                          '${(progress * 100).toInt()}%',
-                                          style: const TextStyle(
-                                            color: _gold,
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.w800,
+                                          Text(
+                                            '${(progress * 100).toInt()}%',
+                                            style: TextStyle(
+                                              color: needsAttention > 0
+                                                  ? Colors.orange
+                                                  : _gold,
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w800,
+                                            ),
                                           ),
-                                        ),
-                                      ],
+                                        ],
+                                      ),
                                     ),
-                                  ),
                                   const SizedBox(width: 18),
                                   Expanded(
                                     child: Column(
@@ -251,20 +305,35 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
                                           CrossAxisAlignment.start,
                                       children: [
                                         Text(
-                                          s.documentStatus,
-                                          style: const TextStyle(
-                                            color: Colors.white,
+                                          allComplete && needsAttention == 0
+                                              ? s.allDocumentsComplete
+                                              : s.documentStatus,
+                                          style: TextStyle(
+                                            color:
+                                                allComplete &&
+                                                    needsAttention == 0
+                                                ? const Color(0xFF4CAF50)
+                                                : Colors.white,
                                             fontSize: 17,
                                             fontWeight: FontWeight.w800,
                                           ),
                                         ),
                                         const SizedBox(height: 4),
                                         Text(
-                                          s.docsApproved(approvedCount, total),
+                                          needsAttention > 0
+                                              ? s.documentNeedsUpdate
+                                              : s.docsApproved(
+                                                  approvedCount,
+                                                  total,
+                                                ),
                                           style: TextStyle(
-                                            color: Colors.white.withValues(
-                                              alpha: 0.4,
-                                            ),
+                                            color: needsAttention > 0
+                                                ? Colors.orange.withValues(
+                                                    alpha: 0.7,
+                                                  )
+                                                : Colors.white.withValues(
+                                                    alpha: 0.4,
+                                                  ),
                                             fontSize: 13,
                                           ),
                                         ),
@@ -323,44 +392,92 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
     );
   }
 
+  /// Check if an expiry date is expired or expiring soon (within 30 days).
+  _ExpiryStatus _checkExpiry(String expiryStr) {
+    if (expiryStr.isEmpty) return _ExpiryStatus.ok;
+    final dt = DateTime.tryParse(expiryStr);
+    if (dt == null) return _ExpiryStatus.ok;
+    final now = DateTime.now();
+    if (dt.isBefore(now)) return _ExpiryStatus.expired;
+    if (dt.difference(now).inDays <= 30) return _ExpiryStatus.expiringSoon;
+    return _ExpiryStatus.ok;
+  }
+
   Widget _documentCard(Map<String, dynamic> doc) {
     final s = S.of(context);
     final status = (doc['status'] ?? 'not_uploaded') as String;
     final isApproved = status == 'approved';
     final isPending = status == 'pending';
     final isNotUploaded = status == 'not_uploaded';
+    final isRejected = status == 'rejected';
 
+    final expiry = (doc['expiry_date'] ?? doc['expiry'] ?? '') as String;
+    final createdAt = (doc['created_at'] ?? '') as String;
+    final expiryStatus = _checkExpiry(expiry);
+
+    // Determine status display
     Color statusColor;
     String statusText;
     IconData statusIcon;
-    if (isApproved) {
-      statusColor = const Color(0xFFE8C547);
+    if (isApproved && expiryStatus == _ExpiryStatus.expired) {
+      statusColor = Colors.red.shade400;
+      statusText = s.documentExpired;
+      statusIcon = Icons.error_rounded;
+    } else if (isApproved && expiryStatus == _ExpiryStatus.expiringSoon) {
+      statusColor = Colors.orange.shade400;
+      statusText = s.documentExpiringSoon;
+      statusIcon = Icons.warning_amber_rounded;
+    } else if (isApproved) {
+      statusColor = const Color(0xFF4CAF50);
       statusText = s.approved;
       statusIcon = Icons.check_circle_rounded;
     } else if (isPending) {
       statusColor = const Color(0xFFF5D990);
       statusText = s.pending;
       statusIcon = Icons.schedule_rounded;
-    } else if (isNotUploaded) {
+    } else if (isRejected) {
+      statusColor = Colors.red.shade400;
+      statusText = s.documentNeedsUpdate;
+      statusIcon = Icons.cancel_rounded;
+    } else {
       statusColor = Colors.white.withValues(alpha: 0.3);
       statusText = s.uploadBtn;
       statusIcon = Icons.upload_rounded;
-    } else {
-      statusColor = Colors.red.withValues(alpha: 0.7);
-      statusText = s.rejected;
-      statusIcon = Icons.cancel_rounded;
     }
 
     final icon = _iconForDoc(doc);
     final title = _localizedDocTitle(doc['doc_type'] as String?, s);
-    final expiry = (doc['expiry_date'] ?? doc['expiry'] ?? '') as String;
-    final createdAt = (doc['created_at'] ?? '') as String;
+
+    // Determine the left icon background and color
+    final iconBg = isApproved && expiryStatus == _ExpiryStatus.ok
+        ? const Color(0xFF4CAF50).withValues(alpha: 0.12)
+        : isApproved && expiryStatus == _ExpiryStatus.expiringSoon
+        ? Colors.orange.withValues(alpha: 0.12)
+        : isApproved && expiryStatus == _ExpiryStatus.expired
+        ? Colors.red.withValues(alpha: 0.12)
+        : isRejected
+        ? Colors.red.withValues(alpha: 0.1)
+        : _gold.withValues(alpha: 0.1);
+    final iconColor = isApproved && expiryStatus == _ExpiryStatus.ok
+        ? const Color(0xFF4CAF50)
+        : isApproved && expiryStatus == _ExpiryStatus.expiringSoon
+        ? Colors.orange.shade400
+        : isApproved && expiryStatus == _ExpiryStatus.expired
+        ? Colors.red.shade400
+        : isRejected
+        ? Colors.red.shade400
+        : _gold;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: _card,
         borderRadius: BorderRadius.circular(18),
+        border: expiryStatus == _ExpiryStatus.expired
+            ? Border.all(color: Colors.red.withValues(alpha: 0.3))
+            : expiryStatus == _ExpiryStatus.expiringSoon
+            ? Border.all(color: Colors.orange.withValues(alpha: 0.2))
+            : null,
       ),
       child: Material(
         color: Colors.transparent,
@@ -376,10 +493,10 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
                   width: 46,
                   height: 46,
                   decoration: BoxDecoration(
-                    color: _gold.withValues(alpha: 0.1),
+                    color: iconBg,
                     borderRadius: BorderRadius.circular(14),
                   ),
-                  child: Icon(icon, color: _gold, size: 22),
+                  child: Icon(icon, color: iconColor, size: 22),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -395,9 +512,33 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
                         ),
                       ),
                       const SizedBox(height: 4),
-                      if (expiry.isNotEmpty)
+                      if (expiryStatus == _ExpiryStatus.expired)
                         Text(
-                          s.expiresDate(expiry),
+                          s.documentExpired,
+                          style: TextStyle(
+                            color: Colors.red.shade300,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        )
+                      else if (expiryStatus == _ExpiryStatus.expiringSoon)
+                        Builder(
+                          builder: (_) {
+                            final dt = DateTime.parse(expiry);
+                            final days = dt.difference(DateTime.now()).inDays;
+                            return Text(
+                              s.expiresInDays(days),
+                              style: TextStyle(
+                                color: Colors.orange.shade300,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            );
+                          },
+                        )
+                      else if (expiry.isNotEmpty)
+                        Text(
+                          s.expiresDate(_formatShortDate(expiry)),
                           style: TextStyle(
                             color: Colors.white.withValues(alpha: 0.35),
                             fontSize: 12,
@@ -428,7 +569,7 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
                     vertical: 5,
                   ),
                   decoration: BoxDecoration(
-                    color: statusColor.withValues(alpha: 0.1),
+                    color: statusColor.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Row(

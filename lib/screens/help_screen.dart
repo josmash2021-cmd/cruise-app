@@ -1061,7 +1061,24 @@ class _CruiseSupportChatScreenState extends State<CruiseSupportChatScreen> {
 
   Future<void> _sendMessage() async {
     final text = _msgCtrl.text.trim();
-    if (text.isEmpty || _chatId == null || _sending) return;
+    if (text.isEmpty || _sending) return;
+    // If chat not yet initialized, try to create it now
+    if (_chatId == null) {
+      setState(() => _loading = true);
+      await _initChat();
+      if (_chatId == null) {
+        if (mounted) {
+          setState(() => _loading = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(S.of(context).connectionError),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+    }
     _msgCtrl.clear();
     setState(() {
       _sending = true;

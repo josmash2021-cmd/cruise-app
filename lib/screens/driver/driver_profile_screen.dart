@@ -1,8 +1,10 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../config/page_transitions.dart';
 import '../../l10n/app_localizations.dart';
 import '../../services/api_service.dart';
+import '../../services/user_session.dart';
 import 'driver_trip_history_screen.dart';
 
 /// Driver profile screen – Uber-style with stats cards, lifetime highlights, badges.
@@ -58,6 +60,11 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
             ? '$firstName ${lastName[0].toUpperCase()}.'
             : firstName;
         _photoUrl = me['photo_url'];
+        // Fallback to cached local photo if server URL is empty
+        if ((_photoUrl == null || _photoUrl!.isEmpty) &&
+            UserSession.photoNotifier.value.isNotEmpty) {
+          _photoUrl = UserSession.photoNotifier.value;
+        }
       }
 
       // Get trip stats from backend
@@ -364,11 +371,17 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                 ),
                 child: ClipOval(
                   child: _photoUrl != null && _photoUrl!.isNotEmpty
-                      ? Image.network(
-                          _photoUrl!,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) => _defaultAvatar(),
-                        )
+                      ? (_photoUrl!.startsWith('http')
+                            ? Image.network(
+                                _photoUrl!,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, _, _) => _defaultAvatar(),
+                              )
+                            : Image.file(
+                                File(_photoUrl!),
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, _, _) => _defaultAvatar(),
+                              ))
                       : _defaultAvatar(),
                 ),
               ),

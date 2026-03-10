@@ -34,11 +34,8 @@ class _LicenseScannerScreenState extends State<LicenseScannerScreen>
   bool _documentDetected = false;
   String _detectedHint = '';
 
-  // Auto-capture
-  bool _showManualButton = false;
-  Timer? _manualButtonTimer;
-  bool _autoCapturing = false;
-  Timer? _autoCaptureTimer;
+  // Document detection scanning timer
+  Timer? _scanTimer;
 
   late AnimationController _cornerAnim;
 
@@ -111,8 +108,7 @@ class _LicenseScannerScreenState extends State<LicenseScannerScreen>
       await _ctrl!.initialize().timeout(const Duration(seconds: 5));
       if (mounted) {
         setState(() => _initialized = true);
-        _startAutoScan();
-        _startManualButtonTimer();
+        _startDocumentDetection();
       }
     } catch (e) {
       debugPrint('⚠️ Camera init failed: $e');
@@ -128,8 +124,7 @@ class _LicenseScannerScreenState extends State<LicenseScannerScreen>
         await _ctrl!.initialize().timeout(const Duration(seconds: 5));
         if (mounted) {
           setState(() => _initialized = true);
-          _startAutoScan();
-          _startManualButtonTimer();
+          _startDocumentDetection();
         }
       } catch (_) {
         if (mounted) Navigator.of(context).pop(null);
@@ -137,23 +132,15 @@ class _LicenseScannerScreenState extends State<LicenseScannerScreen>
     }
   }
 
-  /// Start scanning frames with OCR for auto-capture.
-  void _startAutoScan() {
-    // Check every 1.5 seconds
-    _autoCaptureTimer = Timer.periodic(
+  /// Start scanning frames to detect documents (border turns green).
+  void _startDocumentDetection() {
+    _scanTimer = Timer.periodic(
       const Duration(milliseconds: 1500),
       (_) => _scanForDocument(),
     );
   }
 
-  /// Show manual shutter after 20s fallback.
-  void _startManualButtonTimer() {
-    _manualButtonTimer = Timer(const Duration(seconds: 20), () {
-      if (mounted) setState(() => _showManualButton = true);
-    });
-  }
-
-  /// Scan current frame for document text via OCR.
+  /// Scan current frame for document text via OCR — only updates border color.
   Future<void> _scanForDocument() async {
     if (_ctrl == null ||
         !_ctrl!.value.isInitialized ||
@@ -186,25 +173,15 @@ class _LicenseScannerScreenState extends State<LicenseScannerScreen>
           text.contains('gobierno') ||
           text.contains('licencia') ||
           result.blocks.length >= 3;
-      if (hasDocText && mounted && _capturedPath == null) {
-        // Auto-capture!
-        setState(() => _autoCapturing = true);
-        await Future.delayed(const Duration(milliseconds: 400));
-        if (mounted) {
-          _autoCaptureTimer?.cancel();
-          _capturedPath = xFile.path;
-          _documentDetected = true;
-          setState(() => _autoCapturing = false);
-        }
+      if (mounted && _capturedPath == null) {
+        setState(() => _documentDetected = hasDocText);
       }
-      // Clean up temp file if we didn't use it
-      if (_capturedPath != xFile.path) {
-        try {
-          File(xFile.path).deleteSync();
-        } catch (_) {}
-      }
+      // Clean up temp file
+      try {
+        File(xFile.path).deleteSync();
+      } catch (_) {}
     } catch (e) {
-      debugPrint('⚠️ Auto-scan error: $e');
+      debugPrint('⚠️ Doc-scan error: $e');
     }
     _scanning = false;
   }
@@ -214,13 +191,13 @@ class _LicenseScannerScreenState extends State<LicenseScannerScreen>
     _cornerAnim.dispose();
     _textRecognizer.close();
     _ctrl?.dispose();
-    _manualButtonTimer?.cancel();
-    _autoCaptureTimer?.cancel();
+    _scanTimer?.cancel();
     super.dispose();
   }
 
   Future<void> _capture() async {
     if (_ctrl == null || !_ctrl!.value.isInitialized || _capturing) return;
+    _scanTimer?.cancel();
     setState(() => _capturing = true);
     HapticFeedback.mediumImpact();
     try {
@@ -276,10 +253,12 @@ class _LicenseScannerScreenState extends State<LicenseScannerScreen>
   }
 
   void _retake() {
-    setState(() => _capturedPath = null);
-    // Restart auto-scan when retaking
-    _autoCaptureTimer?.cancel();
-    _startAutoScan();
+    setState(() {
+      _capturedPath = null;
+      _documentDetected = false;
+    });
+    _scanTimer?.cancel();
+    _startDocumentDetection();
   }
 
   String _sideTitle(BuildContext context) {
@@ -515,82 +494,68 @@ class _LicenseScannerScreenState extends State<LicenseScannerScreen>
 
         // Instruction text
         Positioned(
-          bottom: _showManualButton ? 180 : 80,
+          bottom: 180,
           left: 24,
           right: 24,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (_autoCapturing)
-                Text(
-                  S.of(context).autoCapturing,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: _gold,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    shadows: [Shadow(color: Colors.black87, blurRadius: 8)],
-                  ),
-                )
-              else
-                Text(
-                  S.of(context).alignDocumentInstruction,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.85),
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    height: 1.4,
-                    shadows: const [
-                      Shadow(color: Colors.black87, blurRadius: 8),
-                    ],
-                  ),
-                ),
-            ],
+          child: Text(
+            _documentDetected
+                ? S.of(context).documentDetectedTakePhoto
+                : S.of(context).alignDocumentInstruction,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: _documentDetected
+                  ? const Color(0xFF4CAF50)
+                  : Colors.white.withValues(alpha: 0.85),
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              height: 1.4,
+              shadows: const [Shadow(color: Colors.black87, blurRadius: 8)],
+            ),
           ),
         ),
 
-        // Shutter button — hidden until 20s fallback
-        if (_showManualButton)
-          Positioned(
-            bottom: 56,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: GestureDetector(
-                onTap: _initialized ? _capture : null,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 120),
-                  width: _capturing ? 68 : 74,
-                  height: _capturing ? 68 : 74,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: _gold,
-                    boxShadow: [
-                      BoxShadow(
-                        color: _gold.withValues(alpha: 0.45),
-                        blurRadius: 20,
-                        spreadRadius: 2,
-                      ),
-                    ],
-                  ),
-                  child: _capturing
-                      ? const Padding(
-                          padding: EdgeInsets.all(20),
-                          child: CircularProgressIndicator(
-                            color: Colors.black,
-                            strokeWidth: 2.5,
-                          ),
-                        )
-                      : const Icon(
-                          Icons.camera_alt_rounded,
-                          color: Colors.black,
-                          size: 32,
-                        ),
+        // Shutter button — always visible
+        Positioned(
+          bottom: 56,
+          left: 0,
+          right: 0,
+          child: Center(
+            child: GestureDetector(
+              onTap: _initialized ? _capture : null,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                width: _capturing ? 68 : 74,
+                height: _capturing ? 68 : 74,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _documentDetected ? const Color(0xFF4CAF50) : _gold,
+                  boxShadow: [
+                    BoxShadow(
+                      color:
+                          (_documentDetected ? const Color(0xFF4CAF50) : _gold)
+                              .withValues(alpha: 0.45),
+                      blurRadius: 20,
+                      spreadRadius: 2,
+                    ),
+                  ],
                 ),
+                child: _capturing
+                    ? const Padding(
+                        padding: EdgeInsets.all(20),
+                        child: CircularProgressIndicator(
+                          color: Colors.black,
+                          strokeWidth: 2.5,
+                        ),
+                      )
+                    : const Icon(
+                        Icons.camera_alt_rounded,
+                        color: Colors.black,
+                        size: 32,
+                      ),
               ),
             ),
           ),
+        ),
       ],
     );
   }
@@ -638,18 +603,23 @@ class _LicenseScannerScreenState extends State<LicenseScannerScreen>
               child: Container(color: Colors.black.withValues(alpha: 0.62)),
             ),
 
-            // Frame border
+            // Frame border — green when document detected, gold otherwise
             Positioned(
               top: frameTop,
               left: frameLeft,
-              child: Container(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
                 width: frameW,
                 height: frameH,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: _gold.withValues(alpha: 0.5 + 0.5 * glow),
-                    width: 2,
+                    color: _documentDetected
+                        ? const Color(
+                            0xFF4CAF50,
+                          ).withValues(alpha: 0.7 + 0.3 * glow)
+                        : _gold.withValues(alpha: 0.5 + 0.5 * glow),
+                    width: _documentDetected ? 3 : 2,
                   ),
                 ),
               ),
@@ -666,7 +636,9 @@ class _LicenseScannerScreenState extends State<LicenseScannerScreen>
   List<Widget> _corners(double l, double t, double w, double h, double glow) {
     const len = 22.0;
     const thick = 3.0;
-    final color = Color.lerp(const Color(0xFFF5D990), _gold, glow)!;
+    final color = _documentDetected
+        ? Color.lerp(const Color(0xFF81C784), const Color(0xFF4CAF50), glow)!
+        : Color.lerp(const Color(0xFFF5D990), _gold, glow)!;
     return [
       // Top-left
       Positioned(

@@ -69,6 +69,7 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
   StreamSubscription? _gpsSub;
   bool _muted = false;
   BitmapDescriptor? _arrowIcon;
+  Uint8List? _arrowIconBytes;
 
   static const _blue = Color(0xFF4285F4);
   static const _green = Color(0xFF34A853);
@@ -263,9 +264,11 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
     final img = await recorder.endRecording().toImage(w.toInt(), h.toInt());
     final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
     if (!mounted) return;
+    final raw = bytes!.buffer.asUint8List();
     setState(() {
       // ignore: deprecated_member_use
-      _arrowIcon = BitmapDescriptor.fromBytes(bytes!.buffer.asUint8List());
+      _arrowIcon = BitmapDescriptor.fromBytes(raw);
+      _arrowIconBytes = raw;
     });
   }
 
@@ -338,15 +341,33 @@ class _DriverNavigationPageState extends State<DriverNavigationPage>
   }
 
   Set<amap.Annotation> get _appleAnnotations {
-    return _allMarkers
-        .map(
-          (m) => amap.Annotation(
-            annotationId: amap.AnnotationId(m.markerId.value),
-            position: amap.LatLng(m.position.latitude, m.position.longitude),
-            anchor: m.anchor,
-          ),
-        )
-        .toSet();
+    final a = <amap.Annotation>{};
+    // Driver arrow
+    if (_arrowIconBytes != null) {
+      a.add(
+        amap.Annotation(
+          annotationId: amap.AnnotationId('driver'),
+          position: amap.LatLng(_pos.latitude, _pos.longitude),
+          icon: amap.BitmapDescriptor.fromBytes(_arrowIconBytes!),
+          anchor: const Offset(0.5, 0.5),
+        ),
+      );
+    }
+    // Destination
+    final dest =
+        _sm.phase == TripPhase.onTrip || _sm.phase == TripPhase.arrivedDropoff
+        ? widget.dropoffLatLng
+        : widget.pickupLatLng;
+    a.add(
+      amap.Annotation(
+        annotationId: amap.AnnotationId('destination'),
+        position: amap.LatLng(dest.latitude, dest.longitude),
+        icon: amap.BitmapDescriptor.markerAnnotationWithHue(
+          amap.BitmapDescriptor.hueYellow,
+        ),
+      ),
+    );
+    return a;
   }
 
   Set<amap.Polyline> get _applePolylines {

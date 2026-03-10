@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io' show Platform;
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -268,6 +268,11 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
               ? '$firstName ${lastName[0].toUpperCase()}.'
               : firstName;
           _photoUrl = me['photo_url'];
+          // Fallback to cached local photo if server URL is empty
+          if ((_photoUrl == null || _photoUrl!.isEmpty) &&
+              UserSession.photoNotifier.value.isNotEmpty) {
+            _photoUrl = UserSession.photoNotifier.value;
+          }
         });
       }
     } catch (_) {}
@@ -540,15 +545,25 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
                   ),
                   child: _photoUrl != null && _photoUrl!.isNotEmpty
                       ? ClipOval(
-                          child: Image.network(
-                            _photoUrl!,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, _, _) => const Icon(
-                              Icons.person_rounded,
-                              color: Colors.black,
-                              size: 18,
-                            ),
-                          ),
+                          child: _photoUrl!.startsWith('http')
+                              ? Image.network(
+                                  _photoUrl!,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, _, _) => const Icon(
+                                    Icons.person_rounded,
+                                    color: Colors.black,
+                                    size: 18,
+                                  ),
+                                )
+                              : Image.file(
+                                  File(_photoUrl!),
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, _, _) => const Icon(
+                                    Icons.person_rounded,
+                                    color: Colors.black,
+                                    size: 18,
+                                  ),
+                                ),
                         )
                       : const Icon(
                           Icons.person_rounded,
@@ -801,8 +816,16 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
       },
       onVerticalDragEnd: (d) {
         _dragging = false;
-        // Snap to nearest state
-        final target = _panelExtent > 0.4 ? 1.0 : 0.0;
+        // Snap based on velocity + position
+        final velocity = d.primaryVelocity ?? 0;
+        double target;
+        if (velocity < -300) {
+          target = 1.0; // swiped up fast
+        } else if (velocity > 300) {
+          target = 0.0; // swiped down fast
+        } else {
+          target = _panelExtent > 0.3 ? 1.0 : 0.0;
+        }
         _animatePanel(target);
       },
       child: AnimatedContainer(
@@ -867,7 +890,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        S.of(context).youreOffline,
+                        _isStillOnline
+                            ? S.of(context).findingTrips
+                            : S.of(context).youreOffline,
                         style: TextStyle(
                           color: Colors.white.withValues(alpha: 0.7),
                           fontSize: 15,
@@ -894,121 +919,130 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
               ),
             ),
             // ── Expanded content ──
-            if (_panelExtent > 0.05)
+            if (_panelExtent > 0.02)
               Expanded(
                 child: Opacity(
                   opacity: _panelExtent.clamp(0.0, 1.0),
-                  child: SingleChildScrollView(
-                    physics: const NeverScrollableScrollPhysics(),
+                  child: ListView(
+                    physics: const ClampingScrollPhysics(),
                     padding: const EdgeInsets.symmetric(
                       horizontal: 20,
                       vertical: 8,
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Divider(
-                          color: Colors.white.withValues(alpha: 0.08),
-                          height: 1,
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          S.of(context).recommendedForYou,
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.5),
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        // Stats row
-                        Row(
-                          children: [
-                            _panelStat(
-                              Icons.attach_money_rounded,
-                              '\$${_todayEarnings.toStringAsFixed(2)}',
-                              S.of(context).today,
-                            ),
-                            const SizedBox(width: 12),
-                            _panelStat(
-                              Icons.navigation_rounded,
-                              '$_todayTrips',
-                              S.of(context).tripsLabel,
-                            ),
-                            const SizedBox(width: 12),
-                            _panelStat(
-                              Icons.schedule_rounded,
-                              '${_todayHours.toStringAsFixed(1)}h',
-                              S.of(context).onlineLabel,
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        // Promo card
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.04),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.06),
-                            ),
-                          ),
+                    children: [
+                      Divider(
+                        color: Colors.white.withValues(alpha: 0.08),
+                        height: 1,
+                      ),
+                      const SizedBox(height: 16),
+                      // ── Profile row ──
+                      if (_photoUrl != null && _photoUrl!.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
                           child: Row(
                             children: [
                               Container(
-                                width: 40,
-                                height: 40,
+                                width: 42,
+                                height: 42,
                                 decoration: BoxDecoration(
-                                  color: _gold.withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(10),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: _gold, width: 2),
                                 ),
-                                child: const Icon(
-                                  Icons.star_rounded,
-                                  color: _gold,
-                                  size: 22,
+                                child: ClipOval(
+                                  child: Image.network(
+                                    _photoUrl!,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, _, _) => const Icon(
+                                      Icons.person_rounded,
+                                      color: Colors.white54,
+                                      size: 22,
+                                    ),
+                                  ),
                                 ),
                               ),
                               const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      S.of(context).goOnlineToEarn,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      S.of(context).tapGoForTrips,
-                                      style: TextStyle(
-                                        color: Colors.white.withValues(
-                                          alpha: 0.4,
-                                        ),
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ],
+                              Text(
+                                _driverName,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
                                 ),
-                              ),
-                              Icon(
-                                Icons.chevron_right_rounded,
-                                color: Colors.white.withValues(alpha: 0.3),
-                                size: 22,
                               ),
                             ],
                           ),
                         ),
-                      ],
-                    ),
+                      Text(
+                        S.of(context).recommendedForYou,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      // ── Recommendation items ──
+                      _recommendItem(
+                        Icons.bar_chart_rounded,
+                        S.of(context).seeEarningsTrends,
+                        () {
+                          Navigator.of(context).push(
+                            slideFromRightRoute(const DriverEarningsScreen()),
+                          );
+                        },
+                      ),
+                      _recommendItem(
+                        Icons.star_outline_rounded,
+                        S.of(context).seeUpcomingPromotions,
+                        () {},
+                      ),
+                      _recommendItem(
+                        Icons.schedule_rounded,
+                        S.of(context).seeDrivingTime,
+                        () {},
+                      ),
+                    ],
                   ),
                 ),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _recommendItem(IconData icon, String label, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: Colors.white.withValues(alpha: 0.7), size: 22),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: Colors.white.withValues(alpha: 0.25),
+              size: 22,
+            ),
           ],
         ),
       ),

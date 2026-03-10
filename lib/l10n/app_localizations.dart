@@ -1148,6 +1148,13 @@ class S {
   String get uploadedLabel => _es ? 'Subido' : 'Uploaded';
   String get statusLabel => _es ? 'Estado' : 'Status';
   String get updateBtn => _es ? 'Actualizar' : 'Update';
+  String get allDocumentsComplete => _es
+      ? '¡Todos los documentos están al día!'
+      : 'All documents are up to date!';
+  String get documentNeedsUpdate =>
+      _es ? 'Necesita actualización' : 'Needs update';
+  String get documentExpiringSoon => _es ? 'Se vence pronto' : 'Expiring soon';
+  String get documentExpired => _es ? 'Documento vencido' : 'Document expired';
 
   // ── Driver Vehicle Screen ──────────────────────────────────────────────────
   String get vehicleTitle => _es ? 'Vehículo' : 'Vehicle';
@@ -2400,6 +2407,9 @@ class S {
   String get alignDocumentInstruction => _es
       ? 'Alinea tu documento dentro del marco'
       : 'Align your document within the frame';
+  String get documentDetectedTakePhoto => _es
+      ? '✓ Documento detectado — presiona el botón para capturar'
+      : '✓ Document detected — tap the button to capture';
   String get autoCapturing =>
       _es ? 'Capturando automáticamente...' : 'Auto-capturing...';
 
@@ -2407,17 +2417,14 @@ class S {
   String get holdStill => _es ? 'Mantente quieto' : 'Hold Still';
   String get keepFaceCentered =>
       _es ? 'Mantén tu rostro centrado' : 'Keep your face centered';
-  String get positionFaceInFrame =>
-      _es
-          ? 'Sitúa tu cara\ndentro del marco.'
-          : 'Position your face\nwithin the frame.';
-  String get moveHeadSlowly =>
-      _es
-          ? 'Mueve lentamente tu cabeza\npara cerrar el círculo.'
-          : 'Move your head slowly\nto complete the circle.';
+  String get positionFaceInFrame => _es
+      ? 'Sitúa tu cara\ndentro del marco.'
+      : 'Position your face\nwithin the frame.';
+  String get moveHeadSlowly => _es
+      ? 'Mueve lentamente tu cabeza\npara cerrar el círculo.'
+      : 'Move your head slowly\nto complete the circle.';
   String get startOver => _es ? 'Volver a empezar' : 'Start Over';
-  String get faceVerified =>
-      _es ? 'Verificado' : 'Verified';
+  String get faceVerified => _es ? 'Verificado' : 'Verified';
 }
 
 class _SDelegate extends LocalizationsDelegate<S> {

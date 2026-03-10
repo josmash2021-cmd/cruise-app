@@ -42,7 +42,7 @@ class _FaceLivenessScreenState extends State<FaceLivenessScreen>
   int _challengeIndex = 0;
   double _holdProgress = 0.0;
   DateTime? _holdStart;
-  static const _holdMs = 700;
+  static const _holdMs = 1200;
   int _frameCount = 0;
 
   // Total progress across all challenges (0..1)
@@ -68,7 +68,7 @@ class _FaceLivenessScreenState extends State<FaceLivenessScreen>
     super.initState();
     _scanCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 3000),
+      duration: const Duration(milliseconds: 4500),
     )..repeat();
     _successCtrl = AnimationController(
       vsync: this,
@@ -207,8 +207,11 @@ class _FaceLivenessScreenState extends State<FaceLivenessScreen>
       setState(() {
         _holdProgress = chunkProgress;
         // Total progress = completed challenges + current progress within this challenge
-        _totalProgress = ((_challengeIndex + chunkProgress) / _challenges.length)
-            .clamp(0.0, 1.0);
+        _totalProgress =
+            ((_challengeIndex + chunkProgress) / _challenges.length).clamp(
+              0.0,
+              1.0,
+            );
       });
     }
     if (elapsed >= _holdMs) {
@@ -222,7 +225,10 @@ class _FaceLivenessScreenState extends State<FaceLivenessScreen>
       if (mounted) {
         setState(() {
           _holdProgress = 0;
-          _totalProgress = (_challengeIndex / _challenges.length).clamp(0.0, 1.0);
+          _totalProgress = (_challengeIndex / _challenges.length).clamp(
+            0.0,
+            1.0,
+          );
         });
       }
     }
@@ -269,6 +275,7 @@ class _FaceLivenessScreenState extends State<FaceLivenessScreen>
       await Future.delayed(const Duration(milliseconds: 200));
       final photo = await _cam?.takePicture();
 
+      // Record verification video — captures user face after challenges complete
       String? videoPath;
       try {
         await _cam?.startVideoRecording();
@@ -278,7 +285,8 @@ class _FaceLivenessScreenState extends State<FaceLivenessScreen>
       }
 
       await _successCtrl.forward();
-      await Future.delayed(const Duration(milliseconds: 1200));
+      // Record for ~3 seconds total to capture clear face verification
+      await Future.delayed(const Duration(milliseconds: 2500));
 
       if (_recording) {
         try {
@@ -392,11 +400,11 @@ class _FaceLivenessScreenState extends State<FaceLivenessScreen>
 
     return Column(
       children: [
-        // ── Top section: dark background with camera circle ──
+        // ── Top section: semi-transparent dark background with camera circle ──
         Expanded(
           flex: 55,
           child: Container(
-            color: Colors.black,
+            color: Colors.black.withValues(alpha: 0.85),
             child: Stack(
               children: [
                 // Camera preview clipped to circle
@@ -431,7 +439,11 @@ class _FaceLivenessScreenState extends State<FaceLivenessScreen>
                         color: Colors.white.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(18),
                       ),
-                      child: const Icon(Icons.close, color: Colors.white, size: 20),
+                      child: const Icon(
+                        Icons.close,
+                        color: Colors.white,
+                        size: 20,
+                      ),
                     ),
                   ),
                 ),
@@ -440,12 +452,12 @@ class _FaceLivenessScreenState extends State<FaceLivenessScreen>
           ),
         ),
 
-        // ── Bottom section: white/light with instructions ──
+        // ── Bottom section: semi-transparent white with instructions ──
         Expanded(
           flex: 45,
           child: Container(
             width: double.infinity,
-            color: const Color(0xFFF2F2F7),
+            color: const Color(0xFFF2F2F7).withValues(alpha: 0.88),
             padding: const EdgeInsets.symmetric(horizontal: 32),
             child: _allDone ? _buildDoneSection() : _buildInstructionSection(),
           ),
@@ -588,7 +600,7 @@ class _CircleClipper extends CustomClipper<Path> {
       old.center != center || old.radius != radius;
 }
 
-// ─── Apple Face ID tick-mark painter ───────────────────────────────────────
+// ─── Apple Face ID tick-mark painter with animated glow ────────────────────
 class _FaceIDTickPainter extends CustomPainter {
   final double totalProgress;
   final bool allDone;
@@ -618,14 +630,56 @@ class _FaceIDTickPainter extends CustomPainter {
     final filledTicks = (totalProgress * _tickCount).floor();
     final degreesPerTick = 360.0 / _tickCount;
 
+    // Animated glow: the "leading edge" tick pulsates brighter
+    final leadingTick = filledTicks;
+    // Scan position creates a subtle sweep effect on unfilled ticks
+    final scanTick = (scanPosition * _tickCount).floor() % _tickCount;
+
     for (var i = 0; i < _tickCount; i++) {
       final angleDeg = -90.0 + i * degreesPerTick;
       final angleRad = angleDeg * math.pi / 180;
 
       final isFilled = i < filledTicks;
-      final color = allDone
-          ? _green
-          : (isFilled ? _green : _gray);
+      final isLeading = i == leadingTick && !allDone;
+      // Near the leading edge, add a subtle glow trail
+      final isGlowTrail =
+          !allDone &&
+          i >= filledTicks - 3 &&
+          i < filledTicks &&
+          filledTicks > 0;
+      // Subtle scan shimmer on unfilled ticks
+      final isScanNear = !allDone && !isFilled && (i - scanTick).abs() < 4;
+
+      Color color;
+      double strokeW;
+
+      if (allDone) {
+        color = _green;
+        strokeW = 3.0;
+      } else if (isLeading) {
+        // Pulsating leading tick
+        final pulse = (math.sin(scanPosition * math.pi * 4) + 1) / 2;
+        color = Color.lerp(_green, const Color(0xFF8EF5A5), pulse)!;
+        strokeW = 3.5;
+      } else if (isGlowTrail) {
+        // Glow trail behind leading edge — fading green
+        final dist = (filledTicks - i).toDouble();
+        final fade = (1 - dist / 4).clamp(0.4, 1.0);
+        color = _green.withValues(alpha: fade);
+        strokeW = 3.0;
+      } else if (isFilled) {
+        color = _green;
+        strokeW = 3.0;
+      } else if (isScanNear) {
+        // Subtle scan shimmer
+        final dist = (i - scanTick).abs().toDouble();
+        final shimmerAlpha = (1 - dist / 4) * 0.3;
+        color = _green.withValues(alpha: shimmerAlpha.clamp(0.05, 0.3));
+        strokeW = 2.0;
+      } else {
+        color = _gray;
+        strokeW = 2.0;
+      }
 
       final p1 = Offset(
         center.dx + outerR * math.cos(angleRad),
@@ -636,18 +690,37 @@ class _FaceIDTickPainter extends CustomPainter {
         center.dy + innerR * math.sin(angleRad),
       );
 
-      canvas.drawLine(
-        p1,
-        p2,
-        Paint()
-          ..color = color
-          ..strokeWidth = isFilled ? 3.0 : 2.0
-          ..strokeCap = StrokeCap.round,
-      );
+      final paint = Paint()
+        ..color = color
+        ..strokeWidth = strokeW
+        ..strokeCap = StrokeCap.round;
+
+      canvas.drawLine(p1, p2, paint);
+
+      // Add glow effect for filled ticks
+      if ((isFilled || isLeading) && !allDone) {
+        final glowPaint = Paint()
+          ..color = _green.withValues(alpha: 0.15)
+          ..strokeWidth = strokeW + 3
+          ..strokeCap = StrokeCap.round
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
+        canvas.drawLine(p1, p2, glowPaint);
+      }
     }
 
-    // If all done, draw a solid green circle border on top
+    // If all done, draw a glowing green circle border on top
     if (allDone) {
+      // Outer glow
+      canvas.drawCircle(
+        center,
+        circleRadius + 3,
+        Paint()
+          ..color = _green.withValues(alpha: 0.3)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 8.0
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+      );
+      // Solid ring
       canvas.drawCircle(
         center,
         circleRadius + 3,
@@ -671,14 +744,12 @@ class _FaceIDTickPainter extends CustomPainter {
           endAngle: scanAngle + shimmerLength / 2,
           colors: const [
             Color(0x00FFFFFF),
-            Color(0x55FFFFFF),
+            Color(0x33FFFFFF),
             Color(0x00FFFFFF),
           ],
           stops: const [0.0, 0.5, 1.0],
           transform: GradientRotation(scanAngle - shimmerLength / 2),
-        ).createShader(
-          Rect.fromCircle(center: center, radius: circleRadius),
-        );
+        ).createShader(Rect.fromCircle(center: center, radius: circleRadius));
       canvas.drawCircle(center, circleRadius, shimmerPaint);
     }
   }

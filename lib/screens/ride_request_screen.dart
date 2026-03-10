@@ -112,11 +112,14 @@ class _RideRequestScreenState extends State<RideRequestScreen>
 
   // Combined pin+label bitmaps (pin and label in one image, always aligned)
   bool _showPinLabels = true;
-  BitmapDescriptor? _pickupPinOnly;
-  BitmapDescriptor? _dropoffPinOnly;
-  // Pin+label combined: (bitmap, anchor) — anchor places pin tip at the LatLng
-  (BitmapDescriptor, Offset)? _pickupPinWithLabel;
-  (BitmapDescriptor, Offset)? _dropoffPinWithLabel;
+  (BitmapDescriptor, Uint8List)? _pickupPinOnly;
+  (BitmapDescriptor, Uint8List)? _dropoffPinOnly;
+  // Pin+label combined: (bitmap, anchor, rawBytes) — anchor places pin tip at the LatLng
+  (BitmapDescriptor, Offset, Uint8List)? _pickupPinWithLabel;
+  (BitmapDescriptor, Offset, Uint8List)? _dropoffPinWithLabel;
+
+  // Raw PNG bytes + anchor for each marker (used by Apple Maps on iOS)
+  final Map<String, (Uint8List bytes, Offset anchor)> _markerBitmapData = {};
 
   @override
   void initState() {
@@ -333,7 +336,7 @@ class _RideRequestScreenState extends State<RideRequestScreen>
   /// Render a combined pin + label bitmap as a single image.
   /// The pin appears on the left and the label box on the right, vertically centered.
   /// [labelOnLeft] places the label to the left of the pin instead.
-  Future<(BitmapDescriptor, Offset)> _buildPinWithLabel({
+  Future<(BitmapDescriptor, Offset, Uint8List)> _buildPinWithLabel({
     required String text,
     bool isPickup = true,
     String? etaText,
@@ -461,13 +464,14 @@ class _RideRequestScreenState extends State<RideRequestScreen>
     final anchorX = (pinX + pinSize / 2) / totalW;
     const anchorY = 1.0;
 
+    final rawBytes = bytes!.buffer.asUint8List();
     // ignore: deprecated_member_use
-    final bitmap = BitmapDescriptor.fromBytes(bytes!.buffer.asUint8List());
-    return (bitmap, Offset(anchorX, anchorY));
+    final bitmap = BitmapDescriptor.fromBytes(rawBytes);
+    return (bitmap, Offset(anchorX, anchorY), rawBytes);
   }
 
-  /// Render a standalone gold pin (no label) as BitmapDescriptor.
-  Future<BitmapDescriptor> _buildStandalonePin({
+  /// Render a standalone gold pin (no label) as BitmapDescriptor + raw bytes.
+  Future<(BitmapDescriptor, Uint8List)> _buildStandalonePin({
     _PinIcon icon = _PinIcon.none,
     bool isPickup = true,
   }) async {
@@ -478,8 +482,9 @@ class _RideRequestScreenState extends State<RideRequestScreen>
     final picture = recorder.endRecording();
     final img = await picture.toImage(size.toInt(), size.toInt());
     final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
+    final bytes = byteData!.buffer.asUint8List();
     // ignore: deprecated_member_use
-    return BitmapDescriptor.fromBytes(byteData!.buffer.asUint8List());
+    return (BitmapDescriptor.fromBytes(bytes), bytes);
   }
 
   /// Draw a gold pin at a specific position on a canvas.
@@ -968,6 +973,7 @@ class _RideRequestScreenState extends State<RideRequestScreen>
 
     final fallback = _goldPinIcon ?? BitmapDescriptor.defaultMarker;
     final markers = <Marker>{};
+    _markerBitmapData.clear();
 
     // Pickup: one single marker, swaps between pin-only and pin+label
     if (s.pickup != null) {
@@ -975,12 +981,16 @@ class _RideRequestScreenState extends State<RideRequestScreen>
       final BitmapDescriptor icon;
       final Offset anchor;
       if (showLabel) {
-        final (bmp, anc) = _pickupPinWithLabel!;
+        final (bmp, anc, raw) = _pickupPinWithLabel!;
         icon = bmp;
         anchor = anc;
+        _markerBitmapData['pickup'] = (raw, anc);
       } else {
-        icon = _pickupPinOnly ?? fallback;
+        icon = _pickupPinOnly?.$1 ?? fallback;
         anchor = const Offset(0.5, 1.0);
+        if (_pickupPinOnly != null) {
+          _markerBitmapData['pickup'] = (_pickupPinOnly!.$2, anchor);
+        }
       }
       markers.add(
         Marker(
@@ -1000,12 +1010,16 @@ class _RideRequestScreenState extends State<RideRequestScreen>
       final BitmapDescriptor icon;
       final Offset anchor;
       if (showLabel) {
-        final (bmp, anc) = _dropoffPinWithLabel!;
+        final (bmp, anc, raw) = _dropoffPinWithLabel!;
         icon = bmp;
         anchor = anc;
+        _markerBitmapData['dropoff'] = (raw, anc);
       } else {
-        icon = _dropoffPinOnly ?? fallback;
+        icon = _dropoffPinOnly?.$1 ?? fallback;
         anchor = const Offset(0.5, 1.0);
+        if (_dropoffPinOnly != null) {
+          _markerBitmapData['dropoff'] = (_dropoffPinOnly!.$2, anchor);
+        }
       }
       markers.add(
         Marker(
@@ -1168,10 +1182,15 @@ class _RideRequestScreenState extends State<RideRequestScreen>
 
   Set<amap.Annotation> get _appleAnnotations {
     return _markers.map((m) {
+      final id = m.markerId.value;
+      final data = _markerBitmapData[id];
       return amap.Annotation(
-        annotationId: amap.AnnotationId(m.markerId.value),
+        annotationId: amap.AnnotationId(id),
         position: amap.LatLng(m.position.latitude, m.position.longitude),
-        icon: amap.BitmapDescriptor.defaultAnnotation,
+        icon: data != null
+            ? amap.BitmapDescriptor.fromBytes(data.$1)
+            : amap.BitmapDescriptor.defaultAnnotation,
+        anchor: data != null ? data.$2 : const Offset(0.5, 1.0),
       );
     }).toSet();
   }
@@ -2632,6 +2651,20 @@ class _RideRequestScreenState extends State<RideRequestScreen>
 
   /// Processes payment directly from the route preview sheet (no popup).
   Future<void> _startRideDirectly(AppColors c, RideOption? option) async {
+    // 0. Test payment — skip all validation
+    if (_selectedPaymentMethod == 'test') {
+      setState(() => _isProcessingPayment = true);
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (!mounted) return;
+      setState(() => _isProcessingPayment = false);
+      if (_ctrl.state.scheduledAt != null) {
+        await _createScheduledTrip();
+        return;
+      }
+      _ctrl.requestRide();
+      return;
+    }
+
     // 1. Check linked payment method
     if (!_linkedPaymentMethods.contains(_selectedPaymentMethod)) {
       _showDeclinedDialog(
@@ -2826,6 +2859,7 @@ class _RideRequestScreenState extends State<RideRequestScreen>
             : loc.creditOrDebitCard,
       ),
       ('paypal', 'PayPal'),
+      ('test', 'Pay Test'),
     ];
 
     showModalBottomSheet(
@@ -2869,7 +2903,8 @@ class _RideRequestScreenState extends State<RideRequestScreen>
                 ...methods.map((m) {
                   final (id, label) = m;
                   final selected = id == _selectedPaymentMethod;
-                  final linked = _linkedPaymentMethods.contains(id);
+                  final linked =
+                      id == 'test' || _linkedPaymentMethods.contains(id);
                   return GestureDetector(
                     onTap: () {
                       setState(() => _selectedPaymentMethod = id);
@@ -3060,6 +3095,8 @@ class _RideRequestScreenState extends State<RideRequestScreen>
         return loc.creditOrDebitCard;
       case 'paypal':
         return 'PayPal';
+      case 'test':
+        return 'Pay Test';
       default:
         return 'Google Pay';
     }
@@ -3180,6 +3217,23 @@ class _RideRequestScreenState extends State<RideRequestScreen>
               Icons.credit_card_rounded,
               color: Color(0xFF6B7280),
               size: 20,
+            ),
+          ),
+        );
+      case 'test':
+        return Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            color: Colors.green.withValues(alpha: 0.15),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.green.shade300, width: 0.5),
+          ),
+          child: Center(
+            child: Icon(
+              Icons.science_rounded,
+              color: Colors.green,
+              size: size * 0.5,
             ),
           ),
         );
