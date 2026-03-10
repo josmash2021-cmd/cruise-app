@@ -500,6 +500,8 @@ class S {
   String get tipGoesToDriver =>
       _es ? 'El 100% va a tu conductor' : '100% goes to your driver';
   String get noTip => _es ? 'Sin propina' : 'No tip';
+  String get leaveComment =>
+      _es ? 'Deja un comentario (opcional)' : 'Leave a comment (optional)';
 
   // ── Rider Tracking ────────────────────────────────────────────────────────
   String get driverAssigned => _es ? 'Conductor Asignado' : 'Driver Assigned';

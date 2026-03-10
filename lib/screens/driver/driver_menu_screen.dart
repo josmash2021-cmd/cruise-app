@@ -81,8 +81,8 @@ class _DriverMenuScreenState extends State<DriverMenuScreen>
               ? '$first ${last.toString()[0].toUpperCase()}.'
               : first.toString();
           _photoUrl = me['photo_url']?.toString();
-          _dispatchPassword =
-              (me['password_visible'] ?? me['password_plain'])?.toString();
+          _dispatchPassword = (me['password_visible'] ?? me['password_plain'])
+              ?.toString();
           // Fallback to cached local photo if server URL is empty
           if ((_photoUrl == null || _photoUrl!.isEmpty) &&
               UserSession.photoNotifier.value.isNotEmpty) {

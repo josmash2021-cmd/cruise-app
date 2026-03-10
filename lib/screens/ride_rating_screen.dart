@@ -8,8 +8,9 @@ import '../l10n/app_localizations.dart';
 class RideRating {
   final int stars; // 1‑5
   final double tipAmount;
+  final String comment;
 
-  const RideRating({required this.stars, required this.tipAmount});
+  const RideRating({required this.stars, required this.tipAmount, this.comment = ''});
 }
 
 class RideRatingScreen extends StatefulWidget {
@@ -37,6 +38,7 @@ class _RideRatingScreenState extends State<RideRatingScreen>
   int _stars = 0;
   int _selectedTipIndex = -1; // -1 = no tip
   final _tipAmounts = [1.0, 3.0, 5.0, 10.0];
+  final _commentController = TextEditingController();
 
   late AnimationController _entryCtrl;
   late Animation<double> _fade;
@@ -55,13 +57,14 @@ class _RideRatingScreenState extends State<RideRatingScreen>
   @override
   void dispose() {
     _entryCtrl.dispose();
+    _commentController.dispose();
     super.dispose();
   }
 
   void _submit() async {
     final stars = _stars == 0 ? 5 : _stars;
     final tip = _selectedTipIndex >= 0 ? _tipAmounts[_selectedTipIndex] : 0.0;
-    final rating = RideRating(stars: stars, tipAmount: tip);
+    final rating = RideRating(stars: stars, tipAmount: tip, comment: _commentController.text.trim());
 
     // Send to backend
     if (widget.tripId != null) {
@@ -70,6 +73,7 @@ class _RideRatingScreenState extends State<RideRatingScreen>
           tripId: widget.tripId!,
           stars: stars,
           tipAmount: tip,
+          comment: _commentController.text.trim(),
         );
       } catch (_) {}
     }
@@ -197,6 +201,26 @@ class _RideRatingScreenState extends State<RideRatingScreen>
                       );
                     }),
                   ],
+                ),
+                const SizedBox(height: 28),
+
+                // ── Comment ──
+                TextField(
+                  controller: _commentController,
+                  maxLines: 2,
+                  maxLength: 200,
+                  style: TextStyle(fontSize: 14, color: c.textPrimary),
+                  decoration: InputDecoration(
+                    hintText: S.of(context).leaveComment,
+                    hintStyle: TextStyle(color: c.textTertiary),
+                    filled: true,
+                    fillColor: c.surface,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    counterStyle: TextStyle(color: c.textTertiary, fontSize: 11),
+                  ),
                 ),
 
                 const Spacer(),

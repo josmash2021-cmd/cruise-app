@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import '../config/app_theme.dart';
+import '../config/env.dart';
 import '../l10n/app_localizations.dart';
 import '../services/local_data_service.dart';
 import '../services/user_session.dart';
@@ -76,10 +77,10 @@ class _TripReceiptScreenState extends State<TripReceiptScreen>
         return;
       }
 
-      const serviceId = 'service_kgjbuew';
-      const templateId = 'template_oucb3n9';
-      const publicKey = '5R65y1qr1-lXDwGRb';
-      const privateKey = 'xeR8WDCTgskv9g9ITzote';
+      const serviceId = Env.emailjsServiceId;
+      const templateId = Env.emailjsTemplateId;
+      const publicKey = Env.emailjsPublicKey;
+      const privateKey = Env.emailjsPrivateKey;
       const apiUrl = 'https://api.emailjs.com/api/v1.0/email/send';
 
       final date = _formatDate(trip.createdAt);
