@@ -32,6 +32,7 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
   int _step = 0; // 0=intro, 1=processing, 2=confirmed, 3=pending, 4=rejected
   String? _licenseFrontPath;
   String? _licenseBackPath;
+  String? _carRegistrationPath;
   String _docType = 'license'; // license | id | passport
   bool _processing = false;
   bool _verified = false;
@@ -96,6 +97,17 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
       _licenseBackPath = backPath;
     }
 
+    // Scan Car Registration (for drivers)
+    await Future.delayed(const Duration(milliseconds: 600));
+    if (!mounted) return;
+    final regPath = await Navigator.of(context).push<String?>(
+      MaterialPageRoute(
+        builder: (_) => const LicenseScannerScreen(side: 'Car Registration'),
+      ),
+    );
+    if (regPath == null || !mounted) return;
+    _carRegistrationPath = regPath;
+
     setState(() {
       _step = 1;
       _processing = true;
@@ -123,6 +135,16 @@ class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
         body['license_back'] = base64Encode(bytes);
       } catch (e) {
         debugPrint('⚠️ Failed to read license back: $e');
+      }
+    }
+
+    // Encode car registration
+    if (_carRegistrationPath != null) {
+      try {
+        final bytes = await File(_carRegistrationPath!).readAsBytes();
+        body['vehicle_registration'] = base64Encode(bytes);
+      } catch (e) {
+        debugPrint('⚠️ Failed to read car registration: $e');
       }
     }
 

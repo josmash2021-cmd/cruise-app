@@ -3348,6 +3348,12 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
               // â”€â”€ "Finding trips" bar at the bottom â”€â”€
               GestureDetector(
                 onTap: _showGoOfflineSheet,
+                onVerticalDragUpdate: (details) {
+                  // Si arrastra hacia arriba (dy negativo), abre el sheet
+                  if (details.delta.dy < -5) {
+                    _showGoOfflineSheet();
+                  }
+                },
                 behavior: HitTestBehavior.opaque,
                 child: Container(
                   decoration: BoxDecoration(

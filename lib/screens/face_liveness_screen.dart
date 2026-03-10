@@ -77,7 +77,7 @@ class _FaceLivenessScreenState extends State<FaceLivenessScreen>
     );
     _scanCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 4500),
+      duration: const Duration(milliseconds: 3500),
     )..repeat();
     _successCtrl = AnimationController(
       vsync: this,
@@ -880,10 +880,10 @@ class _FaceIDTickPainter extends CustomPainter {
       final isLeading = i == leadingTick && !allDone;
       final isGlowTrail =
           !allDone &&
-          i >= filledTicks - 4 &&
+          i >= filledTicks - 6 &&
           i < filledTicks &&
           filledTicks > 0;
-      final isScanNear = !allDone && !isFilled && (i - scanTick).abs() < 3;
+      final isScanNear = !allDone && !isFilled && (i - scanTick).abs() < 8;
 
       Color color;
       double strokeW;
@@ -892,22 +892,28 @@ class _FaceIDTickPainter extends CustomPainter {
         color = _green;
         strokeW = 3.0;
       } else if (isLeading) {
-        final pulse = (math.sin(scanPosition * math.pi * 4) + 1) / 2;
-        color = Color.lerp(_green, const Color(0xFF8EF5A5), pulse)!;
-        strokeW = 3.5;
+        // Pulso más suave y fluido
+        final pulse = (math.sin(scanPosition * math.pi * 3) + 1) / 2;
+        final smoothPulse = pulse * pulse * (3 - 2 * pulse); // Smoothstep
+        color = Color.lerp(_green, const Color(0xFF8EF5A5), smoothPulse)!;
+        strokeW = 3.5 + smoothPulse * 0.5;
       } else if (isGlowTrail) {
         final dist = (filledTicks - i).toDouble();
-        final fade = (1 - dist / 5).clamp(0.3, 1.0);
+        final fade = (1 - dist / 7).clamp(0.3, 1.0);
         color = _green.withValues(alpha: fade);
         strokeW = 3.0;
       } else if (isFilled) {
         color = _green;
         strokeW = 3.0;
       } else if (isScanNear) {
+        // Efecto de ola más suave y amplio
         final dist = (i - scanTick).abs().toDouble();
-        final shimmerAlpha = (1 - dist / 3) * 0.25;
-        color = _gold.withValues(alpha: shimmerAlpha.clamp(0.05, 0.25));
-        strokeW = 2.0;
+        final waveInfluence = 1 - (dist / 8);
+        final wave = (math.sin(scanPosition * math.pi * 2 - dist * 0.3) + 1) / 2;
+        final smoothWave = wave * wave * (3 - 2 * wave); // Smoothstep
+        final shimmerAlpha = waveInfluence * smoothWave * 0.35;
+        color = _gold.withValues(alpha: shimmerAlpha.clamp(0.02, 0.35));
+        strokeW = 2.0 + shimmerAlpha * 1.5;
       } else {
         color = _gray;
         strokeW = 2.0;

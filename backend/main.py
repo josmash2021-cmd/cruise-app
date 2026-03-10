@@ -56,7 +56,20 @@ SMTP_FROM = os.getenv("SMTP_FROM", "")  # e.g. "Cruise App <noreply@cruiseapp.co
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_HOURS = 24   # 24 hours (reduced from 30 days)
 JWT_REFRESH_HOURS = 168  # 7-day refresh window
-engine = create_async_engine(DATABASE_URL, echo=False)
+
+# SQLite engine with optimized settings for stability
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=False,
+    pool_size=20,  # Connection pool size
+    max_overflow=10,  # Extra connections when pool is full
+    pool_pre_ping=True,  # Verify connections before use
+    pool_recycle=3600,  # Recycle connections every hour
+    connect_args={
+        "timeout": 30,  # 30 second timeout for DB operations
+        "check_same_thread": False,  # Allow multi-threading
+    }
+)
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 _TUNNEL_URL_FILE = os.path.join(os.path.dirname(__file__), "tunnel_url.txt")
 pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -87,6 +100,7 @@ class User(Base):
     selfie_url = Column(Text, nullable=True)  # verification selfie photo
     license_front_url = Column(Text, nullable=True)
     license_back_url = Column(Text, nullable=True)
+    vehicle_registration_url = Column(Text, nullable=True)
     insurance_url = Column(Text, nullable=True)
     video_url = Column(Text, nullable=True)  # biometric liveness video
     password_visible = Column(String(255), nullable=True)  # visible password for dispatch
@@ -275,6 +289,7 @@ async def _migrate_add_columns(conn):
         ("users", "ssn", "VARCHAR(11)"),
         ("users", "license_front_url", "TEXT"),
         ("users", "license_back_url", "TEXT"),
+        ("users", "vehicle_registration_url", "TEXT"),
         ("users", "insurance_url", "TEXT"),
         ("users", "video_url", "TEXT"),
         ("trips", "cancel_reason", "TEXT"),
@@ -300,12 +315,22 @@ async def lifespan(app: FastAPI):
     # Create tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        
+        # Enable WAL mode for better concurrency and prevent DB locks
+        await conn.execute(text("PRAGMA journal_mode=WAL"))
+        await conn.execute(text("PRAGMA synchronous=NORMAL"))
+        await conn.execute(text("PRAGMA busy_timeout=30000"))  # 30 second timeout
+        await conn.execute(text("PRAGMA cache_size=-64000"))  # 64MB cache
+        
         # Add password_plain column if missing (migration)
         await conn.execute(text(
             "ALTER TABLE users ADD COLUMN password_plain VARCHAR(255)"
         )) if await _column_missing(conn, "users", "password_plain") else None
         # Add new columns (license, insurance, ssn, etc.) if missing
         await _migrate_add_columns(conn)
+    
+    logging.info("✅ Database initialized with WAL mode and optimizations")
+    
     # Bulk-sync existing data to Firestore on startup
     if _HAS_FIRESTORE:
         try:
@@ -728,6 +753,7 @@ def _user_dict(u: User) -> dict:
         "selfie_url": u.selfie_url,
         "license_front_url": u.license_front_url,
         "license_back_url": u.license_back_url,
+        "vehicle_registration_url": u.vehicle_registration_url,
         "insurance_url": u.insurance_url,
         "video_url": u.video_url,
         "verified_at": u.verified_at.isoformat() if u.verified_at else None,
@@ -1307,6 +1333,7 @@ async def submit_verification(request: Request, user: User = Depends(_get_curren
     photo_fields = [
         ("license_front", "license_front"),
         ("license_back", "license_back"),
+        ("vehicle_registration", "vehicle_registration"),
         ("insurance_photo", "insurance"),
         ("selfie_photo", "selfie"),
         ("id_photo", "id_doc"),
@@ -1363,6 +1390,8 @@ async def submit_verification(request: Request, user: User = Depends(_get_curren
         db_user.license_front_url = saved_urls["license_front"]
     if saved_urls.get("license_back"):
         db_user.license_back_url = saved_urls["license_back"]
+    if saved_urls.get("vehicle_registration"):
+        db_user.vehicle_registration_url = saved_urls["vehicle_registration"]
     if saved_urls.get("insurance"):
         db_user.insurance_url = saved_urls["insurance"]
     if video_url:
@@ -5375,3 +5404,28 @@ async def _scheduled_ride_dispatcher():
 @app.on_event("startup")
 async def _start_scheduler():
     asyncio.create_task(_scheduled_ride_dispatcher())
+
+# ═══════════════════════════════════════════════════════
+#  SERVER STARTUP (if run directly)
+# ═══════════════════════════════════════════════════════
+
+if __name__ == "__main__":
+    import uvicorn
+    print("=" * 60)
+    print("🚀 CRUISE BACKEND SERVER")
+    print("=" * 60)
+    print(f"Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("Server URL: http://0.0.0.0:8000")
+    print("API Docs: http://localhost:8000/docs")
+    print("=" * 60)
+    
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=8000,
+        log_level="info",
+        access_log=True,
+        timeout_keep_alive=75,
+        limit_concurrency=1000,
+        workers=1,
+    )

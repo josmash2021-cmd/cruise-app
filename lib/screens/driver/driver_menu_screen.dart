@@ -957,12 +957,28 @@ class _DriverMenuScreenState extends State<DriverMenuScreen>
   }
 
   String? get _resolvedPhotoUrl {
-    if (_photoUrl == null || _photoUrl!.isEmpty) return null;
-    if (_photoUrl!.startsWith('http')) return _photoUrl;
-    final base = ApiService.publicBaseUrl;
-    final clean = _photoUrl!.startsWith('/')
-        ? _photoUrl!.substring(1)
-        : _photoUrl!;
-    return '$base/$clean';
+    // Try _photoUrl first
+    if (_photoUrl != null && _photoUrl!.isNotEmpty) {
+      if (_photoUrl!.startsWith('http')) return _photoUrl;
+      if (_photoUrl!.startsWith('/')) {
+        // Local file path
+        final file = File(_photoUrl!);
+        if (file.existsSync()) return _photoUrl;
+        // Try as server path
+        final base = ApiService.publicBaseUrl;
+        final clean = _photoUrl!.substring(1);
+        return '$base/$clean';
+      }
+      // Relative server path
+      final base = ApiService.publicBaseUrl;
+      return '$base/$_photoUrl';
+    }
+    // Fallback to UserSession cached photo
+    final cached = UserSession.photoNotifier.value;
+    if (cached.isNotEmpty) {
+      final file = File(cached);
+      if (file.existsSync()) return cached;
+    }
+    return null;
   }
 }

@@ -2533,6 +2533,7 @@ class _RideRequestScreenState extends State<RideRequestScreen>
 
   /// Processes payment: verifies linked method, checks Stripe PM ID for cards,
   /// charges payment. If anything fails → shows Declined dialog, stays on sheet.
+  /// In DEBUG mode, payment is always simulated successfully for testing.
   Future<void> _processPayment(
     BuildContext ctx,
     AppColors c,
@@ -2543,7 +2544,8 @@ class _RideRequestScreenState extends State<RideRequestScreen>
     setSheetState(() => _isProcessingPayment = true);
     setState(() => _isProcessingPayment = true);
 
-    await Future.delayed(const Duration(milliseconds: 500));
+    // Simulate payment processing (always succeeds for testing)
+    await Future.delayed(const Duration(milliseconds: 800));
     if (!mounted) return;
 
     setSheetState(() => _isProcessingPayment = false);
@@ -2581,6 +2583,53 @@ class _RideRequestScreenState extends State<RideRequestScreen>
       if (userId == null || !mounted) return;
 
       final state = _ctrl.state;
+      
+      // Validar que scheduledAt no sea null
+      if (state.scheduledAt == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please select a date and time for your scheduled ride'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+      
+      // Validar que no sea en el pasado
+      final now = DateTime.now();
+      if (state.scheduledAt!.isBefore(now)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Cannot schedule a ride in the past. Please select a future date and time.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+      
+      // Validar que sea al menos 30 minutos en el futuro
+      final minAdvance = now.add(const Duration(minutes: 30));
+      if (state.scheduledAt!.isBefore(minAdvance)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Scheduled rides must be at least 30 minutes in advance'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+      
+      // Validar que no sea más de 30 días en el futuro
+      final maxAdvance = now.add(const Duration(days: 30));
+      if (state.scheduledAt!.isAfter(maxAdvance)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Cannot schedule rides more than 30 days in advance'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
       await ApiService.createTrip(
         riderId: userId,
         pickupAddress: state.pickupLabel,

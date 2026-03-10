@@ -896,12 +896,14 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                 border: Border.all(color: _tierColor, width: 3),
                 color: _gold.withValues(alpha: 0.2),
               ),
-              child: _photoUrl != null && _photoUrl!.isNotEmpty
+              child: _resolvedPhotoUrl != null
                   ? ClipOval(
-                      child: _photoUrl!.startsWith('http')
+                      child: _resolvedPhotoUrl!.startsWith('http')
                           ? Image.network(
-                              _photoUrl!,
+                              _resolvedPhotoUrl!,
                               fit: BoxFit.cover,
+                              width: 80,
+                              height: 80,
                               errorBuilder: (_, _, _) => const Icon(
                                 Icons.person_rounded,
                                 color: _gold,
@@ -909,8 +911,10 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                               ),
                             )
                           : Image.file(
-                              File(_photoUrl!),
+                              File(_resolvedPhotoUrl!),
                               fit: BoxFit.cover,
+                              width: 80,
+                              height: 80,
                               errorBuilder: (_, _, _) => const Icon(
                                 Icons.person_rounded,
                                 color: _gold,

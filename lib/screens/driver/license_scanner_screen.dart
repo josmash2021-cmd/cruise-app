@@ -267,6 +267,8 @@ class _LicenseScannerScreenState extends State<LicenseScannerScreen>
         return S.of(context).scanFrontLicense;
       case 'Back':
         return S.of(context).scanBackLicense;
+      case 'Car Registration':
+        return 'Scan Car Registration';
       case 'Passport':
         return S.of(context).scanPassport;
       case 'ID':
@@ -453,41 +455,46 @@ class _LicenseScannerScreenState extends State<LicenseScannerScreen>
         // Dark overlay with card cutout
         if (_initialized) _buildOverlay(context),
 
-        // Top bar
-        SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-            child: Row(
-              children: [
-                GestureDetector(
-                  onTap: () => Navigator.of(context).pop(null),
-                  child: Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: Colors.black45,
-                      borderRadius: BorderRadius.circular(12),
+        // Top bar with X button in corner
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  GestureDetector(
+                    onTap: () => Navigator.of(context).pop(null),
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.6),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.close_rounded,
+                        color: Colors.white,
+                        size: 24,
+                      ),
                     ),
-                    child: const Icon(
-                      Icons.arrow_back_ios_new_rounded,
+                  ),
+                  const Spacer(),
+                  Text(
+                    _sideTitle(context),
+                    style: const TextStyle(
                       color: Colors.white,
-                      size: 20,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      shadows: [Shadow(color: Colors.black54, blurRadius: 6)],
                     ),
                   ),
-                ),
-                const Spacer(),
-                Text(
-                  _sideTitle(context),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    shadows: [Shadow(color: Colors.black54, blurRadius: 6)],
-                  ),
-                ),
-                const Spacer(),
-                const SizedBox(width: 40),
-              ],
+                  const Spacer(),
+                  const SizedBox(width: 40),
+                ],
+              ),
             ),
           ),
         ),

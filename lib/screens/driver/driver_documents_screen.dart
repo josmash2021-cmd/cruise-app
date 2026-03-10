@@ -69,15 +69,35 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
     setState(() => _loading = true);
     try {
       final docs = await ApiService.getDocuments();
+      final me = await ApiService.getMe();
       if (!mounted) return;
-      // Merge with required doc types — drivers upload everything during
-      // registration, so default to 'approved' for any missing document.
+      
+      // Check if user is verified
+      final verificationStatus = me?['verification_status'] ?? 'none';
+      final isVerified = verificationStatus == 'approved';
+      
+      // Merge with required doc types
       final merged = <Map<String, dynamic>>[];
       for (final req in _requiredDocs) {
+        final docType = req['doc_type'] as String;
+        
+        // Vehicle photos - mark as Coming Soon
+        if (docType == 'vehicle_photos') {
+          merged.add({
+            'doc_type': docType,
+            'title': req['title'],
+            'icon': req['icon'],
+            'status': 'coming_soon',
+            'disabled': true,
+          });
+          continue;
+        }
+        
         final existing = docs.firstWhere(
-          (d) => d['doc_type'] == req['doc_type'],
+          (d) => d['doc_type'] == docType,
           orElse: () => <String, dynamic>{},
         );
+        
         if (existing.isNotEmpty) {
           merged.add({
             ...existing,
@@ -86,11 +106,17 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
             'status': existing['status'] ?? 'pending',
           });
         } else {
+          // If user is verified, mark all docs as approved (including registration)
+          // Registration is uploaded during verification flow, so it's auto-approved
+          String status = 'not_uploaded';
+          if (isVerified) {
+            status = 'approved';
+          }
           merged.add({
-            'doc_type': req['doc_type'],
+            'doc_type': docType,
             'title': req['title'],
             'icon': req['icon'],
-            'status': 'not_uploaded',
+            'status': status,
           });
         }
       }
@@ -418,6 +444,8 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
     final isPending = status == 'pending';
     final isNotUploaded = status == 'not_uploaded';
     final isRejected = status == 'rejected';
+    final isComingSoon = status == 'coming_soon';
+    final isDisabled = doc['disabled'] == true;
 
     final expiry = (doc['expiry_date'] ?? doc['expiry'] ?? '') as String;
     final createdAt = (doc['created_at'] ?? '') as String;
@@ -427,7 +455,11 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
     Color statusColor;
     String statusText;
     IconData statusIcon;
-    if (isApproved && expiryStatus == _ExpiryStatus.expired) {
+    if (isComingSoon) {
+      statusColor = Colors.white.withValues(alpha: 0.4);
+      statusText = 'Coming Soon';
+      statusIcon = Icons.upcoming_rounded;
+    } else if (isApproved && expiryStatus == _ExpiryStatus.expired) {
       statusColor = Colors.red.shade400;
       statusText = s.documentExpired;
       statusIcon = Icons.error_rounded;
@@ -492,8 +524,10 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
         borderRadius: BorderRadius.circular(18),
         child: InkWell(
           borderRadius: BorderRadius.circular(18),
-          onTap: () => _showDocDetails(doc),
-          child: Padding(
+          onTap: isDisabled ? null : () => _showDocDetails(doc),
+          child: Opacity(
+            opacity: isDisabled ? 0.5 : 1.0,
+            child: Padding(
             padding: const EdgeInsets.all(18),
             child: Row(
               children: [
@@ -597,6 +631,7 @@ class _DriverDocumentsScreenState extends State<DriverDocumentsScreen> {
                   ),
                 ),
               ],
+            ),
             ),
           ),
         ),

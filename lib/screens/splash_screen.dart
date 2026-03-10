@@ -142,7 +142,12 @@ class _SplashScreenState extends State<SplashScreen>
     if (_disposed) return;
 
     // Start heavy init in parallel with the splash animation
-    final initFuture = heavyInit().catchError((e) {
+    final initFuture = heavyInit().timeout(
+      const Duration(seconds: 5),
+      onTimeout: () {
+        debugPrint('[SplashScreen] heavyInit timeout - continuing anyway');
+      },
+    ).catchError((e) {
       debugPrint('[SplashScreen] heavyInit error: $e');
     });
 
@@ -162,7 +167,7 @@ class _SplashScreenState extends State<SplashScreen>
     await Future.delayed(const Duration(milliseconds: 500));
     if (_disposed) return;
 
-    // Ensure heavy init finished before navigating
+    // Ensure heavy init finished before navigating (with timeout)
     await initFuture;
     if (_disposed) return;
 
@@ -213,7 +218,10 @@ class _SplashScreenState extends State<SplashScreen>
       if (!mounted) return;
       // ── Check if dispatch blocked/deleted/deactivated account ──
       try {
-        final status = await ApiService.getAccountStatus();
+        final status = await ApiService.getAccountStatus().timeout(
+          const Duration(seconds: 3),
+          onTimeout: () => 'active',
+        );
         if (status == 'blocked' || status == 'deleted') {
           await UserSession.logout();
           if (!mounted) return;
@@ -229,7 +237,8 @@ class _SplashScreenState extends State<SplashScreen>
           );
           return;
         }
-      } catch (_) {
+      } catch (e) {
+        debugPrint('[SplashScreen] Account status check failed: $e');
         // Backend unreachable — allow login from cache
       }
       if (!mounted) return;
@@ -237,7 +246,10 @@ class _SplashScreenState extends State<SplashScreen>
       if (mode == 'driver') {
         // Check driver approval status + profile photo
         try {
-          final approvalResult = await ApiService.getDriverApprovalStatus();
+          final approvalResult = await ApiService.getDriverApprovalStatus().timeout(
+            const Duration(seconds: 3),
+            onTimeout: () => {'status': 'approved'},
+          );
           final vStatus =
               approvalResult['approval_status'] as String? ??
               approvalResult['status'] as String? ??
@@ -255,7 +267,8 @@ class _SplashScreenState extends State<SplashScreen>
             );
             return;
           }
-        } catch (_) {
+        } catch (e) {
+          debugPrint('[SplashScreen] Driver approval check failed: $e');
           // Backend unreachable — let them through
           destination = const DriverHomeScreen();
         }
