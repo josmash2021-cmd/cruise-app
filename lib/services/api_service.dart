@@ -30,7 +30,7 @@ class ApiService {
   /// Default Cloudflare Tunnel URL.  Free tunnels change every restart;
   /// update via the in-app Settings → "Server URL" dialog instead of rebuilding.
   static const String _defaultTunnelUrl =
-      'https://first-rolls-dec-saw.trycloudflare.com';
+      'https://generic-reseller-francis-passion.trycloudflare.com';
 
   static const String _serverUrlPrefKey = 'cruise_server_url';
 

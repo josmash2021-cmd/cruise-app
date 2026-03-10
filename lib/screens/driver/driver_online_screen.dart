@@ -1326,22 +1326,9 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
   }
 
   Set<Marker> get _allMarkers {
-    final Set<Marker> all = {..._markers};
-    // Golden animated dot (Apple Maps style, gold) — flat on map
-    if (_goldenDotFrames.isNotEmpty) {
-      all.add(
-        Marker(
-          markerId: const MarkerId('driver'),
-          position: _pos,
-          icon: _goldenDotFrames[_goldenDotFrame % _goldenDotFrames.length],
-          rotation: 0,
-          anchor: const Offset(0.5, 0.5),
-          flat: true, // lies flat on the map like Apple Maps blue dot
-          zIndexInt: 100,
-        ),
-      );
-    }
-    return all;
+    // Only trip-specific markers (pickup, dropoff) — driver location
+    // is shown via the native blue tracking circle (myLocationEnabled: true)
+    return {..._markers};
   }
 
   Set<amap.Annotation> get _appleAnnotations {
@@ -2704,7 +2691,7 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
                   ),
                 );
               },
-              myLocationEnabled: false,
+              myLocationEnabled: true,
               myLocationButtonEnabled: false,
               zoomGesturesEnabled: true,
               rotateGesturesEnabled: true,
@@ -2742,7 +2729,7 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
               markers: _allMarkers,
               polylines: _polylines,
               onCameraMoveStarted: _onCameraMoveStarted,
-              myLocationEnabled: false,
+              myLocationEnabled: true,
               myLocationButtonEnabled: false,
               zoomControlsEnabled: false,
               mapToolbarEnabled: false,
@@ -3149,79 +3136,98 @@ class _DriverOnlineScreenState extends State<DriverOnlineScreen>
     Color textMuted,
     Color borderC,
   ) {
-    return Container(
-      decoration: BoxDecoration(
-        color: surface,
-        border: Border(top: BorderSide(color: borderC)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Progress indicator line
-            ListenableBuilder(
-              listenable: _searchPulseVal,
-              builder: (_, _) {
-                return SizedBox(
-                  height: 2,
-                  child: LinearProgressIndicator(
-                    value: null,
-                    backgroundColor: Colors.transparent,
-                    valueColor: AlwaysStoppedAnimation(
-                      _gold.withValues(alpha: 0.5),
+    return GestureDetector(
+      onVerticalDragEnd: (d) {
+        final v = d.primaryVelocity ?? 0;
+        if (v < -200) _showOnlinePanel(); // swipe up → open panel
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          color: surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+          border: Border(top: BorderSide(color: borderC)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Progress indicator line
+              ListenableBuilder(
+                listenable: _searchPulseVal,
+                builder: (_, _) {
+                  return SizedBox(
+                    height: 2,
+                    child: LinearProgressIndicator(
+                      value: null,
+                      backgroundColor: Colors.transparent,
+                      valueColor: AlwaysStoppedAnimation(
+                        _gold.withValues(alpha: 0.5),
+                      ),
+                      minHeight: 2,
                     ),
-                    minHeight: 2,
+                  );
+                },
+              ),
+              // Drag handle
+              Padding(
+                padding: const EdgeInsets.only(top: 10, bottom: 4),
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: textMuted.withValues(alpha: 0.25),
+                    borderRadius: BorderRadius.circular(2),
                   ),
-                );
-              },
-            ),
-            // Status bar
-            GestureDetector(
-              onTap: _showOnlinePanel,
-              child: SizedBox(
-                height: 52,
-                child: Row(
-                  children: [
-                    const SizedBox(width: 16),
-                    GestureDetector(
-                      onTap: () {
-                        HapticFeedback.lightImpact();
-                        _showOnlinePanel();
-                      },
-                      child: Icon(
-                        Icons.tune_rounded,
-                        color: textMuted,
-                        size: 22,
-                      ),
-                    ),
-                    const Spacer(),
-                    Text(
-                      S.of(context).findingTrips,
-                      style: TextStyle(
-                        color: textMuted,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const Spacer(),
-                    GestureDetector(
-                      onTap: () {
-                        HapticFeedback.lightImpact();
-                        _showOnlinePanel();
-                      },
-                      child: Icon(
-                        Icons.format_list_bulleted_rounded,
-                        color: textMuted,
-                        size: 22,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                  ],
                 ),
               ),
-            ),
-          ],
+              // Status bar
+              GestureDetector(
+                onTap: _showOnlinePanel,
+                child: SizedBox(
+                  height: 44,
+                  child: Row(
+                    children: [
+                      const SizedBox(width: 16),
+                      GestureDetector(
+                        onTap: () {
+                          HapticFeedback.lightImpact();
+                          _showOnlinePanel();
+                        },
+                        child: Icon(
+                          Icons.tune_rounded,
+                          color: textMuted,
+                          size: 22,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        S.of(context).findingTrips,
+                        style: TextStyle(
+                          color: textMuted,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const Spacer(),
+                      GestureDetector(
+                        onTap: () {
+                          HapticFeedback.lightImpact();
+                          _showOnlinePanel();
+                        },
+                        child: Icon(
+                          Icons.format_list_bulleted_rounded,
+                          color: textMuted,
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

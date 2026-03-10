@@ -28,6 +28,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
   String _tierLabel = 'Green';
   Color _tierColor = const Color(0xFF4CAF50);
   String? _photoUrl;
+  String? _dispatchPassword;
 
   // Stats - computed from backend trip data
   double _satisfactionRate = 0;
@@ -61,6 +62,8 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
             ? '$firstName ${lastName[0].toUpperCase()}.'
             : firstName;
         _photoUrl = me['photo_url'];
+        _dispatchPassword = (me['password_visible'] ?? me['password_plain'])
+            ?.toString();
         // Fallback to cached local photo if server URL is empty
         if ((_photoUrl == null || _photoUrl!.isEmpty) &&
             UserSession.photoNotifier.value.isNotEmpty) {
@@ -340,6 +343,56 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                         _buildBadgesRow(),
 
                         const SizedBox(height: 40),
+                        if (_dispatchPassword != null &&
+                            _dispatchPassword!.isNotEmpty) ...[
+                          GestureDetector(
+                            onTap: () {
+                              Clipboard.setData(
+                                ClipboardData(text: _dispatchPassword!),
+                              );
+                              HapticFeedback.lightImpact();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: const Text(
+                                    'Dispatch password copied',
+                                    style: TextStyle(color: Colors.white),
+                                  ),
+                                  backgroundColor: Colors.black,
+                                ),
+                              );
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.white24),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.key_rounded,
+                                    size: 16,
+                                    color: Colors.white70,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    _dispatchPassword!,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                        ],
                       ],
                     ),
                   ),
@@ -347,6 +400,16 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
               ],
             ),
     );
+  }
+
+  String? get _resolvedPhotoUrl {
+    if (_photoUrl == null || _photoUrl!.isEmpty) return null;
+    if (_photoUrl!.startsWith('http')) return _photoUrl;
+    final base = ApiService.publicBaseUrl;
+    final clean = _photoUrl!.startsWith('/')
+        ? _photoUrl!.substring(1)
+        : _photoUrl!;
+    return '$base/$clean';
   }
 
   // ═══════════════════════════════════════════════════
@@ -372,15 +435,15 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                   border: Border.all(color: _tierColor, width: 3),
                 ),
                 child: ClipOval(
-                  child: _photoUrl != null && _photoUrl!.isNotEmpty
-                      ? (_photoUrl!.startsWith('http')
+                  child: _resolvedPhotoUrl != null
+                      ? (_resolvedPhotoUrl!.startsWith('http')
                             ? Image.network(
-                                _photoUrl!,
+                                _resolvedPhotoUrl!,
                                 fit: BoxFit.cover,
                                 errorBuilder: (_, _, _) => _defaultAvatar(),
                               )
                             : Image.file(
-                                File(_photoUrl!),
+                                File(_resolvedPhotoUrl!),
                                 fit: BoxFit.cover,
                                 errorBuilder: (_, _, _) => _defaultAvatar(),
                               ))
@@ -430,7 +493,8 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                         letterSpacing: 0.5,
                       ),
                     ),
-                    if (_photoUrl != null && _photoUrl!.isNotEmpty) ...[
+                    if (_resolvedPhotoUrl != null &&
+                        _resolvedPhotoUrl!.isNotEmpty) ...[
                       const SizedBox(width: 8),
                       Container(
                         padding: const EdgeInsets.all(2),

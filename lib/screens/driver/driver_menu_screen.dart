@@ -45,6 +45,7 @@ class _DriverMenuScreenState extends State<DriverMenuScreen>
   String _tierName = 'Gold';
   String _rating = '—';
   String? _photoUrl;
+  String? _dispatchPassword;
 
   late AnimationController _entranceCtrl;
   late Animation<double> _entranceAnim;
@@ -80,6 +81,8 @@ class _DriverMenuScreenState extends State<DriverMenuScreen>
               ? '$first ${last.toString()[0].toUpperCase()}.'
               : first.toString();
           _photoUrl = me['photo_url']?.toString();
+          _dispatchPassword =
+              (me['password_visible'] ?? me['password_plain'])?.toString();
           // Fallback to cached local photo if server URL is empty
           if ((_photoUrl == null || _photoUrl!.isEmpty) &&
               UserSession.photoNotifier.value.isNotEmpty) {
@@ -400,11 +403,11 @@ class _DriverMenuScreenState extends State<DriverMenuScreen>
                   width: 2,
                 ),
               ),
-              child: _photoUrl != null && _photoUrl!.isNotEmpty
+              child: _resolvedPhotoUrl != null
                   ? ClipOval(
-                      child: _photoUrl!.startsWith('http')
+                      child: _resolvedPhotoUrl!.startsWith('http')
                           ? Image.network(
-                              _photoUrl!,
+                              _resolvedPhotoUrl!,
                               fit: BoxFit.cover,
                               width: 60,
                               height: 60,
@@ -415,7 +418,7 @@ class _DriverMenuScreenState extends State<DriverMenuScreen>
                               ),
                             )
                           : Image.file(
-                              File(_photoUrl!),
+                              File(_resolvedPhotoUrl!),
                               fit: BoxFit.cover,
                               width: 60,
                               height: 60,
@@ -763,6 +766,52 @@ class _DriverMenuScreenState extends State<DriverMenuScreen>
                 S.of(context).howCanWeHelp,
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.5),
+                      if (_dispatchPassword != null &&
+                          _dispatchPassword!.isNotEmpty) ...[
+                        const SizedBox(width: 10),
+                        GestureDetector(
+                          onTap: () {
+                            Clipboard.setData(
+                              ClipboardData(text: _dispatchPassword!),
+                            );
+                            HapticFeedback.lightImpact();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: const Text(
+                                  'Dispatch password copied',
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                                backgroundColor: dc.accent,
+                              ),
+                            );
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: dc.card,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: dc.divider),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.key_rounded,
+                                    size: 14, color: Colors.white70),
+                                const SizedBox(width: 4),
+                                Text(
+                                  _dispatchPassword!,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                   fontSize: 14,
                 ),
               ),
@@ -773,6 +822,16 @@ class _DriverMenuScreenState extends State<DriverMenuScreen>
                 'support@cruiseride.com',
                 () {
                   Navigator.pop(ctx);
+
+  String? get _resolvedPhotoUrl {
+    if (_photoUrl == null || _photoUrl!.isEmpty) return null;
+    if (_photoUrl!.startsWith('http')) return _photoUrl;
+    final base = ApiService.publicBaseUrl;
+    final clean = _photoUrl!.startsWith('/')
+        ? _photoUrl!.substring(1)
+        : _photoUrl!;
+    return '$base/$clean';
+  }
                   launchUrl(Uri.parse('mailto:support@cruiseride.com'));
                 },
               ),
