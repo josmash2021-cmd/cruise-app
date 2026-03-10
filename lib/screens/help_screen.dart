@@ -929,7 +929,8 @@ class _CruiseSupportChatScreenState extends State<CruiseSupportChatScreen> {
   @override
   void initState() {
     super.initState();
-    _initChat();
+    // Defer to ensure context has Localizations available
+    WidgetsBinding.instance.addPostFrameCallback((_) => _initChat());
   }
 
   @override
@@ -961,6 +962,28 @@ class _CruiseSupportChatScreenState extends State<CruiseSupportChatScreen> {
       }
     } catch (e) {
       debugPrint('[SupportChat] init error: $e');
+      // Retry once with default locale
+      if (_chatId == null) {
+        try {
+          final chat = await ApiService.createSupportChat(
+            subject: 'Soporte general',
+            locale: 'en',
+          );
+          _chatId = chat['id'] as int?;
+          _agentName = chat['agent_name'] as String?;
+          final status = chat['status'] as String? ?? 'open';
+          if (status == 'closed') _chatClosed = true;
+          if (_chatId != null) {
+            await _loadMessages();
+            _pollTimer = Timer.periodic(
+              const Duration(seconds: 3),
+              (_) => _loadMessages(),
+            );
+          }
+        } catch (e2) {
+          debugPrint('[SupportChat] retry init error: $e2');
+        }
+      }
     }
     if (mounted) setState(() => _loading = false);
   }
